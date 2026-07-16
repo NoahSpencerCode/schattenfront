@@ -27,17 +27,19 @@ from panda3d.core import (AmbientLight, CardMaker, DirectionalLight,
                           Vec3, Vec4)
 
 from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL, AI_WAVE_INTERVAL,
+                    AIR_VISION_MULT, VISION_SCALE,
                     BRIDGE_HP, BRIDGE_REPAIR_RATE, BUDGET_PERIOD_DAYS,
                     CAM_MAX_DIST, CAM_MIN_DIST, CAM_START_DIST,
                     CAM_ZOOM_CITY_LABELS, CAM_ZOOM_LABELS, CAMPAIGN_START,
-                    CAPITAL_INCOME_PER_SEC, CITY_CAPTURE_RANGE,
-                    CITY_CAPTURE_TIME, CITY_COMM_RADIUS,
-                    CITY_INCOME_PER_SEC, CITY_VISION_RANGE, COUNTRIES,
+                    CAPITAL_GROSS_FORTNIGHT, CAPTURE_INFANTRY_PER_MILLION,
+                    CITY_CAPTURE_RANGE, CITY_COMM_RADIUS,
+                    CITY_GROSS_FORTNIGHT, CITY_VISION_RANGE, COUNTRIES,
                     DAY_CYCLE_LENGTH, FORMATION_SPACING, GLOBE_RADIUS,
-                    LIFT_FX, LIFT_GROUND, LIFT_PATH, MINUTES_PER_SECOND,
+                    INDUSTRY_DRIFT, LIFT_FX, LIFT_GROUND, LIFT_PATH,
+                    MINUTES_PER_SECOND,
                     NIGHT_VISION_FACTOR, PRODUCTION_TIME_FACTOR,
-                    STARTING_FUNDS, SUPPLY_TRANSFER_RANGE,
-                    UNIT_SPRITE_SCALE)
+                    STARTING_FUNDS, SUPPLY_TRANSFER_RANGE, TAX_DEFAULT,
+                    TAX_EQUILIBRIUM, UNIT_SPRITE_SCALE)
 from geodata import WorldData, HARBOR_CITIES, CITY_POPULATION
 from globe import Globe, make_surface_ring, orient_to_surface
 from menu import MenuScreen
@@ -48,7 +50,8 @@ from models import (make_bridge_marker, make_flat_ring,
 from pathfinding import MovementPlanner
 from structures import (Airfield, Bunker, Depot, AIRFIELD_STOCK_CAP,
                         BUNKER_RADIUS, DEPOT_STOCK_CAP, SORTIE_COST)
-from ui import TopBar, BottomBar, FaxPanel, BudgetFax, BriefingFax, B
+from ui import (TopBar, BottomBar, FaxPanel, BudgetFax, BriefingFax,
+                TaxFax, B)
 from units import (Unit, UNIT_TYPES, BRANCH_OF, FIRE_SUPPLY_FACTOR,
                    NATION_UNIT_STATS, stats_for)
 from utils import (angle_between, find_regular_font_path,
@@ -85,6 +88,13 @@ class City:
         self.harbor = name in HARBOR_CITIES
         # WW2-era metropolitan population (persons)
         self.population = int(CITY_POPULATION.get(name, 120) * 1000)
+        # the war economy: taxes are levied each fortnight; the rate can
+        # be decreed at any time but binds from the NEXT fortnight, and
+        # heavy taxation grinds the industrial base down
+        self.tax_rate = TAX_DEFAULT
+        self.pending_tax = None
+        self.industry = 100.0           # industrial health, percent
+        self.annexing = False           # captured, not yet taxable
         self.lat, self.lon = lat, lon
         self.pos = latlon_to_vec(lat, lon)
         self.capture_progress = 0.0
@@ -135,8 +145,27 @@ class City:
     def set_marker_scale(self, scale):
         self.holder.setScale(scale)
 
-    def income(self):
-        return CAPITAL_INCOME_PER_SEC if self.capital else CITY_INCOME_PER_SEC
+    def gross_product(self):
+        base = (CAPITAL_GROSS_FORTNIGHT if self.capital
+                else CITY_GROSS_FORTNIGHT)
+        return base * self.industry / 100.0
+
+    def fortnight_revenue(self, rate=None):
+        """What the city pays into the treasury at the fortnight."""
+        if self.annexing:
+            return 0
+        r = self.tax_rate if rate is None else rate
+        return int(self.gross_product() * r / 100.0)
+
+    def industry_drift(self, rate=None):
+        """Industry %-points gained/lost per fortnight at a tax rate."""
+        r = self.tax_rate if rate is None else rate
+        return (TAX_EQUILIBRIUM - r) * INDUSTRY_DRIFT
+
+    def required_infantry(self):
+        """Garrison needed to annex: one division per million souls."""
+        return max(1, int(math.ceil(
+            self.population / 1e6 * CAPTURE_INFANTRY_PER_MILLION)))
 
     def cleanup(self):
         self.root.removeNode()
@@ -295,6 +324,7 @@ class WW2RTSGame(ShowBase):
         self.fortnight_start = 0.0
         self.budget_fax = None
         self.briefing_fax = None
+        self.tax_fax = None
 
         # input state
         self.drag_start = None
@@ -435,12 +465,13 @@ class WW2RTSGame(ShowBase):
             self._path_viz.removeNode()
             self._path_viz = None
         for bar in (self.top_bar, self.bottom_bar, self.fax,
-                    self.budget_fax, self.briefing_fax):
+                    self.budget_fax, self.briefing_fax, self.tax_fax):
             if bar:
                 bar.destroy()
         self.top_bar = self.bottom_bar = self.fax = None
         self.budget_fax = None
         self.briefing_fax = None
+        self.tax_fax = None
         self.budget_lock_until = None
         self.budget_counts = {}
         self.fortnight_start = 0.0
@@ -706,6 +737,8 @@ class WW2RTSGame(ShowBase):
             self.fax_short("DISEMBARKATION CANCELLED")
         elif self.briefing_fax:
             self._close_briefing()
+        elif self.tax_fax:
+            self._tax_discard()
         elif self.budget_fax:
             self._budget_discard()
         elif self.pause_frame:
@@ -820,6 +853,35 @@ class WW2RTSGame(ShowBase):
             (B("$%d" % spent), lines),
             sender="EXCHEQUER")
 
+    def _fortnight_rollover(self):
+        """The fortnight turns: decreed tax rates bind, every treasury
+        collects its cities' taxes, industry drifts under the new rates,
+        annexations complete, and the standing budget is executed."""
+        take = {c: 0 for c in COUNTRIES}
+        for city in self.cities:
+            if city.pending_tax is not None:
+                city.tax_rate = city.pending_tax
+                city.pending_tax = None
+            take[city.country] += city.fortnight_revenue()
+            if not city.annexing:
+                city.industry = max(5.0, min(100.0, city.industry +
+                                             city.industry_drift()))
+            if city.annexing:
+                city.annexing = False
+                if city.country == self.player_country:
+                    self.fax_short("%s ANNEXED -- NOW ON THE TAX ROLLS"
+                                   % city.name.upper())
+        for country, amount in take.items():
+            if country not in self.eliminated:
+                self.funds[country] += amount
+        if take.get(self.player_country):
+            self.fax.post(
+                "FORTNIGHT TAX RECEIPTS",
+                "The provinces remit %s to the treasury." %
+                B("$%d" % take[self.player_country]),
+                sender="EXCHEQUER")
+        self._apply_fortnight_budget()
+
     def open_budget(self):
         if self.game_state != 'playing' or self.budget_fax:
             return
@@ -853,6 +915,39 @@ class WW2RTSGame(ShowBase):
             "next fortnight begins; until then the current one stands." %
             B("$%d" % total),
             sender="EXCHEQUER")
+
+    def _capture_clicked(self, city):
+        if self.attempt_capture(city, self.player_country):
+            self._select_city(city)     # reopen as our own municipality
+
+    def open_tax_fax(self, city):
+        if (self.game_state != 'playing' or self.tax_fax
+                or city.country != self.player_country or city.annexing):
+            return
+        self.tax_fax = TaxFax(self, city, self._tax_transmit,
+                              self._tax_discard)
+
+    def _tax_transmit(self, city, rate):
+        if self.tax_fax:
+            self.tax_fax.destroy()
+            self.tax_fax = None
+        rate = max(0, min(100, int(rate)))
+        city.pending_tax = rate
+        self.fax.post(
+            "TAX DECREE -- %s" % city.name.upper(),
+            "The rate is set to %s, binding from the next fortnight. "
+            "Projected remittance %s; industry drift %s%% per "
+            "fortnight." %
+            (B("%d%%" % rate), B("$%d" % city.fortnight_revenue(rate)),
+             B("%+.1f" % city.industry_drift(rate))),
+            sender="EXCHEQUER")
+        if self.selected_city is city:
+            self._refresh_selection_ui()
+
+    def _tax_discard(self):
+        if self.tax_fax:
+            self.tax_fax.destroy()
+            self.tax_fax = None
 
     def open_factory_report(self):
         """The war-industries FAX: every production line, per city."""
@@ -972,7 +1067,7 @@ class WW2RTSGame(ShowBase):
     # ------------------------------------------------------- selection
     def on_lmb_down(self):
         if (self.game_state != 'playing' or self.pause_frame
-                or self.briefing_fax):
+                or self.briefing_fax or self.tax_fax):
             return
         if not self.mouseWatcherNode.hasMouse():
             return
@@ -1141,7 +1236,7 @@ class WW2RTSGame(ShowBase):
     # ------------------------------------------------------- orders
     def on_rmb(self):
         if (self.game_state != 'playing' or self.pause_frame
-                or self.briefing_fax):
+                or self.briefing_fax or self.tax_fax):
             return
         if not self.selected or not self.mouseWatcherNode.hasMouse():
             return
@@ -2347,33 +2442,46 @@ class WW2RTSGame(ShowBase):
                                    (u.stats['label'].upper(),
                                     city.name.upper()))
 
-    def _tick_income(self, dt):
-        for city in self.cities:
-            self.funds[city.country] += city.income() * dt * self.game_speed
-
     # ====================================================== capture
+    def _capture_garrison(self, city, country):
+        """The infantry a power has standing on the city."""
+        return [u for u in self.units
+                if u.alive and u.country == country
+                and u.unit_type == 'infantry' and not u.carried_by
+                and u.dist_to(city.pos) < CITY_CAPTURE_RANGE]
+
+    def attempt_capture(self, city, country):
+        """Annex a city: costs one infantry division per million souls
+        (the cost of control -- they garrison it and leave the order of
+        battle). The city cannot be taxed until the next fortnight."""
+        if city.country == country or not self.units:
+            return False
+        garrison = self._capture_garrison(city, country)
+        need = city.required_infantry()
+        if len(garrison) < need:
+            return False
+        for u in garrison[:need]:
+            u.alive = False
+            if u in self.selected:
+                self._deselect_unit(u)
+            u.cleanup()
+            if u in self.units:
+                self.units.remove(u)
+        self._capture_city(city, country)
+        return True
+
     def _tick_capture(self, dt):
+        # AI powers annex automatically under the same infantry rule;
+        # the player uses the CAPTURE button on the city's menu
         for city in self.cities:
-            occupier = None
-            defended = False
-            for u in self.units:
-                if not u.alive or u.stats['domain'] != 'land' or u.carried_by:
+            for country in COUNTRIES:
+                if (country == city.country or country in self.eliminated
+                        or country == self.player_country):
                     continue
-                if u.dist_to(city.pos) < CITY_CAPTURE_RANGE:
-                    if u.country == city.country:
-                        defended = True
-                        break
-                    occupier = u.country
-            if defended or occupier is None:
-                city.capture_progress = max(
-                    0.0, city.capture_progress - dt * self.game_speed * 0.5)
-                continue
-            if city.capturing_country != occupier:
-                city.capturing_country = occupier
-                city.capture_progress = 0.0
-            city.capture_progress += dt * self.game_speed
-            if city.capture_progress >= CITY_CAPTURE_TIME:
-                self._capture_city(city, occupier)
+                if len(self._capture_garrison(city, country)) \
+                        >= city.required_infantry():
+                    self.attempt_capture(city, country)
+                    break
 
         # standalone (engineer-built) airfields fall to whoever holds
         # the ground
@@ -2410,6 +2518,9 @@ class WW2RTSGame(ShowBase):
         city.country = new_owner
         city.capture_progress = 0.0
         city.capturing_country = None
+        city.annexing = True        # taxable from the NEXT fortnight
+        city.pending_tax = None
+        city.tax_rate = TAX_DEFAULT
         city.production = []
         city.refresh_marker()
         self._ai_overseas_cache.clear()
@@ -2426,8 +2537,9 @@ class WW2RTSGame(ShowBase):
             self._cancel_air_production(old)   # old owner may be fieldless
         if new_owner == self.player_country:
             self.fax.post("CITY TAKEN",
-                          "Colours raised over %s. Its industry now "
-                          "serves us." % B(city.name),
+                          "Colours raised over %s. Annexation is in "
+                          "progress -- its taxes flow from the next "
+                          "fortnight." % B(city.name),
                           sender="FIELD COMMAND")
         elif old == self.player_country:
             self.fax.post("CITY LOST",
@@ -2828,7 +2940,7 @@ class WW2RTSGame(ShowBase):
         mw = self.mouseWatcherNode
         if (self.game_state == 'playing' and mw and mw.hasMouse()
                 and not self.pause_frame and not self.budget_fax
-                and not self.briefing_fax):
+                and not self.briefing_fax and not self.tax_fax):
             if self.unload_mode:
                 mode = 'disembark'
             elif self.build_mode:
@@ -3017,6 +3129,7 @@ class WW2RTSGame(ShowBase):
         # briefing button: shown for any selection holding a friendly
         # unit, keyed to that unit's type
         bar.hide_info()
+        bar.hide_capture()
         primary = next((u for u in self.selected
                         if u.country == self.player_country), None)
         if primary is not None:
@@ -3027,22 +3140,42 @@ class WW2RTSGame(ShowBase):
         if self.selected_city:
             city = self.selected_city
             tag = " (CAPITAL)" if city.capital else ""
+            if city.annexing:
+                tag += " [ANNEXING]"
             if city.country == self.player_country:
                 bar.set_title("%s%s -- GARRISON COMMAND" %
                               (city.name.upper(), tag))
                 self._set_city_info(city)
-                bar.set_hint("UNITS ARE RAISED BY BUDGET MANIFEST -- "
-                             "PRESS [B] AT THE NEXT REVIEW")
+                if not city.annexing:
+                    bar.add_buttons([
+                        ("TAX DECREE", self.open_tax_fax, [city],
+                         get_icon_path('tax_button', 'dark'))])
+                    bar.set_hint("SET THE CITY'S TAX RATE -- IT BINDS "
+                                 "FROM THE NEXT FORTNIGHT")
+                else:
+                    bar.set_hint("ANNEXATION IN PROGRESS -- ON THE TAX "
+                                 "ROLLS NEXT FORTNIGHT")
             else:
+                need = city.required_infantry()
+                have = len(self._capture_garrison(city,
+                                                  self.player_country))
                 bar.set_title("%s%s -- %s CITY" %
                               (city.name.upper(), tag,
                                COUNTRIES[city.country]['adjective'].upper()))
                 bar.set_info(
-                    "POPULATION %s   %sCONTROLLED BY %s" %
+                    "POPULATION %s   %sCONTROLLED BY %s   "
+                    "CAPTURE: %d/%d INFANTRY ON THE CITY" %
                     ("{:,}".format(city.population),
                      "PORT   " if city.harbor else "",
-                     COUNTRIES[city.country]['name'].upper()))
-                bar.set_hint("INTELLIGENCE VIEW -- ENEMY-HELD MUNICIPALITY")
+                     COUNTRIES[city.country]['name'].upper(),
+                     have, need))
+                if have >= need:
+                    bar.show_capture(self._capture_clicked, [city])
+                    bar.set_hint("THE GARRISON STANDS READY -- CAPTURING "
+                                 "COSTS %d INFANTRY" % need)
+                else:
+                    bar.set_hint("MARCH %d INFANTRY ONTO THE CITY TO "
+                                 "TAKE IT (1 PER MILLION SOULS)" % need)
             return
         if not self.selected:
             bar.set_title("ALL QUIET")
@@ -3301,7 +3434,12 @@ class WW2RTSGame(ShowBase):
         lines += ["#SERVICE RECORD",
                  row("BRANCH", BRANCH_OF[s['domain']]),
                  row("STRENGTH", "%d" % s['hp']),
-                 row("SPEED", "%.0f MPH" % (s['speed'] * 60))]
+                 row("SPEED", "%.0f MPH" % (s['speed'] * 60)),
+                 row("VISION", "%.0f MI OBSERVATION%s" %
+                     (s['vision'] * VISION_SCALE *
+                      (AIR_VISION_MULT if s['domain'] == 'air' else 1.0)
+                      * 60,
+                      " (AIRBORNE)" if s['domain'] == 'air' else ""))]
         if s['damage'] > 0:
             lines.append(row("ARMAMENT", "%d PER SALVO, RANGE %.0f MI" %
                              (s['damage'], s['range'] * 60)))
@@ -3368,12 +3506,15 @@ class WW2RTSGame(ShowBase):
 
     def _set_city_info(self, city):
         queue = ", ".join("%s %ds" % (UNIT_TYPES[t]['icon'], s)
-                          for t, s in city.production[:6])
+                          for t, s in city.production[:4])
+        tax = "%d%%" % city.tax_rate
+        if city.pending_tax is not None:
+            tax += " (%d%% NEXT)" % city.pending_tax
         self.bottom_bar.set_info(
-            "POP %s%s   FUNDS $%d   WORKS ORDERS: %s" %
+            "POP %s%s   INDUSTRY %.0f%%   TAX %s   WORKS: %s" %
             ("{:,}".format(city.population),
              "   PORT" if city.harbor else "",
-             int(self.funds[self.player_country]),
+             city.industry, tax,
              queue if queue else "NONE"))
 
     def _tick_top_bar(self):
@@ -3421,11 +3562,12 @@ class WW2RTSGame(ShowBase):
         if not self.is_paused and not self.game_over:
             gdt = dt * self.game_speed
             self.clock_minutes += gdt * MINUTES_PER_SECOND
-            # a new fortnight begins: the standing budget goes into effect
+            # a new fortnight begins: taxes bind, revenue comes in, the
+            # standing budget goes into effect
             if (self.clock_minutes - self.fortnight_start
                     >= BUDGET_PERIOD_DAYS * 1440.0):
                 self.fortnight_start += BUDGET_PERIOD_DAYS * 1440.0
-                self._apply_fortnight_budget()
+                self._fortnight_rollover()
             # the sun tracks westward so it rises in the east and sets
             # in the west
             self.sun_angle = (self.sun_angle -
@@ -3439,7 +3581,6 @@ class WW2RTSGame(ShowBase):
                 u.update(dt)
             self.units = [u for u in self.units if u.alive]
 
-            self._tick_income(dt)
             self._tick_production(dt)
             self._tick_ai(dt)
             self._tick_flashes(dt)

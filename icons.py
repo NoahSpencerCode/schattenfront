@@ -200,10 +200,11 @@ def _draw_capital(d, ink):
 
 
 def _draw_airfield(d, ink):
-    """Top-down aerodrome: two crossing runways with centreline dashes
-    and threshold bars, a taxiway loop, a hangar row and the tower."""
-    rw = (232, 228, 214, 255)          # pale concrete (tints w/ owner)
-    ln = (30, 26, 22, 255)
+    """Top-down aerodrome in the CITY SKETCH palette (the same tans and
+    street-ink the towns are drawn with): two clean crossing runways,
+    taxiway, apron, hangar row, tower. No runway markings."""
+    rw = (176, 161, 127, 255)          # rooftop tan (city palette)
+    ln = (96, 83, 63, 255)             # street ink (city palette)
 
     def runway(p0, p1, w):
         (x0, y0), (x1, y1) = p0, p1
@@ -213,23 +214,13 @@ def _draw_airfield(d, ink):
         d.polygon([(x0 + px, y0 + py), (x1 + px, y1 + py),
                    (x1 - px, y1 - py), (x0 - px, y0 - py)],
                   fill=rw, outline=ln)
-        # centreline dashes
-        for t in range(1, 8):
-            f0, f1 = t / 8.0 - 0.04, t / 8.0 + 0.04
-            d.line([(x0 + dx * f0, y0 + dy * f0),
-                    (x0 + dx * f1, y0 + dy * f1)], fill=ln, width=2)
-        # threshold bars
-        for f in (0.03, 0.97):
-            bx, by = x0 + dx * f, y0 + dy * f
-            d.line([(bx + px * 0.8, by + py * 0.8),
-                    (bx - px * 0.8, by - py * 0.8)], fill=ln, width=3)
 
     runway((14, 78), (86, 30), 8)      # main strip, NE-SW
     runway((28, 12), (60, 88), 6)      # crossing strip
     # taxiway to the apron
     d.line([(64, 44), (78, 58), (78, 74)], fill=ln, width=3)
     d.rectangle([66, 74, 90, 88], fill=rw, outline=ln)        # apron
-    # hangar row (arched roofs read as bold end-caps)
+    # hangar row (bold roof caps)
     for x0 in (68, 79):
         d.rectangle([x0, 62, x0 + 9, 72], fill=rw, outline=ln, width=2)
         d.line([(x0, 62), (x0 + 9, 62)], fill=ln, width=3)
@@ -289,9 +280,6 @@ def _draw_bridge_map(d, ink):
     for y in (36, 60):
         d.polygon([(38, y - 5), (30, y), (38, y + 5)], fill=edge)
         d.polygon([(58, y - 5), (66, y), (58, y + 5)], fill=edge)
-    # roadway centre dashes
-    for y in (24, 40, 56, 72):
-        d.line([(48, y), (48, y + 7)], fill=edge, width=2)
 
 
 def _draw_cursor_default(d, ink):
@@ -384,6 +372,18 @@ def _draw_info_button(d, ink):
     d.rectangle([35, 70, 61, 77], fill=col)                   # serif base
 
 
+def _draw_tax_button(d, ink):
+    """Parchment button bearing the taxman's mark: a bold percent sign
+    over a coin -- opens the city's tax decree."""
+    d.rounded_rectangle([5, 5, 90, 90], radius=22,
+                        fill=(216, 205, 168, 255),
+                        outline=(54, 44, 34, 255), width=6)
+    col = (44, 35, 26, 255)
+    d.line([(30, 70), (66, 26)], fill=col, width=7)            # the slash
+    d.ellipse([26, 24, 44, 42], outline=col, width=6)          # top ring
+    d.ellipse([52, 54, 70, 72], outline=col, width=6)          # low ring
+
+
 def _draw_factory_button(d, ink):
     """Parchment button bearing a war factory: sawtooth roof, chimney,
     smoke -- opens the production-state FAX."""
@@ -406,6 +406,7 @@ _DRAWERS = {
     'capital': _draw_capital,
     'airfield': _draw_airfield,
     'factory_button': _draw_factory_button,
+    'tax_button': _draw_tax_button,
     'depot': _draw_depot,
     'bunker': _draw_bunker,
     'nosupply': _draw_nosupply,
@@ -803,7 +804,7 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 6   # bump when drawings change to invalidate the cache
+ICON_VERSION = 7   # bump when drawings change to invalidate the cache
 
 
 def get_icon_path(unit_type, variant='dark', nation=None):

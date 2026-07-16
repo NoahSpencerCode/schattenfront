@@ -210,7 +210,7 @@ def make_bridge_marker(loader):
     (20%% smaller than the old flat marker)."""
     root = NodePath('bridge_marker')
     cm = CardMaker('bridge_icon')
-    cm.setFrame(-0.0104, 0.0104, -0.0168, 0.0168)
+    cm.setFrame(-0.009, 0.009, -0.018, 0.018)   # 2:1
     icon = root.attachNewNode(cm.generate())
     icon.setTexture(_icon_texture(loader, 'bridge_map', 'dark'))
     icon.setTransparency(TransparencyAttrib.MAlpha)

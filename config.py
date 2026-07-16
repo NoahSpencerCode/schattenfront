@@ -60,12 +60,19 @@ FOG_BRIGHTNESS = 0.8          # 20% darker
 FOG_SATURATION = 0.5          # 50% less saturated
 MAX_VISION_SOURCES = 96       # shader uniform budget
 
-# Economy — the fortnight budget
+# Economy — the fortnight budget. Cities pay their taxes once per
+# fortnight; the take depends on each city's tax rate and the health of
+# its industry (heavy taxation erodes the industrial base).
 STARTING_FUNDS = 40000
-CITY_INCOME_PER_SEC = 30      # per city
-CAPITAL_INCOME_PER_SEC = 70
-BUDGET_PERIOD_DAYS = 14       # a transmitted budget is locked this long
+CITY_GROSS_FORTNIGHT = 16000     # a city's gross product per fortnight
+CAPITAL_GROSS_FORTNIGHT = 36000  # the capital's gross product
+TAX_DEFAULT = 30              # opening tax rate, percent
+TAX_EQUILIBRIUM = 30          # at this rate industry health holds steady
+INDUSTRY_DRIFT = 0.5          # industry %-points per tax point per
+                              # fortnight (above/below equilibrium)
+BUDGET_PERIOD_DAYS = 14       # the fortnight
 PRODUCTION_TIME_FACTOR = 4.0  # works orders take this much longer
+CAPTURE_INFANTRY_PER_MILLION = 1.0   # garrison cost to annex a city
 
 # Combat / capture
 CITY_CAPTURE_RANGE = 0.5      # world units

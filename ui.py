@@ -158,6 +158,18 @@ class BottomBar:
             pos=(1.28, 0, 0.235), command=None)
         self.info_btn.setTransparency(True)
         self.info_btn.hide()
+        # red CAPTURE button: appears on an enemy city's menu when the
+        # infantry garrison on it suffices to annex
+        self.capture_btn = DirectButton(
+            parent=self.frame, text="++ CAPTURE ++",
+            text_scale=0.038, text_fg=(0.95, 0.88, 0.82, 1.0),
+            text_font=base.hud_font,
+            frameColor=((0.55, 0.10, 0.07, 0.96),
+                        (0.70, 0.16, 0.10, 1.0),
+                        (0.40, 0.07, 0.05, 0.96), (0.3, 0.3, 0.3, 0.5)),
+            frameSize=(-0.20, 0.20, -0.030, 0.046),
+            relief=DGG.FLAT, pos=(0.95, 0, 0.235), command=None)
+        self.capture_btn.hide()
 
     def show_info(self, command, args):
         self.info_btn['command'] = command
@@ -166,6 +178,14 @@ class BottomBar:
 
     def hide_info(self):
         self.info_btn.hide()
+
+    def show_capture(self, command, args):
+        self.capture_btn['command'] = command
+        self.capture_btn['extraArgs'] = list(args)
+        self.capture_btn.show()
+
+    def hide_capture(self):
+        self.capture_btn.hide()
 
     def set_title(self, text):
         self.title_tn.setText(text)
@@ -580,6 +600,102 @@ class BriefingFax:
 
     def _close(self):
         self.on_close()
+
+    def destroy(self):
+        self.frame.destroy()
+
+
+class TaxFax:
+    """Tax decree form for one city: set the rate 0-100%%, see the
+    projected fortnight remittance and industry drift. Binds from the
+    NEXT fortnight."""
+
+    def __init__(self, base, city, on_transmit, on_discard):
+        from config import TAX_EQUILIBRIUM
+        self.base = base
+        self.city = city
+        self.on_transmit = on_transmit
+        self.on_discard = on_discard
+        self.rate = (city.pending_tax if city.pending_tax is not None
+                     else city.tax_rate)
+
+        f = base.hud_font
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+                                 frameSize=(-0.85, 0.85, -0.62, 0.62),
+                                 state=DGG.NORMAL)
+        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                    frameSize=(-0.85, 0.85, 0.595, 0.62))
+
+        def text(t, pos, scale=0.036, color=INK, align=TextNode.ALeft):
+            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
+            tn.setText(t)
+            return tn
+
+        text("*** TAX DECREE -- %s ***" % city.name.upper(),
+             (0, 0.52), 0.048, INK, TextNode.ACenter)
+        text("FROM : THE EXCHEQUER, REVENUE BRANCH", (-0.78, 0.44))
+        text("RE   : RATE OF TAXATION UPON THE MUNICIPALITY",
+             (-0.78, 0.39))
+        text("-" * 56, (0, 0.345), 0.036, INK, TextNode.ACenter)
+        text("POPULATION ......... %s" % "{:,}".format(city.population),
+             (-0.78, 0.28))
+        text("INDUSTRY HEALTH .... %.0f%%" % city.industry, (-0.78, 0.22))
+        text("PRESENT RATE ....... %d%%" % city.tax_rate, (-0.78, 0.16))
+        text("AT %d%% THE INDUSTRY HOLDS; BELOW IT HEALS; ABOVE IT "
+             "DECAYS." % TAX_EQUILIBRIUM, (-0.78, 0.10), 0.028, INK_FAINT)
+
+        DirectButton(parent=self.frame, text="-", text_scale=0.052,
+                     text_fg=INK, text_font=f, frameColor=BTN_PAPER,
+                     frameSize=(-0.045, 0.045, -0.034, 0.052),
+                     relief=DGG.FLAT, command=self._adjust, extraArgs=[-5],
+                     pos=(-0.30, 0, -0.05))
+        self.rate_tn, _ = _make_text(self.frame, f, (0, -0.055), 0.075,
+                                     INK, TextNode.ACenter)
+        DirectButton(parent=self.frame, text="+", text_scale=0.052,
+                     text_fg=INK, text_font=f, frameColor=BTN_PAPER,
+                     frameSize=(-0.045, 0.045, -0.034, 0.052),
+                     relief=DGG.FLAT, command=self._adjust, extraArgs=[+5],
+                     pos=(0.30, 0, -0.05))
+
+        self.proj_tn, _ = _make_text(self.frame, f, (0, -0.20), 0.034,
+                                     INK, TextNode.ACenter)
+        self.drift_tn, _ = _make_text(self.frame, f, (0, -0.26), 0.034,
+                                      INK, TextNode.ACenter)
+        text("THE DECREE BINDS FROM THE NEXT FORTNIGHT.", (0, -0.34),
+             0.030, INK_FAINT, TextNode.ACenter)
+        self._refresh()
+
+        DirectButton(parent=self.frame, text="++ TRANSMIT ++",
+                     text_scale=0.040, text_fg=(0.1, 0.25, 0.1, 1),
+                     text_font=f, frameColor=BTN_PAPER,
+                     frameSize=(-0.26, 0.26, -0.036, 0.052),
+                     relief=DGG.FLAT, command=self._transmit,
+                     pos=(-0.32, 0, -0.50))
+        DirectButton(parent=self.frame, text="-- DISCARD --",
+                     text_scale=0.040, text_fg=(0.45, 0.12, 0.08, 1),
+                     text_font=f, frameColor=BTN_PAPER,
+                     frameSize=(-0.26, 0.26, -0.036, 0.052),
+                     relief=DGG.FLAT, command=self._discard,
+                     pos=(0.32, 0, -0.50))
+
+    def _adjust(self, delta):
+        self.rate = max(0, min(100, self.rate + delta))
+        self._refresh()
+
+    def _refresh(self):
+        self.rate_tn.setText("%d%%" % self.rate)
+        self.proj_tn.setText(
+            "PROJECTED FORTNIGHT REMITTANCE: $%d"
+            % self.city.fortnight_revenue(self.rate))
+        drift = self.city.industry_drift(self.rate)
+        self.drift_tn.setText(
+            "EXPECTED INDUSTRY DRIFT: %+.1f%% PER FORTNIGHT" % drift)
+
+    def _transmit(self):
+        self.on_transmit(self.city, self.rate)
+
+    def _discard(self):
+        self.on_discard()
 
     def destroy(self):
         self.frame.destroy()
