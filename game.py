@@ -2986,6 +2986,18 @@ class WW2RTSGame(ShowBase):
         # only the city selection rings scale to stay clickable
         for c in self.cities:
             c.set_marker_scale(city_scale)
+        # LOD: at strategic altitudes the fixed-size structure markers
+        # are sub-pixel -- hide them (and their billboard math) outright
+        show = alt < 26.0
+        if show != getattr(self, '_structs_shown', True):
+            self._structs_shown = show
+            for group in (self.airfields, self.harbors, self.depots,
+                          self.bunkers):
+                for s in group:
+                    if show:
+                        s.root.show()
+                    else:
+                        s.root.hide()
 
     def on_zoom(self, direction):
         old_alt = self.cam_dist_target - GLOBE_RADIUS
@@ -3753,6 +3765,7 @@ class WW2RTSGame(ShowBase):
         self._drain_plans()
         self._update_vision_shader()    # fog circles glide with units
         self.globe.set_comm_width(self.cam_dist - GLOBE_RADIUS)
+        self.globe.tick_border_bake()   # swap in a finished border bake
         self._hover_timer -= dt
         if self._hover_timer <= 0:
             self._hover_timer = 0.09

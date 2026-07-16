@@ -161,6 +161,7 @@ uniform vec4 sites[%(nsites)d];
 uniform int site_count;
 uniform vec3 nat_tint[6];
 uniform float border_eps;
+uniform sampler2D border_ids;     // R = nearest site, G = nearest rival
 varying vec2 uv;
 varying vec3 world_normal;
 void main() {
@@ -197,32 +198,36 @@ void main() {
     if (near_edge && !inside) {
         c = mix(c, vec3(0.98, 0.98, 0.96), 0.8);   // white signals line
     }
-    // national territory tint + dotted frontier (land only)
+    // national territory tint + dotted frontier. WHICH two sites matter
+    // per pixel comes from a small baked ID map (no per-fragment site
+    // loop = cheap); the frontier itself is analytic: gradient-
+    // normalized so the dotted line keeps a CONSTANT width and regular
+    // dashes however the cities happen to lie.
     if (site_count > 0) {
-        float b1 = -2.0;
-        int o1 = 5;
-        for (int i = 0; i < %(nsites)d; i++) {
-            if (i >= site_count) break;
-            float dc = dot(nrm, sites[i].xyz);
-            if (dc > b1) { b1 = dc; o1 = int(sites[i].w + 0.5); }
-        }
-        float b2 = -2.0;
-        for (int i = 0; i < %(nsites)d; i++) {
-            if (i >= site_count) break;
-            if (int(sites[i].w + 0.5) == o1) continue;
-            float dc = dot(nrm, sites[i].xyz);
-            if (dc > b2) b2 = dc;
-        }
-        float ang1 = acos(clamp(b1, -1.0, 1.0));
+        vec2 buv = vec2(atan(nrm.y, nrm.x) * 0.15915494 + 0.5,
+                        asin(clamp(nrm.z, -1.0, 1.0)) * 0.31830988 + 0.5);
+        vec4 ids = texture2D(border_ids, buv);
+        int i1 = int(ids.r * 255.0 + 0.5);
+        int i2 = int(ids.g * 255.0 + 0.5);
+        vec4 s1 = sites[i1];
+        int o1 = int(s1.w + 0.5);
+        float d1 = dot(nrm, s1.xyz);
+        float ang1 = acos(clamp(d1, -1.0, 1.0));
         bool land_px = distance(tex.rgb, vec3(0.173, 0.227, 0.310)) > 0.12
                     && distance(tex.rgb, vec3(0.243, 0.329, 0.431)) > 0.07;
         if (land_px && ang1 < 0.30) {
-            if (o1 < 5) c = mix(c, nat_tint[o1], 0.10);
-            if (b2 > -1.5) {
-                float ang2 = acos(clamp(b2, -1.0, 1.0));
-                if (ang2 - ang1 < border_eps
-                        && fract(ang1 * 1600.0) < 0.45) {
-                    c = mix(c, vec3(0.06, 0.05, 0.04), 0.7);
+            if (o1 < 5) c = mix(c, nat_tint[o1], 0.22);
+            if (i2 < 254) {
+                vec4 s2 = sites[i2];
+                float d2 = dot(nrm, s2.xyz);
+                float ang2 = acos(clamp(d2, -1.0, 1.0));
+                vec3 t1 = normalize(s1.xyz - nrm * d1 + vec3(1e-8));
+                vec3 t2 = normalize(s2.xyz - nrm * d2 + vec3(1e-8));
+                float grad = max(length(t1 - t2), 0.15);
+                float w = (ang2 - ang1) / grad;   // true frontier distance
+                if (abs(w) < border_eps
+                        && fract((ang1 + ang2) * 700.0) < 0.5) {
+                    c = mix(c, vec3(0.06, 0.05, 0.04), 0.75);
                 }
             }
         }
@@ -280,6 +285,13 @@ class Globe:
         self.root.setShaderInput('site_count', 0)
         self.root.setShaderInput('nat_tint', self._tint_pta)
         self.root.setShaderInput('border_eps', 0.0022)
+        self._border_gen = 0
+        self._border_bake = None
+        self._pending_site_count = 0
+        dummy = Texture('border_ids')
+        dummy.setup2dTexture(1, 1, Texture.TUnsignedByte, Texture.FRgba8)
+        dummy.setRamImage(b'\xff\xff\xff\xff')
+        self.root.setShaderInput('border_ids', dummy)
 
         self.detail = DetailOverlay(base, world_data, self.root, self.shader)
         self._make_country_labels()
@@ -320,16 +332,87 @@ class Globe:
         self.root.setShaderInput('border_eps',
                                  max(0.0002, min(0.003, 0.00006 * alt)))
 
+    # ------------------------------------------------- national borders
+    # The per-pixel "which two cities matter" question is baked into a
+    # small ID map on a worker thread (once per ownership change); the
+    # shader then does constant-time analytic work per fragment.
+    BIDS_W, BIDS_H = 2048, 1024
+    _bids_grid = None               # cached texel unit vectors
+
+    def _border_grid(self):
+        if Globe._bids_grid is None:
+            lon = (np.arange(self.BIDS_W, dtype=np.float32) + 0.5) \
+                / self.BIDS_W * 2.0 * np.pi - np.pi
+            lat = (np.arange(self.BIDS_H, dtype=np.float32) + 0.5) \
+                / self.BIDS_H * np.pi - np.pi / 2.0
+            cl = np.cos(lat)[:, None]
+            g = np.empty((self.BIDS_H, self.BIDS_W, 3), dtype=np.float32)
+            g[:, :, 0] = cl * np.cos(lon)[None, :]
+            g[:, :, 1] = cl * np.sin(lon)[None, :]
+            g[:, :, 2] = np.sin(lat)[:, None]
+            Globe._bids_grid = g.reshape(-1, 3)
+        return Globe._bids_grid
+
     def set_borders(self, entries):
         """entries: [(unit_vec, owner_index 0..5), ...] — the Voronoi
-        sites the territory tint and dotted frontiers derive from."""
+        sites the territory tint and dotted frontiers derive from.
+        Kicks a background bake; the map updates when it lands."""
         from panda3d.core import Vec4
         n = min(len(entries), 200)
         for i in range(n):
             pos, owner = entries[i]
             self._sites_pta.setElement(
                 i, Vec4(pos.x, pos.y, pos.z, float(owner)))
-        self.root.setShaderInput('site_count', n)
+        self._border_gen += 1
+        gen = self._border_gen
+        self._pending_site_count = n
+        S = np.array([[p.x, p.y, p.z] for (p, o) in entries[:n]],
+                     dtype=np.float32).T          # (3, n)
+        owners = np.array([o for (p, o) in entries[:n]], dtype=np.int16)
+
+        def bake():
+            grid = self._border_grid()
+            total = grid.shape[0]
+            i1 = np.empty(total, dtype=np.uint8)
+            i2 = np.empty(total, dtype=np.uint8)
+            step = 65536
+            for a in range(0, total, step):
+                b = min(total, a + step)
+                with np.errstate(all='ignore'):
+                    dots = grid[a:b] @ S              # (chunk, n)
+                best = np.argmax(dots, axis=1)
+                i1[a:b] = best.astype(np.uint8)
+                # best site of any OTHER owner
+                same = owners[None, :] == owners[best][:, None]
+                dots[same] = -2.0
+                rival = np.argmax(dots, axis=1)
+                has = dots[np.arange(b - a), rival] > -1.5
+                i2[a:b] = np.where(has, rival, 255).astype(np.uint8)
+            img = np.zeros((total, 4), dtype=np.uint8)
+            img[:, 2] = i1                            # BGRA: R in [2]
+            img[:, 1] = i2                            # G in [1]
+            img[:, 3] = 255
+            self._border_bake = (gen, img.tobytes())
+
+        threading.Thread(target=bake, daemon=True).start()
+
+    def tick_border_bake(self):
+        """Main thread: upload a finished border bake (cheap, rare)."""
+        bake = self._border_bake
+        if bake is None or bake[0] != self._border_gen:
+            return
+        self._border_bake = None
+        gen, data = bake
+        tex = Texture('border_ids')
+        tex.setup2dTexture(self.BIDS_W, self.BIDS_H,
+                           Texture.TUnsignedByte, Texture.FRgba8)
+        tex.setRamImage(data)
+        tex.setMinfilter(SamplerState.FTNearest)
+        tex.setMagfilter(SamplerState.FTNearest)
+        tex.setWrapU(SamplerState.WMRepeat)
+        tex.setWrapV(SamplerState.WMClamp)
+        self.root.setShaderInput('border_ids', tex)
+        self.root.setShaderInput('site_count', self._pending_site_count)
 
     # -------------------------------------------------------- country labels
     def _make_country_labels(self):
