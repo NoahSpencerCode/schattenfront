@@ -200,14 +200,42 @@ def _draw_capital(d, ink):
 
 
 def _draw_airfield(d, ink):
-    """ATC tower: tapered shaft, control cab, antenna."""
-    _building(d, 38, 40, 58, 88)                              # shaft
-    d.polygon([(26, 26), (70, 26), (64, 46), (32, 46)],
-              fill=_WHITE, outline=_BLACK)                    # cab
-    d.line([(48, 26), (48, 8)], fill=_BLACK, width=4)         # mast
-    d.ellipse([44, 4, 52, 12], fill=_BLACK)
-    d.rectangle([16, 86, 80, 92], fill=_BLACK)                # apron
-    d.rectangle([34, 32, 62, 40], fill=_BLACK)                # cab glass
+    """Top-down aerodrome: two crossing runways with centreline dashes
+    and threshold bars, a taxiway loop, a hangar row and the tower."""
+    rw = (232, 228, 214, 255)          # pale concrete (tints w/ owner)
+    ln = (30, 26, 22, 255)
+
+    def runway(p0, p1, w):
+        (x0, y0), (x1, y1) = p0, p1
+        dx, dy = x1 - x0, y1 - y0
+        ll = max(1.0, (dx * dx + dy * dy) ** 0.5)
+        px, py = -dy / ll * w, dx / ll * w
+        d.polygon([(x0 + px, y0 + py), (x1 + px, y1 + py),
+                   (x1 - px, y1 - py), (x0 - px, y0 - py)],
+                  fill=rw, outline=ln)
+        # centreline dashes
+        for t in range(1, 8):
+            f0, f1 = t / 8.0 - 0.04, t / 8.0 + 0.04
+            d.line([(x0 + dx * f0, y0 + dy * f0),
+                    (x0 + dx * f1, y0 + dy * f1)], fill=ln, width=2)
+        # threshold bars
+        for f in (0.03, 0.97):
+            bx, by = x0 + dx * f, y0 + dy * f
+            d.line([(bx + px * 0.8, by + py * 0.8),
+                    (bx - px * 0.8, by - py * 0.8)], fill=ln, width=3)
+
+    runway((14, 78), (86, 30), 8)      # main strip, NE-SW
+    runway((28, 12), (60, 88), 6)      # crossing strip
+    # taxiway to the apron
+    d.line([(64, 44), (78, 58), (78, 74)], fill=ln, width=3)
+    d.rectangle([66, 74, 90, 88], fill=rw, outline=ln)        # apron
+    # hangar row (arched roofs read as bold end-caps)
+    for x0 in (68, 79):
+        d.rectangle([x0, 62, x0 + 9, 72], fill=rw, outline=ln, width=2)
+        d.line([(x0, 62), (x0 + 9, 62)], fill=ln, width=3)
+    # control tower: square base, dot cab
+    d.rectangle([8, 12, 20, 24], fill=rw, outline=ln, width=2)
+    d.ellipse([11, 15, 17, 21], fill=ln)
 
 
 def _draw_depot(d, ink):
@@ -244,15 +272,26 @@ def _draw_nosupply(d, ink):
 
 
 def _draw_bridge_map(d, ink):
-    """Top-down bridge for the map: flared abutments, deck, girders.
-    Drawn tall (deck runs vertically = along the road)."""
-    d.polygon([(18, 4), (78, 4), (62, 18), (34, 18)], fill=_BLACK)
-    d.polygon([(18, 92), (78, 92), (62, 78), (34, 78)], fill=_BLACK)
-    d.rectangle([32, 14, 64, 82], fill=(122, 96, 62, 255),
-                outline=_BLACK, width=3)
-    for y in (28, 42, 56, 70):
-        d.line([(34, y), (62, y)], fill=_BLACK, width=3)      # girders
-    d.line([(48, 18), (48, 78)], fill=(235, 229, 205, 255), width=2)
+    """A clean stone arch bridge, top-down: slim deck with parapets,
+    two pier cutwaters, gently flared approaches."""
+    deck = (188, 172, 140, 255)
+    edge = (52, 42, 32, 255)
+    # flared approaches
+    d.polygon([(30, 6), (66, 6), (58, 18), (38, 18)], fill=deck,
+              outline=edge)
+    d.polygon([(30, 90), (66, 90), (58, 78), (38, 78)], fill=deck,
+              outline=edge)
+    # deck with parapet lines
+    d.rectangle([38, 14, 58, 82], fill=deck, outline=edge, width=3)
+    d.line([(41, 16), (41, 80)], fill=edge, width=1)
+    d.line([(55, 16), (55, 80)], fill=edge, width=1)
+    # pier cutwaters (pointed, breasting the stream)
+    for y in (36, 60):
+        d.polygon([(38, y - 5), (30, y), (38, y + 5)], fill=edge)
+        d.polygon([(58, y - 5), (66, y), (58, y + 5)], fill=edge)
+    # roadway centre dashes
+    for y in (24, 40, 56, 72):
+        d.line([(48, y), (48, y + 7)], fill=edge, width=2)
 
 
 def _draw_cursor_default(d, ink):
@@ -345,10 +384,28 @@ def _draw_info_button(d, ink):
     d.rectangle([35, 70, 61, 77], fill=col)                   # serif base
 
 
+def _draw_factory_button(d, ink):
+    """Parchment button bearing a war factory: sawtooth roof, chimney,
+    smoke -- opens the production-state FAX."""
+    d.rounded_rectangle([5, 5, 90, 90], radius=22,
+                        fill=(216, 205, 168, 255),
+                        outline=(54, 44, 34, 255), width=6)
+    col = (44, 35, 26, 255)
+    d.rectangle([22, 52, 76, 74], fill=col)                   # hall
+    d.polygon([(22, 52), (22, 38), (40, 52)], fill=col)       # sawtooth
+    d.polygon([(40, 52), (40, 38), (58, 52)], fill=col)
+    d.polygon([(58, 52), (58, 38), (76, 52)], fill=col)
+    d.rectangle([64, 24, 72, 52], fill=col)                   # chimney
+    for (cx, cy, r) in ((60, 20, 4), (52, 14, 5), (42, 10, 6)):
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=col,
+                  width=3)                                    # smoke
+
+
 _DRAWERS = {
     'city': _draw_city,
     'capital': _draw_capital,
     'airfield': _draw_airfield,
+    'factory_button': _draw_factory_button,
     'depot': _draw_depot,
     'bunker': _draw_bunker,
     'nosupply': _draw_nosupply,
@@ -401,139 +458,327 @@ def _hull_top(d, bow=6, stern=90, half=13):
            (cx - half, stern - 6), (cx - half, bow + 18)])
 
 
-def _plane_top(d, span=40, chord=13, fus=8, nose=10, tail=88,
-               tail_span=16, engines=0):
-    cx = 48
-    _orect(d, cx - fus, nose, cx + fus, tail)                  # fuselage
-    _orect(d, cx - span, 38, cx + span, 38 + chord)            # wings
-    _orect(d, cx - tail_span, tail - 10, cx + tail_span, tail - 2)
-    d.ellipse([cx - fus - 1, nose - 6, cx + fus + 1, nose + 8],
-              fill=_WHITE, outline=_BLACK)
-    if engines:
-        for sx in (-1, 1):
-            x = cx + sx * span // 2
-            _orect(d, x - 5, 32, x + 5, 56, 2)
+def _tracks(d, xl0, xl1, xr0, xr1, y0, y1):
+    """Track pair with tread ticks."""
+    for (x0, x1) in ((xl0, xl1), (xr0, xr1)):
+        _orect(d, x0, y0, x1, y1)
+        for y in range(y0 + 5, y1 - 3, 8):
+            d.line([(x0 + 2, y), (x1 - 2, y)], fill=_BLACK, width=1)
 
 
-def _tu_infantry(d, ink):
+def _turret(d, cx, cy, r, blen, bw=5, brake=False):
+    """Turret + forward gun; optional muzzle brake."""
+    d.line([(cx, cy), (cx, cy - blen)], fill=_BLACK, width=bw)
+    if brake:
+        d.rectangle([cx - 4, cy - blen, cx + 4, cy - blen + 6],
+                    fill=_BLACK)
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=_WHITE,
+              outline=_BLACK, width=3)
+    d.ellipse([cx - 3, cy - 3, cx + 3, cy + 3], fill=_BLACK)   # hatch
+
+
+def _funnel(d, cx, cy, r=5):
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=_BLACK)
+
+
+# ---- ARMY ----------------------------------------------------------------
+
+def _tu_infantry(d, ink, nat=None):
     _o(d, [(30, 40), (66, 40), (62, 62), (34, 62)])            # shoulders
     d.ellipse([38, 30, 58, 50], fill=_WHITE, outline=_BLACK)   # helmet
     d.line([(58, 44), (74, 16)], fill=_BLACK, width=4)         # rifle
+    d.line([(34, 62), (30, 78)], fill=_BLACK, width=3)         # pack strap
+    d.line([(62, 62), (66, 78)], fill=_BLACK, width=3)
 
 
-def _tu_tank(d, ink):
-    _orect(d, 22, 14, 34, 84)                                  # track L
-    _orect(d, 62, 14, 74, 84)                                  # track R
-    _orect(d, 32, 22, 64, 78)                                  # hull
-    d.ellipse([36, 36, 60, 60], fill=_WHITE, outline=_BLACK)   # turret
-    _orect(d, 45, 4, 51, 40, 2)                                # barrel
+def _tu_tank(d, ink, nat=None):
+    """National silhouettes: Tiger I, T-34, Sherman, Churchill, Chi-Ha."""
+    if nat == 'germany':            # Tiger I: wide, boxy, the long 88
+        _tracks(d, 18, 31, 65, 78, 14, 84)
+        _orect(d, 29, 18, 67, 80)
+        for y in (66, 72):          # engine deck louvres
+            d.line([(33, y), (63, y)], fill=_BLACK, width=2)
+        _turret(d, 48, 44, 13, 40, bw=5, brake=True)
+    elif nat == 'soviet':           # T-34: sloped glacis, round turret
+        _tracks(d, 22, 33, 63, 74, 14, 84)
+        _o(d, [(35, 30), (48, 16), (61, 30), (61, 80), (35, 80)])
+        d.line([(38, 74), (58, 74)], fill=_BLACK, width=2)
+        _turret(d, 48, 44, 11, 34, bw=4)
+    elif nat == 'britain':          # Churchill: long hull, all-round track
+        _tracks(d, 20, 32, 64, 76, 8, 88)
+        _orect(d, 30, 18, 66, 82)
+        for y in (68, 74):
+            d.line([(34, y), (62, y)], fill=_BLACK, width=2)
+        _turret(d, 48, 42, 10, 26, bw=4)
+    elif nat == 'japan':            # Chi-Ha: small, thin gun
+        _tracks(d, 27, 37, 59, 69, 20, 80)
+        _orect(d, 35, 26, 61, 76)
+        _turret(d, 48, 44, 9, 26, bw=3)
+    else:                           # Sherman: tall narrow, round turret
+        _tracks(d, 25, 36, 60, 71, 16, 82)
+        _orect(d, 34, 22, 62, 78)
+        d.line([(38, 70), (58, 70)], fill=_BLACK, width=2)
+        _turret(d, 48, 46, 11, 32, bw=4)
 
 
-def _tu_truck(d, ink, canvas=False):
-    _orect(d, 34, 12, 62, 32)                                  # cab
-    _orect(d, 31, 34, 65, 86)                                  # bed
+def _tu_truck(d, ink, canvas=False, axles=2):
+    _orect(d, 34, 12, 62, 30)                                  # cab
+    d.rectangle([38, 16, 58, 24], fill=_BLACK)                 # windscreen
+    _orect(d, 31, 32, 65, 86)                                  # bed
     if canvas:
-        for y in (44, 54, 64, 74):
+        for y in (42, 52, 62, 72):
             d.line([(33, y), (63, y)], fill=_BLACK, width=2)
     else:
-        d.line([(31, 34), (65, 86)], fill=_BLACK, width=2)
-        d.line([(65, 34), (31, 86)], fill=_BLACK, width=2)
+        d.line([(31, 32), (65, 86)], fill=_BLACK, width=2)
+        d.line([(65, 32), (31, 86)], fill=_BLACK, width=2)
+    for i in range(axles):                                     # wheels
+        y = 40 + i * (38 // max(1, axles - 1))
+        d.rectangle([26, y, 31, y + 10], fill=_BLACK)
+        d.rectangle([65, y, 70, y + 10], fill=_BLACK)
 
 
-def _tu_supply_truck(d, ink):
-    _tu_truck(d, ink, canvas=False)
+def _tu_supply_truck(d, ink, nat=None):
+    _tu_truck(d, ink, canvas=False,
+              axles=3 if nat in ('usa', 'soviet') else 2)
 
 
-def _tu_transport_truck(d, ink):
+def _tu_halftrack(d, ink):
+    """Armoured personnel halftrack: wheels forward, tracks aft."""
+    _o(d, [(34, 10), (62, 10), (66, 30), (66, 84), (30, 84), (30, 30)])
+    d.rectangle([38, 14, 58, 22], fill=_BLACK)
+    d.rectangle([24, 18, 30, 30], fill=_BLACK)                 # front wheels
+    d.rectangle([66, 18, 72, 30], fill=_BLACK)
+    _tracks(d, 24, 30, 66, 72, 38, 82)
+    for y in (44, 56, 68):
+        d.line([(36, y), (60, y)], fill=_BLACK, width=2)       # benches
+
+
+def _tu_transport_truck(d, ink, nat=None):
+    if nat in ('germany', 'usa'):
+        _tu_halftrack(d, ink)
+    elif nat == 'britain':          # Bren carrier: low open tracked box
+        _tracks(d, 22, 32, 64, 74, 24, 78)
+        _orect(d, 30, 28, 66, 74)
+        d.rectangle([36, 34, 60, 44], fill=_BLACK)             # open bay
+        d.line([(36, 56), (60, 56)], fill=_BLACK, width=2)
+    else:
+        _tu_truck(d, ink, canvas=True,
+                  axles=3 if nat == 'soviet' else 2)
+
+
+def _tu_aa(d, ink, nat=None):
+    if nat == 'germany':            # the 88: cruciform mount, one barrel
+        for (p0, p1) in (((30, 44), (66, 64)), ((30, 64), (66, 44))):
+            d.line([p0, p1], fill=_BLACK, width=6)             # outriggers
+        d.ellipse([36, 42, 60, 66], fill=_WHITE, outline=_BLACK)
+        d.line([(48, 54), (48, 6)], fill=_BLACK, width=5)      # long barrel
+        d.rectangle([45, 6, 51, 12], fill=_BLACK)
+    else:
+        d.ellipse([28, 34, 68, 74], fill=_WHITE, outline=_BLACK)
+        d.line([(48, 54), (36, 12)], fill=_BLACK, width=4)     # twin guns
+        d.line([(48, 54), (60, 12)], fill=_BLACK, width=4)
+        _orect(d, 42, 48, 54, 60, 2)
+    d.ellipse([44, 50, 52, 58], fill=_BLACK)
+
+
+def _tu_command(d, ink, nat=None):
     _tu_truck(d, ink, canvas=True)
+    d.ellipse([43, 48, 53, 58], fill=_BLACK)                   # radio mast
+    d.line([(48, 53), (48, 36)], fill=_BLACK, width=2)         # aerial
+    d.polygon([(48, 36), (62, 41), (48, 46)], fill=_BLACK)     # pennant
 
 
-def _tu_aa(d, ink):
-    d.ellipse([28, 34, 68, 74], fill=_WHITE, outline=_BLACK)   # platform
-    d.line([(48, 54), (34, 10)], fill=_BLACK, width=4)         # barrels
-    d.line([(48, 54), (62, 10)], fill=_BLACK, width=4)
-    _orect(d, 42, 48, 54, 60, 2)
-
-
-def _tu_command(d, ink):
-    _orect(d, 34, 12, 62, 32)
-    _orect(d, 31, 34, 65, 86)
-    d.ellipse([43, 50, 53, 60], fill=_BLACK)                   # radio mast
-    d.polygon([(48, 34), (62, 40), (48, 46)], fill=_BLACK)     # pennant
-
-
-def _tu_engineer(d, ink):
-    _orect(d, 34, 12, 62, 32)
-    _orect(d, 31, 34, 65, 86)
-    d.line([(48, 56), (76, 30)], fill=_BLACK, width=4)         # crane
+def _tu_engineer(d, ink, nat=None):
+    _tu_truck(d, ink, canvas=False)
+    d.line([(48, 56), (76, 30)], fill=_BLACK, width=4)         # crane jib
     d.line([(76, 30), (76, 42)], fill=_BLACK, width=3)
+    d.ellipse([73, 42, 79, 48], outline=_BLACK, width=2)       # hook
 
 
-def _tu_naval_command(d, ink):
-    _hull_top(d)
-    _orect(d, 38, 34, 58, 62)                                  # bridge
-    d.ellipse([44, 40, 52, 48], fill=_BLACK)                   # mast
-    d.polygon([(48, 24), (60, 29), (48, 34)], fill=_BLACK)
+# ---- NAVY ----------------------------------------------------------------
+
+def _tu_naval_command(d, ink, nat=None):
+    if nat == 'japan':              # Yamato: massive beam, pagoda mast
+        _hull_top(d, half=15)
+        d.ellipse([40, 24, 56, 40], fill=_WHITE, outline=_BLACK)
+        d.line([(48, 32), (48, 12)], fill=_BLACK, width=6)     # main guns
+        _orect(d, 39, 42, 57, 66)                              # pagoda
+        d.ellipse([44, 48, 52, 56], fill=_BLACK)
+        d.ellipse([41, 66, 55, 80], fill=_WHITE, outline=_BLACK)
+    else:
+        _hull_top(d)
+        _orect(d, 38, 34, 58, 62)                              # bridge
+        d.ellipse([44, 40, 52, 48], fill=_BLACK)               # mast
+        _funnel(d, 48, 68)
+        d.polygon([(48, 24), (60, 29), (48, 34)], fill=_BLACK)
 
 
-def _tu_personnel_transport(d, ink):
+def _tu_personnel_transport(d, ink, nat=None):
     _hull_top(d)
     for y in (32, 46, 60, 74):
         _orect(d, 40, y, 56, y + 8, 2)                         # hatches
+    _funnel(d, 48, 52, r=4)
+    for sx in (36, 60):                                        # boat davits
+        d.line([(sx, 40), (sx, 70)], fill=_BLACK, width=2)
 
 
-def _tu_dd_sea(d, ink):
+def _tu_dd_sea(d, ink, nat=None):
     _hull_top(d, half=11)
-    d.ellipse([41, 26, 55, 40], fill=_WHITE, outline=_BLACK)   # A turret
-    _orect(d, 46, 14, 50, 30, 2)
-    d.ellipse([41, 62, 55, 76], fill=_WHITE, outline=_BLACK)   # X turret
+    d.ellipse([42, 24, 54, 36], fill=_WHITE, outline=_BLACK)   # A turret
+    _orect(d, 46, 12, 50, 28, 2)
+    if nat == 'japan':              # Fubuki: Long Lance tube mounts
+        for y in (46, 56):
+            _orect(d, 43, y, 53, y + 7, 2)
+        _funnel(d, 48, 40, r=4)
+    else:
+        _funnel(d, 48, 44, r=4)
+        _funnel(d, 48, 56, r=4)
+    d.ellipse([42, 64, 54, 76], fill=_WHITE, outline=_BLACK)   # X turret
+    if nat == 'britain':            # Tribal: second forward turret
+        d.ellipse([43, 38, 53, 48], fill=_WHITE, outline=_BLACK)
 
 
-def _tu_dd_aa(d, ink):
+def _tu_dd_aa(d, ink, nat=None):
     _hull_top(d, half=11)
-    d.line([(48, 52), (36, 22)], fill=_BLACK, width=4)
-    d.line([(48, 52), (60, 22)], fill=_BLACK, width=4)
-    _orect(d, 42, 48, 54, 58, 2)
+    d.line([(48, 52), (36, 20)], fill=_BLACK, width=4)         # AA battery
+    d.line([(48, 52), (60, 20)], fill=_BLACK, width=4)
+    d.line([(48, 60), (38, 34)], fill=_BLACK, width=3)
+    d.line([(48, 60), (58, 34)], fill=_BLACK, width=3)
+    _orect(d, 42, 48, 54, 60, 2)
+    _funnel(d, 48, 70, r=4)
 
 
-def _tu_dd_land(d, ink):
-    _hull_top(d, half=11)
-    d.ellipse([39, 24, 57, 42], fill=_WHITE, outline=_BLACK)
-    _orect(d, 45, 10, 51, 30, 2)                               # heavy gun
+def _tu_dd_land(d, ink, nat=None):
+    _hull_top(d, half=12)
+    d.ellipse([39, 22, 57, 40], fill=_WHITE, outline=_BLACK)   # big turret
+    _orect(d, 44, 8, 47, 26, 2)                                # twin heavies
+    _orect(d, 49, 8, 52, 26, 2)
+    _funnel(d, 48, 50, r=4)
+    d.ellipse([41, 60, 55, 74], fill=_WHITE, outline=_BLACK)
 
 
-def _tu_carrier(d, ink):
-    _o(d, [(38, 2), (58, 2), (61, 14), (61, 92), (35, 92), (35, 14)])
-    d.line([(44, 6), (40, 88)], fill=_BLACK, width=2)          # runway
-    d.line([(52, 6), (56, 88)], fill=_BLACK, width=2)
-    _orect(d, 55, 42, 63, 62, 2)                               # island
+def _tu_carrier(d, ink, nat=None):
+    if nat == 'britain':            # Illustrious: armoured, rounded deck
+        _o(d, [(37, 6), (59, 6), (62, 20), (62, 88), (34, 88), (34, 20)])
+        d.rounded_rectangle([38, 10, 58, 84], radius=8, outline=_BLACK,
+                            width=2)
+        _orect(d, 58, 40, 66, 58, 2)                           # island
+    elif nat == 'japan':            # Kido Butai: clean flush deck
+        _o(d, [(38, 2), (58, 2), (61, 14), (61, 92), (35, 92), (35, 14)])
+        d.line([(44, 6), (40, 88)], fill=_BLACK, width=2)
+        d.line([(52, 6), (56, 88)], fill=_BLACK, width=2)
+        _orect(d, 30, 44, 36, 56, 2)                           # port island
+    else:                           # Essex and kin: big starboard island
+        _o(d, [(38, 2), (58, 2), (61, 14), (61, 92), (35, 92), (35, 14)])
+        d.line([(44, 6), (40, 88)], fill=_BLACK, width=2)
+        d.line([(52, 6), (56, 88)], fill=_BLACK, width=2)
+        for y in (18, 30):          # deck park
+            d.line([(40, y), (55, y)], fill=_BLACK, width=2)
+        _orect(d, 55, 38, 64, 64, 2)
 
 
-def _tu_fighter(d, ink):
-    _plane_top(d, span=34, chord=11, fus=6, tail=82, tail_span=13)
-
-
-def _tu_bomber(d, ink):
-    _plane_top(d, span=42, chord=14, fus=8, tail=88, tail_span=18,
-               engines=1)
-
-
-def _tu_air_command(d, ink):
-    _plane_top(d, span=38, chord=12, fus=8, tail=86, tail_span=16)
-    d.polygon([(48, 16), (62, 21), (48, 26)], fill=_BLACK)
-
-
-def _tu_transport_air(d, ink):
-    _plane_top(d, span=44, chord=13, fus=10, tail=84, tail_span=18)
-    for y in (22, 30, 38):
-        d.line([(40, y), (56, y)], fill=_BLACK, width=2)
-
-
-def _tu_supply_ship(d, ink):
+def _tu_supply_ship(d, ink, nat=None):
     _hull_top(d)
-    for y in (34, 52, 70):
-        _orect(d, 39, y, 57, y + 12, 2)
+    for y in (32, 50, 68):
+        _orect(d, 39, y, 57, y + 12, 2)                        # holds
         d.line([(39, y), (57, y + 12)], fill=_BLACK, width=2)
+    d.line([(48, 26), (48, 84)], fill=_BLACK, width=2)         # derrick run
+
+
+# ---- AIR FORCE -----------------------------------------------------------
+
+def _fuselage(d, fus, nose, tail, canopy_y=30):
+    cx = 48
+    _orect(d, cx - fus, nose, cx + fus, tail)
+    d.ellipse([cx - fus - 1, nose - 6, cx + fus + 1, nose + 8],
+              fill=_WHITE, outline=_BLACK)                     # cowl
+    d.ellipse([cx - 3, nose - 3, cx + 3, nose + 3], fill=_BLACK)
+    d.ellipse([cx - 4, canopy_y, cx + 4, canopy_y + 12],
+              fill=_BLACK)                                     # canopy
+
+
+def _tailplane(d, tail, span, rounded=False):
+    cx = 48
+    if rounded:
+        d.ellipse([cx - span, tail - 12, cx + span, tail],
+                  fill=_WHITE, outline=_BLACK)
+    else:
+        _orect(d, cx - span, tail - 10, cx + span, tail - 2)
+
+
+def _tu_fighter(d, ink, nat=None):
+    cx = 48
+    if nat == 'britain':            # Spitfire: the elliptical wing
+        _fuselage(d, 6, 10, 80)
+        d.ellipse([cx - 38, 34, cx + 38, 54], fill=_WHITE,
+                  outline=_BLACK, width=3)
+        _tailplane(d, 82, 12, rounded=True)
+    elif nat == 'germany':          # Bf 109: slim, square-cut wings
+        _fuselage(d, 5, 10, 82)
+        _o(d, [(cx - 36, 36), (cx + 36, 36), (cx + 32, 50),
+               (cx - 32, 50)])
+        _tailplane(d, 84, 11)
+    elif nat == 'japan':            # Zero: broad rounded span
+        _fuselage(d, 6, 8, 80)
+        d.rounded_rectangle([cx - 41, 34, cx + 41, 52], radius=9,
+                            fill=_WHITE, outline=_BLACK, width=3)
+        _tailplane(d, 82, 13, rounded=True)
+    elif nat == 'soviet':           # Yak-3: short and stubby
+        _fuselage(d, 6, 12, 78)
+        _o(d, [(cx - 29, 36), (cx + 29, 36), (cx + 24, 52),
+               (cx - 24, 52)])
+        _tailplane(d, 80, 11)
+    else:                           # Mustang: laminar taper
+        _fuselage(d, 6, 10, 82)
+        _o(d, [(cx - 37, 36), (cx + 37, 36), (cx + 28, 52),
+               (cx - 28, 52)])
+        _tailplane(d, 84, 12)
+
+
+def _tu_bomber(d, ink, nat=None):
+    cx = 48
+    if nat in ('usa', 'britain'):   # four-engined heavies
+        _fuselage(d, 7, 8, 90, canopy_y=24)
+        _o(d, [(cx - 44, 34), (cx + 44, 34), (cx + 38, 50), (cx - 38, 50)])
+        for sx in (-30, -16, 16, 30):
+            _orect(d, cx + sx - 4, 28, cx + sx + 4, 54, 2)
+        if nat == 'britain':        # Lancaster twin fins
+            _orect(d, cx - 20, 78, cx + 20, 84, 2)
+            d.rectangle([cx - 22, 74, cx - 16, 88], fill=_BLACK)
+            d.rectangle([cx + 16, 74, cx + 22, 88], fill=_BLACK)
+        else:                       # B-17 broad single fin
+            _tailplane(d, 90, 18)
+            d.polygon([(cx - 3, 74), (cx + 8, 88), (cx - 3, 88)],
+                      fill=_BLACK)
+    elif nat == 'soviet':           # Il-2: single engine, hunched canopy
+        _fuselage(d, 7, 10, 84, canopy_y=32)
+        _o(d, [(cx - 36, 38), (cx + 36, 38), (cx + 28, 54), (cx - 28, 54)])
+        d.ellipse([cx - 4, 44, cx + 4, 54], fill=_BLACK)       # gunner
+        _tailplane(d, 86, 14)
+    else:                           # Ju 88 / G4M: twin-engined mediums
+        _fuselage(d, 7, 10, 86, canopy_y=22)
+        _o(d, [(cx - 42, 36), (cx + 42, 36), (cx + 34, 52), (cx - 34, 52)])
+        for sx in (-20, 20):
+            _orect(d, cx + sx - 5, 30, cx + sx + 5, 56, 2)
+        if nat == 'japan':          # glazed round nose
+            d.ellipse([cx - 6, 6, cx + 6, 18], outline=_BLACK, width=2)
+        _tailplane(d, 88, 16)
+
+
+def _tu_air_command(d, ink, nat=None):
+    _tu_bomber(d, ink, nat)
+    d.polygon([(48, 14), (63, 19), (48, 24)], fill=_BLACK)     # command flash
+
+
+def _tu_transport_air(d, ink, nat=None):
+    cx = 48
+    _fuselage(d, 10, 10, 84, canopy_y=20)
+    _o(d, [(cx - 44, 36), (cx + 44, 36), (cx + 36, 52), (cx - 36, 52)])
+    for sx in (-24, 24):
+        _orect(d, cx + sx - 4, 30, cx + sx + 4, 54, 2)
+    for y in (24, 32, 40):          # cabin windows
+        d.line([(cx - 8, y), (cx + 8, y)], fill=_BLACK, width=2)
+    _tailplane(d, 86, 16)
 
 
 _TOP_DOWN = {
@@ -558,19 +803,22 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 5   # bump when drawings change to invalidate the cache
+ICON_VERSION = 6   # bump when drawings change to invalidate the cache
 
 
-def get_icon_path(unit_type, variant='dark'):
-    """Path to the icon PNG, generating it on first request."""
+def get_icon_path(unit_type, variant='dark', nation=None):
+    """Path to the icon PNG, generating it on first request. Top-down
+    unit sprites vary by nation (each power fields its own marks)."""
     os.makedirs(ICON_DIR, exist_ok=True)
+    tag = ("%s@%s" % (unit_type, nation)
+           if (nation and variant == 'unit') else unit_type)
     path = os.path.join(ICON_DIR, "%s_%s_v%d.png"
-                        % (unit_type, variant, ICON_VERSION))
+                        % (tag, variant, ICON_VERSION))
     if not os.path.exists(path):
         img = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
         if variant == 'unit':
-            _TOP_DOWN.get(unit_type, _tu_infantry)(d, _WHITE)
+            _TOP_DOWN.get(unit_type, _tu_infantry)(d, _WHITE, nation)
         else:
             ink = _INKS.get(variant, INK_DARK)
             _DRAWERS.get(unit_type, _draw_infantry)(d, ink)

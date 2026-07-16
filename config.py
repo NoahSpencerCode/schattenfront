@@ -52,7 +52,7 @@ VISION_SCALE = 0.1            # fog-of-war ranges are 1/10 of the base stat
 AIR_VISION_MULT = 3.0         # aircraft see 3x further than land/sea
 NIGHT_VISION_FACTOR = 0.5     # night halves it again
 CITY_VISION_RANGE = 0.2       # garrison observers around friendly cities
-COMM_RADIUS_FACTOR = 5.0      # comm radius = 5x the raw vision stat
+COMM_RADIUS_FACTOR = 2.5      # comm radius = 2.5x the raw vision stat
 CITY_COMM_RADIUS = 1.25       # friendly cities carry the land-line network
 SUPPLY_TRANSFER_RANGE = 0.3   # trucks/ships hand over within this floor
 # outside friendly vision the map is darker and drained of colour

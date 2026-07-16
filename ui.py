@@ -60,7 +60,7 @@ class TopBar:
         ('SPEED', 1.18, TextNode.ACenter),
     ]
 
-    def __init__(self, base, on_budget):
+    def __init__(self, base, on_budget, on_factory=None):
         self.base = base
         self.frame = DirectFrame(parent=base.a2dTopCenter,
                                  frameColor=BAR_BG,
@@ -82,9 +82,28 @@ class TopBar:
             text_scale=0.036, text_fg=INK,
             text_font=base.hud_font,
             frameColor=BTN_PAPER,
-            frameSize=(-0.22, 0.22, -0.030, 0.044),
+            frameSize=(-0.19, 0.19, -0.030, 0.044),
             relief=DGG.FLAT, command=on_budget,
-            pos=(1.52, 0, -0.090))
+            pos=(1.49, 0, -0.075))
+        # war-industries report, beside the budget
+        self.factory_btn = DirectButton(
+            parent=self.frame,
+            image=get_icon_path('factory_button', 'dark'),
+            image_scale=0.042, relief=None,
+            frameColor=(0, 0, 0, 0),
+            frameSize=(-0.045, 0.045, -0.045, 0.045),
+            pos=(1.76, 0, -0.062), command=on_factory)
+        self.factory_btn.setTransparency(True)
+        # fourteen dots: the days of the running fortnight
+        self.day_dots = []
+        for i in range(14):
+            x = 1.49 - 0.169 + i * 0.026
+            dot = DirectFrame(parent=self.frame,
+                              frameColor=(0.32, 0.30, 0.26, 1.0),
+                              frameSize=(-0.008, 0.008, -0.008, 0.008),
+                              pos=(x, 0, -0.132))
+            self.day_dots.append(dot)
+        self._fortnight_day = 0
 
     def set_stats(self, stats):
         """stats: dict keyed by column title."""
@@ -94,6 +113,17 @@ class TopBar:
 
     def set_budget_label(self, label):
         self.budget_btn['text'] = label
+
+    def set_fortnight_day(self, day):
+        """Fill one dot per elapsed day of the fortnight (1..14)."""
+        if day == self._fortnight_day:
+            return
+        self._fortnight_day = day
+        for i, dot in enumerate(self.day_dots):
+            if i < day:
+                dot['frameColor'] = (0.88, 0.80, 0.56, 1.0)
+            else:
+                dot['frameColor'] = (0.32, 0.30, 0.26, 1.0)
 
     def destroy(self):
         self.frame.destroy()
@@ -344,7 +374,7 @@ class BudgetFax:
     TRANSMITs (locking the budget for two weeks) or DISCARDs."""
 
     def __init__(self, base, game, funds, unit_types, has_harbor,
-                 on_transmit, on_discard):
+                 on_transmit, on_discard, initial=None):
         self.base = base
         self.game = game
         self.funds = int(funds)
@@ -353,6 +383,10 @@ class BudgetFax:
         self.on_transmit = on_transmit
         self.on_discard = on_discard
         self.counts = {ut: 0 for ut in unit_types}
+        if initial:                     # seed with the standing budget
+            for ut, n in initial.items():
+                if ut in self.counts:
+                    self.counts[ut] = int(n)
         self.qty_tns = {}
 
         f = base.hud_font
@@ -404,7 +438,7 @@ class BudgetFax:
                          extraArgs=[ut, -1], pos=(x + 0.815, 0, y))
             tn, _ = _make_text(self.frame, f, (x + 0.885, y), 0.032, INK,
                                TextNode.ACenter)
-            tn.setText("0")
+            tn.setText(str(self.counts.get(ut, 0)))
             self.qty_tns[ut] = tn
             DirectButton(parent=self.frame, text="+", text_scale=0.040,
                          text_fg=INK, text_font=f, frameColor=BTN_PAPER,

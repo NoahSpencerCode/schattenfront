@@ -142,6 +142,12 @@ uniform vec3 sun_dir;
 uniform float night_darkness;
 uniform vec4 vision[%(nvis)d];    // xyz = centre dir, w = cos(radius)
 uniform int vision_count;
+// wireless net: xyz = centre dir, w = cos(radius); the outline drawn is
+// the PERIMETER OF THE UNION -- arcs inside another circle are negated
+uniform vec4 comm[%(nvis)d];
+uniform int comm_count;
+uniform float comm_cos_eps;       // cos/sin of the outline half-width
+uniform float comm_sin_eps;
 uniform float fog_brightness;
 uniform float fog_saturation;
 varying vec2 uv;
@@ -163,6 +169,22 @@ void main() {
     if (!seen) {
         float g = dot(c, vec3(0.299, 0.587, 0.114));
         c = mix(vec3(g), c, fog_saturation) * fog_brightness;
+    }
+    // merged comm-area outline
+    bool near_edge = false;
+    bool inside = false;
+    for (int i = 0; i < %(nvis)d; i++) {
+        if (i >= comm_count) break;
+        float w = comm[i].w;
+        float s = sqrt(max(0.0, 1.0 - w * w));
+        float c_in  = w * comm_cos_eps + s * comm_sin_eps;  // cos(r-eps)
+        float c_out = w * comm_cos_eps - s * comm_sin_eps;  // cos(r+eps)
+        float dc = dot(nrm, comm[i].xyz);
+        if (dc > c_in) { inside = true; break; }
+        if (dc >= c_out) near_edge = true;
+    }
+    if (near_edge && !inside) {
+        c = mix(c, vec3(0.18, 0.14, 0.10), 0.7);   // staff-map ink line
     }
     gl_FragColor = vec4(c, 1.0);
 }
@@ -194,10 +216,16 @@ class Globe:
         # inherits them too
         from panda3d.core import PTA_LVecBase4f, Vec4
         self._vision_pta = PTA_LVecBase4f.emptyArray(MAX_VISION_SOURCES)
+        self._comm_pta = PTA_LVecBase4f.emptyArray(MAX_VISION_SOURCES)
         self.root.setShaderInput('sun_dir', Vec3(1, 0, 0))
         self.root.setShaderInput('night_darkness', NIGHT_DARKNESS)
         self.root.setShaderInput('vision', self._vision_pta)
         self.root.setShaderInput('vision_count', 0)
+        self.root.setShaderInput('comm', self._comm_pta)
+        self.root.setShaderInput('comm_count', 0)
+        eps = 0.0015                    # outline half-width, radians
+        self.root.setShaderInput('comm_cos_eps', math.cos(eps))
+        self.root.setShaderInput('comm_sin_eps', math.sin(eps))
         self.root.setShaderInput('fog_brightness', FOG_BRIGHTNESS)
         self.root.setShaderInput('fog_saturation', FOG_SATURATION)
 
@@ -218,6 +246,25 @@ class Globe:
                 i, Vec4(pos.x, pos.y, pos.z,
                         math.cos(radius / GLOBE_RADIUS)))
         self.root.setShaderInput('vision_count', n)
+
+    def set_comm(self, entries):
+        """entries: [(unit_vec, radius_world_units), ...] — the shader
+        draws only the union perimeter of these circles."""
+        from panda3d.core import Vec4
+        n = min(len(entries), MAX_VISION_SOURCES)
+        for i in range(n):
+            pos, radius = entries[i]
+            self._comm_pta.setElement(
+                i, Vec4(pos.x, pos.y, pos.z,
+                        math.cos(radius / GLOBE_RADIUS)))
+        self.root.setShaderInput('comm_count', n)
+
+    def set_comm_width(self, alt):
+        """Scale the outline half-width with camera altitude so the ink
+        line stays a few pixels wide at every zoom."""
+        eps = max(0.00015, min(0.004, 0.00009 * alt))
+        self.root.setShaderInput('comm_cos_eps', math.cos(eps))
+        self.root.setShaderInput('comm_sin_eps', math.sin(eps))
 
     # -------------------------------------------------------- country labels
     def _make_country_labels(self):

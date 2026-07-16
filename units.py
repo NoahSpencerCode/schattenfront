@@ -499,7 +499,7 @@ class Unit:
         # the unit IS its pictogram: a faction-tinted top-down sprite
         # that turns to face its direction of travel
         self.counter = make_icon_quad(g.loader, self.unit_type, 'unit',
-                                      half=1.0)
+                                      half=1.0, nation=self.country)
         self.counter.setColorScale(color[0], color[1], color[2], 1.0)
         self.counter.reparentTo(self.holder)
         set_marker_layer(self.counter, base + 2)
@@ -513,16 +513,9 @@ class Unit:
         set_marker_layer(self.sel_ring, base + 3)
         self.sel_ring.hide()
 
-        # true-scale range decals (hidden for enemy units); the vision
-        # field itself is drawn by the globe's fog shader
+        # range decals (hidden for enemy units); the vision field and the
+        # merged comm-net outline are both drawn by the globe shader
         self.decals = self.root.attachNewNode('decals')
-        self.comm_ring = None
-        if self.stats.get('comm'):
-            ang_comm = (self.stats['vision'] / GLOBE_RADIUS *
-                        COMM_RADIUS_FACTOR)
-            self.comm_ring = make_surface_ring(
-                self.decals, GLOBE_RADIUS, ang_comm,
-                (1.0, 1.0, 1.0, 0.55), thickness=1.5, segments=96)
 
         # count badge: carriers show their air wing, transports their
         # embarked passengers
@@ -641,6 +634,7 @@ class Unit:
         if not queue:
             self.clear_orders()
         self.order_queue.append(order)
+        self.game.on_order_given(self, order, queue)
 
     def is_air(self):
         return self.stats['domain'] == 'air'

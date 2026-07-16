@@ -142,24 +142,28 @@ def make_flat_disc(name, radius, color, segments=24):
     return NodePath(gn)
 
 
-def _icon_texture(loader, name, variant):
-    key = (name, variant)
+def _icon_texture(loader, name, variant, nation=None):
+    key = (name, variant, nation)
     tex = _icon_tex_cache.get(key)
     if tex is None:
-        tex = loader.loadTexture(get_icon_path(name, variant))
+        tex = loader.loadTexture(get_icon_path(name, variant,
+                                               nation=nation))
         tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
         tex.setMagfilter(SamplerState.FTLinear)
         _icon_tex_cache[key] = tex
     return tex
 
 
-def make_icon_quad(loader, name, variant, half=0.55, depth=7):
-    """Flat textured square carrying one of the generated pictograms."""
+def make_icon_quad(loader, name, variant, half=0.55, depth=7,
+                   nation=None, flat=True):
+    """Textured square carrying one of the generated pictograms; flat
+    lies on the map, flat=False leaves it upright for billboarding."""
     cm = CardMaker('icon_' + name)
     cm.setFrame(-half, half, -half, half)
     icon = NodePath(cm.generate())
-    icon.setP(-90)              # lay the card flat into the XY plane
-    icon.setTexture(_icon_texture(loader, name, variant))
+    if flat:
+        icon.setP(-90)          # lay the card flat into the XY plane
+    icon.setTexture(_icon_texture(loader, name, variant, nation))
     icon.setTransparency(TransparencyAttrib.MAlpha)
     icon.setDepthOffset(depth)
     return icon
@@ -202,16 +206,16 @@ def make_city_marker(loader, faction_color, capital):
 
 
 def make_bridge_marker(loader):
-    """A recognisable bridge pictogram at river scale: deck, flared
-    abutments, and cross-girders (+Y = road direction)."""
+    """A bridge pictogram at river scale, upright for billboarding
+    (20%% smaller than the old flat marker)."""
     root = NodePath('bridge_marker')
     cm = CardMaker('bridge_icon')
-    cm.setFrame(-0.013, 0.013, -0.021, 0.021)
+    cm.setFrame(-0.0104, 0.0104, -0.0168, 0.0168)
     icon = root.attachNewNode(cm.generate())
-    icon.setP(-90)
     icon.setTexture(_icon_texture(loader, 'bridge_map', 'dark'))
     icon.setTransparency(TransparencyAttrib.MAlpha)
     set_marker_layer(icon, LAYER_BRIDGE)
+    root.setBillboardPointEye()
     root.setLightOff()
     return root
 

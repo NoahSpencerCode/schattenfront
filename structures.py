@@ -22,10 +22,14 @@ SORTIE_COST = 600.0             # lbs per aircraft takeoff
 
 
 class Structure:
-    """Base: a flat icon marker on the surface, owned by a faction."""
+    """Base: an icon marker on the surface, owned by a faction. The
+    pictogram is a BILLBOARD at a fixed world size: it faces the camera
+    and never rescales with zoom."""
 
     ICON = 'depot'
     SEL_RING = 1.6
+    FIXED_SCALE = 0.06          # world size, constant across zoom
+    ICON_ROLL = 0.0             # per-instance roll, set by subclasses
 
     def __init__(self, game, lat, lon, country, name):
         self.game = game
@@ -39,6 +43,11 @@ class Structure:
         orient_to_surface(self.root, self.pos)
         self.holder = self.root.attachNewNode('holder')
         self.holder.setPos(0, 0, GLOBE_RADIUS * LIFT_GROUND)
+        self.holder.setScale(self.FIXED_SCALE)
+        # billboard carrier: only the pictogram turns to the camera; the
+        # selection ring and badges stay flat on the map
+        self.bb = self.holder.attachNewNode('bb')
+        self.bb.setBillboardPointEye()
         self.marker = None
         self.sel_ring = make_flat_ring('ssel', self.SEL_RING,
                                        (1.0, 0.9, 0.3, 0.95),
@@ -48,19 +57,24 @@ class Structure:
         self.sel_ring.hide()
         self.refresh_marker()
 
+    TINT = 1.0                  # 1 = full owner tint, lower = muted
+
     def refresh_marker(self):
         if self.marker:
             self.marker.removeNode()
         c = COUNTRIES[self.country]['color']
         self.marker = make_icon_quad(self.game.loader, self.ICON, 'dark',
-                                     half=1.05, depth=5)
-        self.marker.setColorScale(c[0], c[1], c[2], 1.0)
-        self.marker.reparentTo(self.holder)
+                                     half=1.05, depth=5, flat=False)
+        t = self.TINT
+        self.marker.setColorScale(1 - t + t * c[0], 1 - t + t * c[1],
+                                  1 - t + t * c[2], 1.0)
+        self.marker.setR(self.ICON_ROLL)
+        self.marker.reparentTo(self.bb)
         self.marker.setLightOff()
         set_marker_layer(self.marker, LAYER_STRUCT)
 
     def set_marker_scale(self, scale):
-        self.holder.setScale(scale)
+        pass                    # structures keep their fixed size
 
     def cleanup(self):
         self.root.removeNode()
@@ -70,12 +84,18 @@ class Airfield(Structure):
     """Aircraft park here (hidden); sorties draw on the supply stock."""
 
     ICON = 'airfield'
+    FIXED_SCALE = 0.07          # an aerodrome reads bigger than a depot
+    TINT = 0.35                 # keep the concrete legible; owner shows
+                                # in the badge and selection UI
 
     def __init__(self, game, lat, lon, country, name, city=None):
         self.city = city                # linked city, if beside one
         self.stock = AIRFIELD_STOCK_CAP
         self.hp = AIRFIELD_HP
         self.max_hp = AIRFIELD_HP
+        # every field is laid out on its own compass bearing
+        import zlib as _zlib
+        self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
         Structure.__init__(self, game, lat, lon, country, name)
 
         # parked-aircraft badge (plane pictogram + count)

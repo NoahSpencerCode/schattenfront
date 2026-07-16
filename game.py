@@ -23,7 +23,8 @@ from direct.task import Task
 from panda3d.core import (AmbientLight, CardMaker, DirectionalLight,
                           KeyboardButton, LineSegs, Point2, Point3,
                           SamplerState, TextNode, TextProperties,
-                          TextPropertiesManager, Vec3, Vec4)
+                          TextPropertiesManager, TransparencyAttrib,
+                          Vec3, Vec4)
 
 from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL, AI_WAVE_INTERVAL,
                     BRIDGE_HP, BRIDGE_REPAIR_RATE, BUDGET_PERIOD_DAYS,
@@ -109,12 +110,15 @@ class City:
         if game.map_font:
             tn.setFont(game.map_font)
         self.label_tn = tn
-        self.label_pos = latlon_to_vec(lat - 0.42, lon)
+        # the name sits directly over the town, half transparent, flat
+        # on the map (never billboarded) at a fixed map size
+        self.label_pos = latlon_to_vec(lat, lon)
         self.label = game.render.attachNewNode(tn)
         self.label.setPos(self.label_pos * (GLOBE_RADIUS * LIFT_GROUND))
         self.label.lookAt(Point3(0, 0, 0), Vec3(0, 0, 1))
-        self.label.setScale(0.11)
+        self.label.setScale(0.05)       # fixed map size at every zoom
         self.label.setLightOff()
+        self.label.setTransparency(TransparencyAttrib.MAlpha)
         set_marker_layer(self.label, LAYER_STRUCT + 4)
         self.refresh_marker()
 
@@ -124,9 +128,9 @@ class City:
         c = COUNTRIES[self.country]['color']
         self.label_tn.setTextColor(min(1.0, c[0] * 1.5 + 0.25),
                                    min(1.0, c[1] * 1.5 + 0.25),
-                                   min(1.0, c[2] * 1.5 + 0.25), 1.0)
+                                   min(1.0, c[2] * 1.5 + 0.25), 0.5)
         self.label_tn.setShadow(0.05, 0.05)
-        self.label_tn.setShadowColor(0.08, 0.07, 0.05, 1.0)
+        self.label_tn.setShadowColor(0.08, 0.07, 0.05, 0.5)
 
     def set_marker_scale(self, scale):
         self.holder.setScale(scale)
@@ -210,15 +214,15 @@ class WW2RTSGame(ShowBase):
         self.setBackgroundColor(0.04, 0.05, 0.08)
         self.camLens.setNearFar(0.05, 500.0)
 
-        # open fully expanded, and hide the OS pointer -- we draw our own
-        # software cursor (a wing compass / attack / embark symbol)
+        # open fully expanded; the OS pointer stays visible by default --
+        # the software cursor sprite only appears for the special modes
+        # (attack / embark / disembark)
         if self.win is not None:
             try:
                 from panda3d.core import WindowProperties
                 wp = WindowProperties()
                 if hasattr(wp, 'setMaximized'):
                     wp.setMaximized(True)
-                wp.setCursorHidden(True)
                 self.win.requestProperties(wp)
             except Exception:
                 pass
@@ -287,6 +291,8 @@ class WW2RTSGame(ShowBase):
         self.losses = 0
         self.out_of_contact = 0
         self.budget_lock_until = None
+        self.budget_counts = {}         # the standing fortnight budget
+        self.fortnight_start = 0.0
         self.budget_fax = None
         self.briefing_fax = None
 
@@ -341,6 +347,8 @@ class WW2RTSGame(ShowBase):
         self._plan_results = []
         self._plan_seq = 0
         self._pending_plans = 0
+        self._preplans = {}         # token -> queued order awaiting route
+        self._ind_tokens = set()    # plans the player is waiting on
         self._plan_worker = threading.Thread(target=self._plan_loop,
                                              daemon=True)
         self._plan_worker.start()
@@ -434,6 +442,8 @@ class WW2RTSGame(ShowBase):
         self.budget_fax = None
         self.briefing_fax = None
         self.budget_lock_until = None
+        self.budget_counts = {}
+        self.fortnight_start = 0.0
         if self.pause_frame:
             self.pause_frame.destroy()
             self.pause_frame = None
@@ -458,45 +468,73 @@ class WW2RTSGame(ShowBase):
         self._vision_units = []
         self._vision_cities = []
         self._last_click = (0.0, None)
+        self._preplans = {}
+        self._ind_tokens = set()
         if self.hover_glow:
             self.hover_glow.hide()
             self.hover_glow.detachNode()
         self._set_cursor_mode('default')
 
-    def _loading_flash(self, text):
-        """Force a frame so the player sees progress during world build."""
-        tn = TextNode('loading')
-        tn.setText(text)
-        tn.setAlign(TextNode.ACenter)
-        if self.hud_font:
-            tn.setFont(self.hud_font)
-        tn.setTextColor(0.9, 0.87, 0.7, 1)
-        np_ = self.aspect2d.attachNewNode(tn)
-        np_.setScale(0.06)
-        np_.setPos(0, 0, -0.75)
-        for _ in range(2):
-            self.graphicsEngine.renderFrame()
-        return np_
+    def _loading_screen(self):
+        """Full-screen mobilization card shown while the world builds.
+        Returns (root_node, set_status) -- set_status(text) updates the
+        progress line and forces a frame so the player sees it."""
+        from direct.gui.DirectGui import DirectFrame
+        root = self.aspect2d.attachNewNode('loading_screen')
+        card = DirectFrame(parent=root, frameColor=(0.05, 0.06, 0.08, 1.0),
+                           frameSize=(-3.6, 3.6, -1.2, 1.2))
+        card.setBin('gui-popup', 90)
+
+        def text(t, z, scale, color):
+            tn = TextNode('loading')
+            tn.setText(t)
+            tn.setAlign(TextNode.ACenter)
+            if self.hud_font:
+                tn.setFont(self.hud_font)
+            tn.setTextColor(*color)
+            np_ = root.attachNewNode(tn)
+            np_.setScale(scale)
+            np_.setPos(0, 0, z)
+            np_.setBin('gui-popup', 91)
+            return tn
+
+        text("SCHATTENFRONT", 0.30, 0.14, (0.92, 0.87, 0.70, 1.0))
+        text("++ MOBILIZATION IN PROGRESS ++", 0.14, 0.05,
+             (0.70, 0.66, 0.55, 1.0))
+        status_tn = text("DRAWING UP MAPS...", -0.10, 0.045,
+                         (0.62, 0.58, 0.48, 1.0))
+        text("THE GENERAL STAFF THANKS YOU FOR YOUR PATIENCE",
+             -0.85, 0.032, (0.45, 0.42, 0.35, 1.0))
+
+        def set_status(t):
+            status_tn.setText(str(t).upper())
+            for _ in range(2):
+                self.graphicsEngine.renderFrame()
+
+        set_status("DRAWING UP MAPS...")
+        return root, set_status
 
     def start_game(self, country):
-        loading = self._loading_flash(
-            "MOBILIZING...  DRAWING UP MAPS AND MUSTERING FORCES")
+        loading, progress = self._loading_screen()
         if self.world is None:
-            self.world = WorldData()
+            self.world = WorldData(log=progress)
         if self.menu:
             self.menu.destroy()
             self.menu = None
         self.game_state = 'playing'
         self.player_country = country
 
+        progress("PAINTING THE OPERATIONS GLOBE...")
         self.globe = Globe(self, self.world)
         self.bridges = [Bridge(self, info, i)
                         for i, info in enumerate(self.world.bridges)]
         self.planner = MovementPlanner(self.world, self.bridges)
-        # build the route graphs now, behind the loading card, instead of
-        # hitching on the first movement order
+        # build the route graphs now, behind the loading screen, instead
+        # of hitching on the first movement order
+        progress("PLOTTING ROADS AND SEA LANES...")
         self.planner._build_land_graph()
         self.planner._build_sea_grid()
+        progress("RAISING THE ARMIES...")
         self.cities = [City(self, i, n, c, la, lo)
                        for i, (n, c, la, lo) in enumerate(self.world.cities)]
         # an airfield beside every city, sited on a random bearing (but
@@ -543,18 +581,26 @@ class WW2RTSGame(ShowBase):
         self.cam_dist = self.cam_dist_target = 55.0
         self._scale_ref_dist = 0.0      # force a marker-scale pass
 
-        self.top_bar = TopBar(self, self.open_budget)
+        self.top_bar = TopBar(self, self.open_budget,
+                              self.open_factory_report)
         self.bottom_bar = BottomBar(self)
         self.bottom_bar.set_title("ALL QUIET")
         self.bottom_bar.set_hint(CONTROLS_HINT)
         self.fax = FaxPanel(self)
         self.fax.post(
             "ASSUMPTION OF COMMAND",
-            "You command the %s forces. Treasury %s. Press %s to set "
-            "the fortnight budget. Good hunting." %
-            (B(COUNTRIES[country]['adjective']),
-             B("$%d" % STARTING_FUNDS), B("[B]")),
+            "You command the %s forces. The first fortnight budget is "
+            "already committed. Press %s to amend the next one. "
+            "Good hunting." %
+            (B(COUNTRIES[country]['adjective']), B("[B]")),
             sender="WAR OFFICE")
+
+        # the first fortnight budget is in effect from the opening gun:
+        # the treasury maxed out, split equally across the order of battle
+        self.fortnight_start = 0.0
+        self.budget_counts = self._default_budget_counts(
+            country, self.funds[country])
+        self._apply_fortnight_budget()
 
         loading.removeNode()
         self._bind_game_controls()
@@ -718,29 +764,72 @@ class WW2RTSGame(ShowBase):
         self.game_speed = speeds[max(0, min(len(speeds) - 1, i + direction))]
 
     # ====================================================== the budget
-    def budget_days_left(self):
-        if self.budget_lock_until is None:
-            return 0
-        left = self.budget_lock_until - self.clock_minutes
-        return max(0, int(math.ceil(left / 1440.0)))
+    def fortnight_day(self):
+        """Which day of the running fortnight we are on, 1..14."""
+        d = int((self.clock_minutes - self.fortnight_start) / 1440.0) + 1
+        return max(1, min(BUDGET_PERIOD_DAYS, d))
+
+    def _default_budget_counts(self, country, funds):
+        """The opening appropriation: the treasury maxed out, divided
+        equally across every unit type on the books."""
+        has_harbor = any(c.harbor and c.country == country
+                         for c in self.cities)
+        types = [ut for ut in NATION_UNIT_STATS[country]
+                 if UNIT_TYPES[ut]['domain'] != 'sea' or has_harbor]
+        counts = {ut: 0 for ut in types}
+        share = funds / max(1, len(types))
+        spent = 0
+        for ut in types:
+            cost = stats_for(ut, country)['cost']
+            counts[ut] = int(share // cost)
+            spent += counts[ut] * cost
+        # spend the remainder on the cheapest lines: the budget maxes out
+        rest = funds - spent
+        for ut in sorted(types, key=lambda t: stats_for(t, country)['cost']):
+            cost = stats_for(ut, country)['cost']
+            n = int(rest // cost)
+            if n > 0:
+                counts[ut] += n
+                rest -= n * cost
+        return counts
+
+    def _apply_fortnight_budget(self):
+        """Fortnight opens: the standing budget (last transmitted, or the
+        default) is executed against whatever the treasury holds."""
+        country = self.player_country
+        counts = dict(self.budget_counts)
+        buy = {}
+        spent = 0
+        for ut, n in counts.items():
+            cost = stats_for(ut, country)['cost']
+            for _ in range(n):
+                if self.funds[country] - spent < cost:
+                    break
+                buy[ut] = buy.get(ut, 0) + 1
+                spent += cost
+        if spent <= 0:
+            return
+        self.funds[country] -= spent
+        self._distribute_production(country, buy)
+        lines = ", ".join("%dx %s" % (n, UNIT_TYPES[ut]['icon'])
+                          for ut, n in buy.items() if n > 0)
+        self.fax.post(
+            "FORTNIGHT APPROPRIATION",
+            "The standing budget is executed: %s committed. %s. Amend "
+            "the budget any time -- it takes effect next fortnight." %
+            (B("$%d" % spent), lines),
+            sender="EXCHEQUER")
 
     def open_budget(self):
         if self.game_state != 'playing' or self.budget_fax:
-            return
-        days = self.budget_days_left()
-        if days > 0:
-            self.fax.post(
-                "BUDGET REFUSED",
-                "The appropriation stands %s more. Commitments must be "
-                "honoured." % B("%d DAY(S)" % days),
-                sender="EXCHEQUER")
             return
         has_harbor = any(c.harbor and c.country == self.player_country
                          for c in self.cities)
         self.budget_fax = BudgetFax(
             self, self, self.funds[self.player_country],
             NATION_UNIT_STATS[self.player_country],
-            has_harbor, self._budget_transmit, self._budget_discard)
+            has_harbor, self._budget_transmit, self._budget_discard,
+            initial=self.budget_counts)
 
     def _budget_discard(self):
         if self.budget_fax:
@@ -755,21 +844,46 @@ class WW2RTSGame(ShowBase):
         self.budget_fax.destroy()
         self.budget_fax = None
         if n_units == 0:
-            self.fax_short("NOTHING ALLOCATED -- MANIFEST DISCARDED")
+            self.fax_short("NOTHING ALLOCATED -- MANIFEST UNCHANGED")
             return
-        if total > self.funds[self.player_country]:
-            return      # UI guards against this
-        self.funds[self.player_country] -= total
-        self._distribute_production(self.player_country, counts)
-        self.budget_lock_until = (self.clock_minutes +
-                                  BUDGET_PERIOD_DAYS * 1440.0)
-        lines = ", ".join("%dx %s" % (n, UNIT_TYPES[ut]['icon'])
-                          for ut, n in counts.items() if n > 0)
+        self.budget_counts = dict(counts)
         self.fax.post(
             "BUDGET TRANSMITTED",
-            "%s committed: %s. Locked for %s." %
-            (B("$%d" % total), lines, B("%d DAYS" % BUDGET_PERIOD_DAYS)),
+            "%s allocated. The new appropriation takes effect when the "
+            "next fortnight begins; until then the current one stands." %
+            B("$%d" % total),
             sender="EXCHEQUER")
+
+    def open_factory_report(self):
+        """The war-industries FAX: every production line, per city."""
+        if self.game_state != 'playing' or self.briefing_fax:
+            return
+        lines = []
+        total = 0
+        for c in self.cities:
+            if c.country != self.player_country or not c.production:
+                continue
+            lines.append("#%s" % c.name.upper())
+            for (ut, secs) in c.production[:8]:
+                s = stats_for(ut, self.player_country)
+                lines.append("%s %s" %
+                             ((s['label'].upper() + ' ').ljust(26, '.'),
+                              "%d SEC TO DELIVERY" % int(max(0, secs))))
+                total += 1
+            if len(c.production) > 8:
+                lines.append("... AND %d MORE ON THE LINE"
+                             % (len(c.production) - 8))
+        if not lines:
+            lines = ["ALL PRODUCTION LINES IDLE.",
+                     "",
+                     "The next fortnight appropriation will set them",
+                     "turning again."]
+        else:
+            lines.insert(0, "")
+            lines.insert(0, "%d ITEMS ON THE LINES." % total)
+        self.briefing_fax = BriefingFax(
+            self, "*** WAR INDUSTRIES -- PRODUCTION STATE ***",
+            lines, self._close_briefing)
 
     def _distribute_production(self, country, counts):
         cities = [c for c in self.cities if c.country == country]
@@ -1376,11 +1490,17 @@ class WW2RTSGame(ShowBase):
             self._begin_air_order(unit, order)
             return
         if kind in ('move', 'unload'):
+            pre = order.pop('pre_path', None)
+            if pre:
+                unit.path = pre         # leg was routed when it was queued
+                return
             goal = self._legal_goal(unit, order['goal'])
-            self._enqueue_plan(unit, goal, silent=order.get('auto', False))
+            self._enqueue_plan(unit, goal, silent=order.get('auto', False),
+                               indicate=order.pop('indicate', False))
         elif kind == 'attack':
             unit.attack_target = order['target']
-            self._approach_target(unit, order['target'])
+            self._approach_target(unit, order['target'],
+                                  indicate=order.pop('indicate', False))
         elif kind in ('board', 'repair'):
             self._approach_target(unit, order['target'])
 
@@ -1393,9 +1513,52 @@ class WW2RTSGame(ShowBase):
             return latlon_to_vec(*self.world.nearest_land(lat, lon))
         return goal
 
-    def _approach_target(self, unit, target):
+    def _approach_target(self, unit, target, indicate=False):
         goal = self._legal_goal(unit, Vec3(target.pos))
-        self._enqueue_plan(unit, goal)
+        self._enqueue_plan(unit, goal, indicate=indicate)
+
+    def on_order_given(self, unit, order, queue):
+        """Called for every order entering a unit's queue. Marks orders
+        from the player's hand for the [PLANNING ROUTE] indicator, and
+        pre-plans queued waypoint legs so every leg gets real routing
+        (not just the first)."""
+        if unit.country == self.player_country and not order.get('auto'):
+            order['indicate'] = True
+        if (queue and order['kind'] in ('move', 'unload')
+                and order.get('goal') is not None
+                and unit.stats['domain'] != 'air'):
+            start = self._queue_leg_start(unit, order)
+            goal = self._legal_goal(unit, order['goal'])
+            self._enqueue_preplan(unit, start, goal, order)
+
+    def _queue_leg_start(self, unit, order):
+        """Where the unit will be when this queued order begins: the end
+        of everything queued before it."""
+        start = None
+        for o in unit.order_queue:
+            if o is order:
+                break
+            g = o.get('goal')
+            if g is None:
+                tgt = o.get('target')
+                g = getattr(tgt, 'pos', None)
+            if g is not None:
+                start = Vec3(g)
+        if start is not None:
+            return start
+        if unit.path:
+            return Vec3(unit.path[-1][0])
+        return Vec3(unit.pos)
+
+    def _enqueue_preplan(self, unit, start, goal, order):
+        self._plan_seq += 1
+        token = self._plan_seq
+        self._preplans[token] = order
+        if order.get('indicate'):
+            self._ind_tokens.add(token)
+        self._pending_plans += 1
+        self._plan_jobs.put((unit, unit.stats['domain'], Vec3(start),
+                             Vec3(goal), token))
 
     # ---------------------------------------------- background planning
     def _plan_loop(self):
@@ -1409,10 +1572,12 @@ class WW2RTSGame(ShowBase):
                 path = None
             self._plan_results.append((unit, token, path))
 
-    def _enqueue_plan(self, unit, goal, silent=False):
+    def _enqueue_plan(self, unit, goal, silent=False, indicate=False):
         self._plan_seq += 1
         unit.plan_pending = self._plan_seq
         unit._plan_silent = silent
+        if indicate:
+            self._ind_tokens.add(self._plan_seq)
         self._pending_plans += 1
         self._plan_jobs.put((unit, unit.stats['domain'], Vec3(unit.pos),
                              Vec3(goal), self._plan_seq))
@@ -1421,6 +1586,13 @@ class WW2RTSGame(ShowBase):
         while self._plan_results:
             unit, token, path = self._plan_results.pop(0)
             self._pending_plans = max(0, self._pending_plans - 1)
+            self._ind_tokens.discard(token)
+            # a pre-planned queued leg: file the route into its order
+            order = self._preplans.pop(token, None)
+            if order is not None:
+                if path:
+                    order['pre_path'] = path
+                continue
             if not unit.alive or getattr(unit, 'plan_pending', None) \
                     != token:
                 continue
@@ -1449,7 +1621,9 @@ class WW2RTSGame(ShowBase):
             self.planning_text.setPos(0, 0, 0.1)
             self.planning_text.hide()
         if self.planning_text is not None:
-            busy = self._pending_plans > 0
+            # only the player's own latest waypoint clicks show the
+            # indicator -- background/AI/auto planning stays silent
+            busy = bool(self._ind_tokens)
             if busy and self.planning_text.isHidden():
                 self.planning_text.show()
             elif not busy and not self.planning_text.isHidden():
@@ -2308,6 +2482,9 @@ class WW2RTSGame(ShowBase):
             if (u.alive and u.country == player and not u.carried_by
                     and u.stats.get('comm')):
                 comm_sources.append((u.pos, u.comm_range()))
+        # the map draws one merged outline around the whole wireless net
+        if self.globe:
+            self.globe.set_comm(comm_sources)
 
         # contact status for player units
         out = 0
@@ -2556,15 +2733,10 @@ class WW2RTSGame(ShowBase):
         alt = self.cam_dist - GLOBE_RADIUS
         self.marker_scale = max(0.008, min(0.72, alt * 0.0115))
         city_scale = self.marker_scale * 0.32
-        label_scale = max(0.006, min(0.08, alt * 0.014))
-        # units keep a fixed sprite size; only labels and structures
-        # scale so they stay readable/selectable
+        # units, structures and city names all keep fixed map sizes;
+        # only the city selection rings scale to stay clickable
         for c in self.cities:
             c.set_marker_scale(city_scale)
-            c.label.setScale(label_scale)
-        for group in (self.airfields, self.depots, self.bunkers):
-            for s in group:
-                s.set_marker_scale(city_scale)
 
     def on_zoom(self, direction):
         old_alt = self.cam_dist_target - GLOBE_RADIUS
@@ -2616,11 +2788,13 @@ class WW2RTSGame(ShowBase):
         self.cursor = cur
 
     def _position_cursor(self):
-        """Every frame: sit the cursor sprite on the real mouse."""
+        """Every frame: sit the cursor sprite on the real mouse. In
+        default mode the OS pointer is used and the sprite stays hidden."""
         if self.cursor is None:
             return
         mw = self.mouseWatcherNode
-        if mw is not None and mw.hasMouse():
+        if (self.cursor_mode != 'default' and mw is not None
+                and mw.hasMouse()):
             mp = mw.getMouse()
             self.cursor.setPos(mp.getX() * self.getAspectRatio(), 0,
                                mp.getY())
@@ -2629,10 +2803,24 @@ class WW2RTSGame(ShowBase):
         elif not self.cursor.isHidden():
             self.cursor.hide()
 
+    def _show_os_cursor(self, visible):
+        try:
+            from panda3d.core import WindowProperties
+            wp = WindowProperties()
+            wp.setCursorHidden(not visible)
+            self.win.requestProperties(wp)
+        except Exception:
+            pass
+
     def _set_cursor_mode(self, mode):
         if self.cursor is not None and mode != self.cursor_mode:
             self.cursor_mode = mode
-            self.cursor.setTexture(self.cursor_tex[mode], 1)
+            if mode == 'default':
+                self._show_os_cursor(True)
+                self.cursor.hide()
+            else:
+                self._show_os_cursor(False)
+                self.cursor.setTexture(self.cursor_tex[mode], 1)
 
     def _tick_cursor_mode(self):
         """Choose the cursor symbol from what is under the pointer."""
@@ -2781,8 +2969,8 @@ class WW2RTSGame(ShowBase):
                 prev = Vec3(wp)
             if u.path:
                 joins.append(Vec3(prev))     # current order's destination
-            # queued (shift-linked) orders: straight preview legs with a
-            # join ring at each waypoint, Supreme Commander style
+            # queued (shift-linked) orders: follow each leg's own planned
+            # route when it is ready, with a join ring at each waypoint
             for order in u.order_queue:
                 goal = order.get('goal')
                 if goal is None:
@@ -2790,11 +2978,17 @@ class WW2RTSGame(ShowBase):
                     goal = getattr(tgt, 'pos', None)
                 if goal is None:
                     continue
-                draw_leg(prev, goal)
-                prev = Vec3(goal)
+                pre = order.get('pre_path')
+                if pre:
+                    for (wp, _) in pre:
+                        draw_leg(prev, wp)
+                        prev = Vec3(wp)
+                else:
+                    draw_leg(prev, goal)
+                    prev = Vec3(goal)
                 joins.append(Vec3(prev))
-        # join rings: small fixed size
-        r = UNIT_SPRITE_SCALE * 0.8
+        # join rings: small fixed size (1/5 of the old ring)
+        r = UNIT_SPRITE_SCALE * 0.16
         for jp in joins:
             for i in range(17):
                 a = 2 * math.pi * i / 16
@@ -3202,9 +3396,7 @@ class WW2RTSGame(ShowBase):
             'SPEED': ("PAUSED" if self.is_paused
                       else "x%g" % self.game_speed),
         })
-        days = self.budget_days_left()
-        self.top_bar.set_budget_label(
-            "BUDGET" if days == 0 else "BUDGET LOCKED %dD" % days)
+        self.top_bar.set_fortnight_day(self.fortnight_day())
 
     # ====================================================== main loop
     def update(self, task):
@@ -3217,6 +3409,7 @@ class WW2RTSGame(ShowBase):
         self._tick_drag_box()
         self._drain_plans()
         self._update_vision_shader()    # fog circles glide with units
+        self.globe.set_comm_width(self.cam_dist - GLOBE_RADIUS)
         self._hover_timer -= dt
         if self._hover_timer <= 0:
             self._hover_timer = 0.09
@@ -3228,6 +3421,11 @@ class WW2RTSGame(ShowBase):
         if not self.is_paused and not self.game_over:
             gdt = dt * self.game_speed
             self.clock_minutes += gdt * MINUTES_PER_SECOND
+            # a new fortnight begins: the standing budget goes into effect
+            if (self.clock_minutes - self.fortnight_start
+                    >= BUDGET_PERIOD_DAYS * 1440.0):
+                self.fortnight_start += BUDGET_PERIOD_DAYS * 1440.0
+                self._apply_fortnight_budget()
             # the sun tracks westward so it rises in the east and sets
             # in the west
             self.sun_angle = (self.sun_angle -
