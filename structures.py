@@ -84,7 +84,7 @@ class Airfield(Structure):
     """Aircraft park here (hidden); sorties draw on the supply stock."""
 
     ICON = 'airfield'
-    FIXED_SCALE = 0.049         # an aerodrome reads bigger than a depot
+    FIXED_SCALE = 0.034         # an aerodrome reads bigger than a depot
     TINT = 0.0                  # drawn in the city-sketch palette, like
                                 # the towns; owner shows in the badge
 

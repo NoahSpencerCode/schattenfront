@@ -51,7 +51,7 @@ from pathfinding import MovementPlanner
 from structures import (Airfield, Bunker, Depot, AIRFIELD_STOCK_CAP,
                         BUNKER_RADIUS, DEPOT_STOCK_CAP, SORTIE_COST)
 from ui import (TopBar, BottomBar, FaxPanel, BudgetFax, BriefingFax,
-                TaxFax, B)
+                ProductionFax, TaxFax, B)
 from units import (Unit, UNIT_TYPES, BRANCH_OF, FIRE_SUPPLY_FACTOR,
                    NATION_UNIT_STATS, stats_for)
 from utils import (angle_between, find_regular_font_path,
@@ -322,6 +322,8 @@ class WW2RTSGame(ShowBase):
         self.budget_lock_until = None
         self.budget_counts = {}         # the standing fortnight budget
         self.fortnight_start = 0.0
+        self.fortnight_order = {}       # this fortnight's ordered counts
+        self.fortnight_delivered = {}   # ... and what has been delivered
         self.budget_fax = None
         self.briefing_fax = None
         self.tax_fax = None
@@ -475,6 +477,8 @@ class WW2RTSGame(ShowBase):
         self.budget_lock_until = None
         self.budget_counts = {}
         self.fortnight_start = 0.0
+        self.fortnight_order = {}
+        self.fortnight_delivered = {}
         if self.pause_frame:
             self.pause_frame.destroy()
             self.pause_frame = None
@@ -843,6 +847,9 @@ class WW2RTSGame(ShowBase):
         if spent <= 0:
             return
         self.funds[country] -= spent
+        # the production ledger the WAR INDUSTRIES page reports against
+        self.fortnight_order = dict(buy)
+        self.fortnight_delivered = {}
         self._distribute_production(country, buy)
         lines = ", ".join("%dx %s" % (n, UNIT_TYPES[ut]['icon'])
                           for ut, n in buy.items() if n > 0)
@@ -882,16 +889,36 @@ class WW2RTSGame(ShowBase):
                 sender="EXCHEQUER")
         self._apply_fortnight_budget()
 
+    def projected_revenue(self, country):
+        """What the cities will remit at the next fortnight under the
+        DECREED tax rates (pending decrees included)."""
+        total = 0
+        for c in self.cities:
+            if c.country != country or c.annexing:
+                continue
+            rate = (c.pending_tax if c.pending_tax is not None
+                    else c.tax_rate)
+            total += c.fortnight_revenue(rate)
+        return total
+
     def open_budget(self):
         if self.game_state != 'playing' or self.budget_fax:
             return
         has_harbor = any(c.harbor and c.country == self.player_country
                          for c in self.cities)
+        # the manifest is planned against the money that will exist when
+        # it executes: the treasury plus the taxes the decreed rates will
+        # bring in at the fortnight
+        treasury = int(self.funds[self.player_country])
+        revenue = self.projected_revenue(self.player_country)
         self.budget_fax = BudgetFax(
-            self, self, self.funds[self.player_country],
+            self, self, treasury + revenue,
             NATION_UNIT_STATS[self.player_country],
             has_harbor, self._budget_transmit, self._budget_discard,
-            initial=self.budget_counts)
+            initial=self.budget_counts,
+            subtitle="PROJECTED TAX REVENUE $%d + TREASURY $%d = $%d "
+                     "PLANNABLE NEXT FORTNIGHT" %
+                     (revenue, treasury, revenue + treasury))
 
     def _budget_discard(self):
         if self.budget_fax:
@@ -950,35 +977,36 @@ class WW2RTSGame(ShowBase):
             self.tax_fax = None
 
     def open_factory_report(self):
-        """The war-industries FAX: every production line, per city."""
+        """The war-industries FAX: per unit type, how many of this
+        fortnight's order have been delivered, and how far along the
+        next one on the line is."""
         if self.game_state != 'playing' or self.briefing_fax:
             return
-        lines = []
-        total = 0
-        for c in self.cities:
-            if c.country != self.player_country or not c.production:
-                continue
-            lines.append("#%s" % c.name.upper())
-            for (ut, secs) in c.production[:8]:
-                s = stats_for(ut, self.player_country)
-                lines.append("%s %s" %
-                             ((s['label'].upper() + ' ').ljust(26, '.'),
-                              "%d SEC TO DELIVERY" % int(max(0, secs))))
-                total += 1
-            if len(c.production) > 8:
-                lines.append("... AND %d MORE ON THE LINE"
-                             % (len(c.production) - 8))
-        if not lines:
-            lines = ["ALL PRODUCTION LINES IDLE.",
-                     "",
-                     "The next fortnight appropriation will set them",
-                     "turning again."]
-        else:
-            lines.insert(0, "")
-            lines.insert(0, "%d ITEMS ON THE LINES." % total)
-        self.briefing_fax = BriefingFax(
-            self, "*** WAR INDUSTRIES -- PRODUCTION STATE ***",
-            lines, self._close_briefing)
+        player = self.player_country
+        rows = []
+        for ut, total in self.fortnight_order.items():
+            s = stats_for(ut, player)
+            done = min(total, self.fortnight_delivered.get(ut, 0))
+            # progress of the closest-to-delivery item of this type
+            build = max(1.0, s['build_time'] * PRODUCTION_TIME_FACTOR)
+            progress = None
+            for c in self.cities:
+                if c.country != player:
+                    continue
+                for (qut, secs) in c.production:
+                    if qut == ut:
+                        p = 1.0 - max(0.0, secs) / build
+                        progress = p if progress is None \
+                            else max(progress, p)
+            if done >= total:
+                progress = 1.0
+            rows.append((s['label'].upper(),
+                         get_icon_path(ut, 'dark'),
+                         done, total,
+                         0.0 if progress is None else progress))
+        rows.sort(key=lambda r: r[0])
+        self.briefing_fax = ProductionFax(self, rows,
+                                          self._close_briefing)
 
     def _distribute_production(self, country, counts):
         cities = [c for c in self.cities if c.country == country]
@@ -2438,6 +2466,8 @@ class WW2RTSGame(ShowBase):
                                     seed=random.randrange(9999),
                                     base=self.airfield_of_city(city))
                 if city.country == self.player_country:
+                    self.fortnight_delivered[unit_type] = \
+                        self.fortnight_delivered.get(unit_type, 0) + 1
                     self.fax_short("%s REPORTING FOR DUTY AT %s" %
                                    (u.stats['label'].upper(),
                                     city.name.upper()))

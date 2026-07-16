@@ -37,7 +37,7 @@ UNIT_TYPES = {
         'label': 'Supply Truck', 'domain': 'land', 'speed': 0.24,
         'vision': 0.6, 'hp': 70, 'cost': 150, 'build_time': 5,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'SUP',
-        'supply_cap': 8000.0, 'supply_carrier': True},
+        'supply_cap': 5000.0, 'supply_carrier': True},
     'transport_truck': {
         'label': 'Personnel Truck', 'domain': 'land', 'speed': 0.22,
         'vision': 0.6, 'hp': 90, 'cost': 180, 'build_time': 5,
@@ -83,7 +83,7 @@ UNIT_TYPES = {
         'label': 'Naval Supply Vessel', 'domain': 'sea', 'speed': 0.30,
         'vision': 0.8, 'hp': 130, 'cost': 650, 'build_time': 12,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'NSV',
-        'supply_cap': 60000.0, 'supply_carrier': True},
+        'supply_cap': 25000.0, 'supply_carrier': True},
     'aircraft_carrier': {
         'label': 'Fleet Carrier', 'domain': 'sea', 'speed': 0.32,
         'vision': 1.5, 'hp': 320, 'cost': 1500, 'build_time': 25,
@@ -129,10 +129,12 @@ for _ut, _s in UNIT_TYPES.items():
         _s.setdefault('supply_cap', 0.0)
         _s.setdefault('use_move', 0.0)
     elif _s['domain'] == 'sea':
-        _s.setdefault('supply_cap', 20000.0)
+        _s.setdefault('supply_cap', 6000.0)
         _s.setdefault('use_move', 3.0)      # lbs per second under way
     else:
-        _s.setdefault('supply_cap', 1500.0)
+        # tight: a column burns most of its stores crossing one country,
+        # so the supply chain is a critical mechanic, not a garnish
+        _s.setdefault('supply_cap', 400.0)
         _s.setdefault('use_move', 1.5)
 FIRE_SUPPLY_FACTOR = 1.2                    # lbs per point of damage dealt
 

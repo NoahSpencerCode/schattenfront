@@ -184,7 +184,7 @@ void main() {
         if (dc >= c_out) near_edge = true;
     }
     if (near_edge && !inside) {
-        c = mix(c, vec3(0.18, 0.14, 0.10), 0.7);   // staff-map ink line
+        c = mix(c, vec3(0.98, 0.98, 0.96), 0.8);   // white signals line
     }
     gl_FragColor = vec4(c, 1.0);
 }
@@ -262,7 +262,7 @@ class Globe:
     def set_comm_width(self, alt):
         """Scale the outline half-width with camera altitude so the ink
         line stays a few pixels wide at every zoom."""
-        eps = max(0.00015, min(0.004, 0.00009 * alt))
+        eps = max(0.000075, min(0.002, 0.000045 * alt))
         self.root.setShaderInput('comm_cos_eps', math.cos(eps))
         self.root.setShaderInput('comm_sin_eps', math.sin(eps))
 

@@ -394,7 +394,7 @@ class BudgetFax:
     TRANSMITs (locking the budget for two weeks) or DISCARDs."""
 
     def __init__(self, base, game, funds, unit_types, has_harbor,
-                 on_transmit, on_discard, initial=None):
+                 on_transmit, on_discard, initial=None, subtitle=None):
         self.base = base
         self.game = game
         self.funds = int(funds)
@@ -426,7 +426,8 @@ class BudgetFax:
         text("FROM : THE EXCHEQUER, WAR APPROPRIATIONS", (-1.10, 0.76))
         text("RE   : ALLOCATION OF FUNDS -- COMMIT BY RETURN FAX",
              (-1.10, 0.71))
-        text("APPROPRIATION AVAILABLE: $%d   ONCE TRANSMITTED THE BUDGET "
+        text(subtitle if subtitle else
+             "APPROPRIATION AVAILABLE: $%d   ONCE TRANSMITTED THE BUDGET "
              "STANDS FOR TWO WEEKS." % self.funds, (-1.10, 0.66), 0.030,
              INK_FAINT)
         text("-" * 78, (0, 0.62), 0.034, INK, TextNode.ACenter)
@@ -696,6 +697,93 @@ class TaxFax:
 
     def _discard(self):
         self.on_discard()
+
+    def destroy(self):
+        self.frame.destroy()
+
+
+class ProductionFax:
+    """War-industries state: one row per unit type in this fortnight's
+    order -- 'delivered/ordered' tally and a progress bar for the item
+    of that type nearest to delivery. Two columns; everything fits above
+    the acknowledge button."""
+
+    BAR_W = 0.40
+
+    def __init__(self, base, rows, on_close):
+        self.base = base
+        self.on_close = on_close
+        f = base.hud_font
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+                                 frameSize=(-1.12, 1.12, -0.88, 0.88),
+                                 state=DGG.NORMAL)
+        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                    frameSize=(-1.12, 1.12, 0.855, 0.88))
+
+        def text(t, pos, scale=0.032, color=INK, align=TextNode.ALeft):
+            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
+            tn.setText(t)
+            return tn
+
+        text("*** WAR INDUSTRIES -- PRODUCTION STATE ***",
+             (0, 0.78), 0.045, INK, TextNode.ACenter)
+        done_all = sum(r[2] for r in rows)
+        total_all = sum(r[3] for r in rows)
+        text("FORTNIGHT ORDER: %d OF %d ITEMS DELIVERED"
+             % (done_all, total_all), (0, 0.70), 0.032, INK_FAINT,
+             TextNode.ACenter)
+        text("-" * 74, (0, 0.655), 0.032, INK, TextNode.ACenter)
+
+        if not rows:
+            text("ALL PRODUCTION LINES IDLE.", (0, 0.30), 0.04, INK,
+                 TextNode.ACenter)
+            text("THE NEXT FORTNIGHT APPROPRIATION WILL SET THEM "
+                 "TURNING AGAIN.", (0, 0.22), 0.030, INK_FAINT,
+                 TextNode.ACenter)
+
+        col_x = (-1.02, 0.10)
+        row_y0 = 0.56
+        row_h = 0.125
+        per_col = 9
+        for i, (label, icon, done, total, progress) in enumerate(rows[:18]):
+            col = i // per_col
+            x = col_x[col]
+            y = row_y0 - (i % per_col) * row_h
+            # pictogram
+            ic = DirectFrame(parent=self.frame, relief=None,
+                             frameColor=(0, 0, 0, 0), image=icon,
+                             image_scale=0.036,
+                             frameSize=(-0.04, 0.04, -0.04, 0.04),
+                             pos=(x + 0.035, 0, y - 0.012))
+            ic.setTransparency(True)
+            text(label[:24], (x + 0.085, y), 0.028)
+            text("%d/%d" % (done, total), (x + 0.92, y), 0.030,
+                 INK, TextNode.ARight)
+            # progress bar for the next delivery of this type
+            bx = x + 0.085
+            DirectFrame(parent=self.frame,
+                        frameColor=(0.72, 0.68, 0.56, 1.0),
+                        frameSize=(0, self.BAR_W, -0.009, 0.009),
+                        pos=(bx, 0, y - 0.045))
+            fill = max(0.0, min(1.0, progress)) * self.BAR_W
+            if fill > 0.003:
+                DirectFrame(parent=self.frame,
+                            frameColor=(0.35, 0.28, 0.16, 1.0),
+                            frameSize=(0, fill, -0.009, 0.009),
+                            pos=(bx, 0, y - 0.045))
+            pct = "%d%%" % int(progress * 100)
+            text(pct, (bx + self.BAR_W + 0.03, y - 0.056), 0.024,
+                 INK_FAINT)
+
+        DirectButton(parent=self.frame, text="++ FILE AND ACKNOWLEDGE ++",
+                     text_scale=0.040, text_fg=INK, text_font=f,
+                     frameColor=BTN_PAPER,
+                     frameSize=(-0.42, 0.42, -0.038, 0.054),
+                     relief=DGG.FLAT, command=self._close,
+                     pos=(0, 0, -0.78))
+
+    def _close(self):
+        self.on_close()
 
     def destroy(self):
         self.frame.destroy()
