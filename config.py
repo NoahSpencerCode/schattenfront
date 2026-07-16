@@ -114,7 +114,12 @@ COUNTRIES = {
                 'adjective': 'Japanese'},
     'soviet':  {'color': COUNTRY_COLORS['soviet'], 'name': 'Soviet Union',
                 'adjective': 'Soviet'},
+    # not a playable power: towns outside the five empires in 1939.
+    # They field no armies and run no AI, but can be annexed.
+    'neutral': {'color': (0.58, 0.56, 0.50), 'name': 'Neutral',
+                'adjective': 'Neutral'},
 }
+PLAYABLE = ('britain', 'germany', 'usa', 'japan', 'soviet')
 
 # File Paths
 MEDIA_PATH = "media/"

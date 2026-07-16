@@ -18,12 +18,16 @@ from panda3d.core import (Geom, GeomNode, GeomTriangles, GeomVertexData,
                           TransparencyAttrib, Vec3, SamplerState,
                           ColorBlendAttrib)
 
-from config import (GLOBE_RADIUS, GLOBE_SEGMENTS, GLOBE_RINGS,
+from config import (COUNTRIES,
+                    GLOBE_RADIUS, GLOBE_SEGMENTS, GLOBE_RINGS,
                     NIGHT_DARKNESS, DETAIL_ACTIVATE_ALT, DETAIL_TEX_SIZE,
                     DETAIL_TIER_ALTS,
                     FOG_BRIGHTNESS, FOG_SATURATION, MAX_VISION_SOURCES,
                     LIFT_PATCH, LIFT_RING)
 from geodata import CACHE_DIR, TEXTURE_VERSION
+
+# owner index order for the border shader (5 = neutral, never tinted)
+NAT_ORDER = ('britain', 'germany', 'usa', 'japan', 'soviet', 'neutral')
 from utils import latlon_to_vec, north_tangent
 
 # Detail tiles are static for a given map version (units, bridges and
@@ -150,6 +154,13 @@ uniform float comm_cos_eps;       // cos/sin of the outline half-width
 uniform float comm_sin_eps;
 uniform float fog_brightness;
 uniform float fog_saturation;
+// national territory: Voronoi cells around the cities. sites.w is the
+// owner index; owner 5 (neutral) draws no tint. The frontier is the
+// locus halfway between nearest cities of DIFFERENT owners.
+uniform vec4 sites[%(nsites)d];
+uniform int site_count;
+uniform vec3 nat_tint[6];
+uniform float border_eps;
 varying vec2 uv;
 varying vec3 world_normal;
 void main() {
@@ -186,9 +197,39 @@ void main() {
     if (near_edge && !inside) {
         c = mix(c, vec3(0.98, 0.98, 0.96), 0.8);   // white signals line
     }
+    // national territory tint + dotted frontier (land only)
+    if (site_count > 0) {
+        float b1 = -2.0;
+        int o1 = 5;
+        for (int i = 0; i < %(nsites)d; i++) {
+            if (i >= site_count) break;
+            float dc = dot(nrm, sites[i].xyz);
+            if (dc > b1) { b1 = dc; o1 = int(sites[i].w + 0.5); }
+        }
+        float b2 = -2.0;
+        for (int i = 0; i < %(nsites)d; i++) {
+            if (i >= site_count) break;
+            if (int(sites[i].w + 0.5) == o1) continue;
+            float dc = dot(nrm, sites[i].xyz);
+            if (dc > b2) b2 = dc;
+        }
+        float ang1 = acos(clamp(b1, -1.0, 1.0));
+        bool land_px = distance(tex.rgb, vec3(0.173, 0.227, 0.310)) > 0.12
+                    && distance(tex.rgb, vec3(0.243, 0.329, 0.431)) > 0.07;
+        if (land_px && ang1 < 0.30) {
+            if (o1 < 5) c = mix(c, nat_tint[o1], 0.10);
+            if (b2 > -1.5) {
+                float ang2 = acos(clamp(b2, -1.0, 1.0));
+                if (ang2 - ang1 < border_eps
+                        && fract(ang1 * 1600.0) < 0.45) {
+                    c = mix(c, vec3(0.06, 0.05, 0.04), 0.7);
+                }
+            }
+        }
+    }
     gl_FragColor = vec4(c, 1.0);
 }
-""" % {'nvis': MAX_VISION_SOURCES}
+""" % {'nvis': MAX_VISION_SOURCES, 'nsites': 200}
 
 
 class Globe:
@@ -228,6 +269,17 @@ class Globe:
         self.root.setShaderInput('comm_sin_eps', math.sin(eps))
         self.root.setShaderInput('fog_brightness', FOG_BRIGHTNESS)
         self.root.setShaderInput('fog_saturation', FOG_SATURATION)
+        # national borders: Voronoi sites (the cities) + owner tints
+        from panda3d.core import PTA_LVecBase3f
+        self._sites_pta = PTA_LVecBase4f.emptyArray(200)
+        self._tint_pta = PTA_LVecBase3f.emptyArray(6)
+        for i, key in enumerate(NAT_ORDER):
+            col = COUNTRIES[key]['color']
+            self._tint_pta.setElement(i, Vec3(col[0], col[1], col[2]))
+        self.root.setShaderInput('sites', self._sites_pta)
+        self.root.setShaderInput('site_count', 0)
+        self.root.setShaderInput('nat_tint', self._tint_pta)
+        self.root.setShaderInput('border_eps', 0.0022)
 
         self.detail = DetailOverlay(base, world_data, self.root, self.shader)
         self._make_country_labels()
@@ -260,11 +312,24 @@ class Globe:
         self.root.setShaderInput('comm_count', n)
 
     def set_comm_width(self, alt):
-        """Scale the outline half-width with camera altitude so the ink
-        line stays a few pixels wide at every zoom."""
+        """Scale the outline half-widths with camera altitude so the
+        lines stay a few pixels wide at every zoom."""
         eps = max(0.000075, min(0.002, 0.000045 * alt))
         self.root.setShaderInput('comm_cos_eps', math.cos(eps))
         self.root.setShaderInput('comm_sin_eps', math.sin(eps))
+        self.root.setShaderInput('border_eps',
+                                 max(0.0002, min(0.003, 0.00006 * alt)))
+
+    def set_borders(self, entries):
+        """entries: [(unit_vec, owner_index 0..5), ...] — the Voronoi
+        sites the territory tint and dotted frontiers derive from."""
+        from panda3d.core import Vec4
+        n = min(len(entries), 200)
+        for i in range(n):
+            pos, owner = entries[i]
+            self._sites_pta.setElement(
+                i, Vec4(pos.x, pos.y, pos.z, float(owner)))
+        self.root.setShaderInput('site_count', n)
 
     # -------------------------------------------------------- country labels
     def _make_country_labels(self):

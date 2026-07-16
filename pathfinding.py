@@ -24,7 +24,7 @@ SEA_GRID_DEG = 0.5             # coarse routing grid (permissive: straits
 SEA_LAND_FRAC = 0.85           # must stay open; the corridor refinement
                                # pass supplies the coastal fidelity)
 OFFROAD_MAX_ARC_DEG = 18.0     # longest allowed single off-road hop
-OFFROAD_KNN = 10               # off-road links per node (nearest first)
+OFFROAD_KNN = 8               # off-road links per node (nearest first)
 ROAD_NODE_SPACING = 0.09       # world units between road entry nodes
                                # (finer = a column hugs the snaking road
                                # more closely and can join it nearer the
@@ -187,16 +187,21 @@ class MovementPlanner:
                 edges.append((a, bn, seg_len / ROAD_SPEED_MULTIPLIER,
                               True, gate))
 
-        # spur roads: city to its airfield (fast final approach)
-        af_sites = getattr(w, 'airfield_sites', {})
+        # spur roads: city to its airfield. The graph is woven through
+        # the DRAWN spur polyline vertex by vertex, so a column on the
+        # spur follows the road's curves exactly (render == route).
+        af_spurs = getattr(w, 'airfield_spurs', {})
         for i, (name, country, lat, lon) in enumerate(w.cities):
-            site = af_sites.get(name)
-            if site is None:
+            spur = af_spurs.get(name)
+            if not spur or len(spur) < 2:
                 continue
-            v = latlon_to_vec(site[0], site[1])
-            nn = len(nodes)
-            nodes.append((Vec3(v), site[0], site[1]))
-            road_chain(nodes[i][0], v, i, nn, [])
+            prev = i
+            for (la, lo) in spur[1:]:
+                v = latlon_to_vec(la, lo)
+                nn = len(nodes)
+                nodes.append((Vec3(v), la, lo))
+                road_chain(nodes[prev][0], v, prev, nn, [])
+                prev = nn
 
         for (i, j) in w.roads:
             bs = bridges_by_road.get((i, j), [])
@@ -216,22 +221,30 @@ class MovementPlanner:
                 prev = nn
             road_chain(nodes[prev][0], nodes[j][0], prev, j, bs)
 
-        # Off-road: each node links to its nearest neighbours on land
+        # Off-road: each node links to its nearest neighbours on land.
+        # Candidate search is fully vectorized (the graph is thousands
+        # of nodes now); land checks run only on the K best per node.
         n = len(nodes)
+        P = np.array([[v.x, v.y, v.z] for (v, _la, _lo) in nodes])
+        norms = np.linalg.norm(P, axis=1, keepdims=True)
+        P = P / np.maximum(norms, 1e-12)
+        cos_max = math.cos(math.radians(OFFROAD_MAX_ARC_DEG))
         seen = set()
         for i in range(n):
-            cands = []
-            for j in range(n):
-                if j == i:
-                    continue
-                ang = math.degrees(angle_between(nodes[i][0], nodes[j][0]))
-                if 1e-6 < ang <= OFFROAD_MAX_ARC_DEG:
-                    cands.append((ang, j))
-            cands.sort()
+            # errstate: Apple's Accelerate BLAS raises spurious FP flags
+            # on matmul; the products themselves are exact
+            with np.errstate(all='ignore'):
+                dots = P @ P[i]
+            dots[i] = -2.0
+            cand = np.nonzero(dots > cos_max)[0]
+            if len(cand) == 0:
+                continue
+            order = cand[np.argsort(-dots[cand])]
             linked = 0
-            for ang, j in cands:
+            for j in order:
                 if linked >= OFFROAD_KNN:
                     break
+                j = int(j)
                 key = (min(i, j), max(i, j))
                 if key in seen:
                     linked += 1
@@ -239,16 +252,15 @@ class MovementPlanner:
                 seen.add(key)
                 if not self.segment_land_ok(nodes[i][0], nodes[j][0]):
                     continue
-                dist = math.radians(ang) * GLOBE_RADIUS
-                edges.append((key[0], key[1], dist, False, None))
+                ang = math.acos(max(-1.0, min(1.0, float(dots[j]))))
+                edges.append((key[0], key[1], ang * GLOBE_RADIUS,
+                              False, None))
                 linked += 1
 
         self._nodes = nodes
         self._static_edges = edges
-        # prewarm river verdicts so the first in-game plans don't hitch
-        for (i, j, _cost, is_road, _bs) in edges:
-            if not is_road:
-                self._static_river_ok(i, j)
+        # river verdicts are checked lazily during A* (the planner runs
+        # on a worker thread, so the cost never lands on a frame)
 
     def _static_river_ok(self, i, j):
         key = (min(i, j), max(i, j))

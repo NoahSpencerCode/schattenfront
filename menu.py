@@ -226,10 +226,12 @@ class MenuScreen:
 
         # space the nation rows to fill the sheet regardless of how many
         # powers there are
-        n_countries = len(COUNTRIES)
+        n_countries = len(COUNTRIES) - 1   # neutral is not picked
         y = 0.22
         row_step = 0.60 / max(1, n_countries - 1)
-        for i, (key, info) in enumerate(COUNTRIES.items()):
+        playable = [(k, v) for k, v in COUNTRIES.items()
+                    if k != 'neutral']
+        for i, (key, info) in enumerate(playable):
             c = info['color']
             chip = DirectFrame(parent=frame,
                                frameColor=(c[0], c[1], c[2], 1),

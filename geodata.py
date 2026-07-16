@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 14  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 15  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -123,7 +123,158 @@ CITIES = [
     ('Stalingrad', 'soviet', 48.7080, 44.5133),
     ('Rostov', 'soviet', 47.2357, 39.7015),
     ('Kuybyshev', 'soviet', 53.1959, 50.1002),
+
+    # ---- the wider war: every town the five powers fought over.
+    # Owners are as of 1 Sep 1939; everything not then held by one of
+    # the five powers is NEUTRAL (annexable, but fields no armies).
+    # Britain and her Empire
+    ('Coventry', 'britain', 52.4068, -1.5197),
+    ('Hull', 'britain', 53.7676, -0.3274),
+    ('Southampton', 'britain', 50.9097, -1.4044),
+    ('Dover', 'britain', 51.1279, 1.3134),
+    ('Gibraltar', 'britain', 36.1408, -5.3536),
+    ('Valletta', 'britain', 35.8989, 14.5146),
+    ('Cairo', 'britain', 30.0444, 31.2357),
+    ('Alexandria', 'britain', 31.2001, 29.9187),
+    ('Suez', 'britain', 29.9668, 32.5498),
+    ('Jerusalem', 'britain', 31.7683, 35.2137),
+    ('Haifa', 'britain', 32.7940, 34.9896),
+    ('Singapore', 'britain', 1.3521, 103.8198),
+    ('Hong Kong', 'britain', 22.3193, 114.1694),
+    ('Kuala Lumpur', 'britain', 3.1390, 101.6869),
+    ('Rangoon', 'britain', 16.8409, 96.1735),
+    ('Mandalay', 'britain', 21.9588, 96.0891),
+    ('Calcutta', 'britain', 22.5726, 88.3639),
+    ('Bombay', 'britain', 19.0760, 72.8777),
+    ('Delhi', 'britain', 28.7041, 77.1025),
+    ('Madras', 'britain', 13.0827, 80.2707),
+    ('Colombo', 'britain', 6.9271, 79.8612),
+    ('Sydney', 'britain', -33.8688, 151.2093),
+    ('Darwin', 'britain', -12.4634, 130.8456),
+    ('Port Moresby', 'britain', -9.4438, 147.1803),
+    ('Rabaul', 'britain', -4.1998, 152.1631),
+    ('Guadalcanal', 'britain', -9.4280, 160.0330),
+    # Greater Germany
+    ('Konigsberg', 'germany', 54.7104, 20.4522),
+    ('Danzig', 'germany', 54.3520, 18.6466),
+    ('Essen', 'germany', 51.4556, 7.0116),
+    ('Leipzig', 'germany', 51.3397, 12.3731),
+    ('Nuremberg', 'germany', 49.4521, 11.0767),
+    ('Kiel', 'germany', 54.3233, 10.1228),
+    # United States and possessions
+    ('Honolulu', 'usa', 21.3069, -157.8583),
+    ('Manila', 'usa', 14.5995, 120.9842),
+    ('Guam', 'usa', 13.4757, 144.7489),
+    # Empire of Japan and possessions
+    ('Seoul', 'japan', 37.5665, 126.9780),
+    ('Pusan', 'japan', 35.1796, 129.0756),
+    ('Pyongyang', 'japan', 39.0392, 125.7625),
+    ('Taipei', 'japan', 25.0330, 121.5654),
+    ('Harbin', 'japan', 45.8038, 126.5350),
+    ('Mukden', 'japan', 41.8057, 123.4315),
+    ('Dairen', 'japan', 38.9140, 121.6147),
+    ('Naha', 'japan', 26.2124, 127.6809),
+    ('Saipan', 'japan', 15.1850, 145.7467),
+    ('Truk', 'japan', 7.4458, 151.8500),
+    # Soviet Union
+    ('Sevastopol', 'soviet', 44.6166, 33.5254),
+    ('Odessa', 'soviet', 46.4825, 30.7233),
+    ('Murmansk', 'soviet', 68.9585, 33.0827),
+    ('Archangelsk', 'soviet', 64.5401, 40.5433),
+    ('Kursk', 'soviet', 51.7304, 36.1926),
+    ('Voronezh', 'soviet', 51.6720, 39.1843),
+    ('Novorossiysk', 'soviet', 44.7239, 37.7708),
+    ('Vladivostok', 'soviet', 43.1332, 131.9113),
+    # France
+    ('Paris', 'neutral', 48.8566, 2.3522),
+    ('Marseille', 'neutral', 43.2965, 5.3698),
+    ('Lyon', 'neutral', 45.7640, 4.8357),
+    ('Bordeaux', 'neutral', 44.8378, -0.5792),
+    ('Toulon', 'neutral', 43.1242, 5.9280),
+    ('Calais', 'neutral', 50.9513, 1.8587),
+    ('Dunkirk', 'neutral', 51.0344, 2.3768),
+    ('Dieppe', 'neutral', 49.9229, 1.0777),
+    ('Cherbourg', 'neutral', 49.6337, -1.6221),
+    ('Caen', 'neutral', 49.1829, -0.3707),
+    ('Brest', 'neutral', 48.3904, -4.4861),
+    # Low Countries
+    ('Amsterdam', 'neutral', 52.3676, 4.9041),
+    ('Rotterdam', 'neutral', 51.9244, 4.4777),
+    ('Arnhem', 'neutral', 51.9851, 5.8987),
+    ('Eindhoven', 'neutral', 51.4416, 5.4697),
+    ('Brussels', 'neutral', 50.8503, 4.3517),
+    ('Antwerp', 'neutral', 51.2194, 4.4025),
+    ('Liege', 'neutral', 50.6326, 5.5797),
+    ('Bastogne', 'neutral', 50.0039, 5.7215),
+    # Scandinavia
+    ('Oslo', 'neutral', 59.9139, 10.7522),
+    ('Narvik', 'neutral', 68.4385, 17.4272),
+    ('Trondheim', 'neutral', 63.4305, 10.3951),
+    ('Bergen', 'neutral', 60.3913, 5.3221),
+    ('Copenhagen', 'neutral', 55.6761, 12.5683),
+    ('Helsinki', 'neutral', 60.1699, 24.9384),
+    ('Viipuri', 'neutral', 60.7090, 28.7550),
+    # Italy and her empire
+    ('Rome', 'neutral', 41.9028, 12.4964),
+    ('Milan', 'neutral', 45.4642, 9.1900),
+    ('Turin', 'neutral', 45.0703, 7.6869),
+    ('Genoa', 'neutral', 44.4056, 8.9463),
+    ('Bologna', 'neutral', 44.4949, 11.3426),
+    ('Naples', 'neutral', 40.8518, 14.2681),
+    ('Foggia', 'neutral', 41.4622, 15.5446),
+    ('Salerno', 'neutral', 40.6824, 14.7681),
+    ('Anzio', 'neutral', 41.4489, 12.6283),
+    ('Cassino', 'neutral', 41.4926, 13.8300),
+    ('Palermo', 'neutral', 38.1157, 13.3615),
+    ('Messina', 'neutral', 38.1938, 15.5540),
+    ('Tripoli', 'neutral', 32.8872, 13.1913),
+    ('Benghazi', 'neutral', 32.1167, 20.0667),
+    ('Tobruk', 'neutral', 32.0836, 23.9764),
+    ('Addis Ababa', 'neutral', 9.0300, 38.7400),
+    ('Asmara', 'neutral', 15.3229, 38.9251),
+    # Balkans and Eastern Europe
+    ('Athens', 'neutral', 37.9838, 23.7275),
+    ('Thessaloniki', 'neutral', 40.6401, 22.9444),
+    ('Heraklion', 'neutral', 35.3387, 25.1442),
+    ('Belgrade', 'neutral', 44.7866, 20.4489),
+    ('Zagreb', 'neutral', 45.8150, 15.9819),
+    ('Sarajevo', 'neutral', 43.8563, 18.4131),
+    ('Bucharest', 'neutral', 44.4268, 26.1025),
+    ('Ploiesti', 'neutral', 44.9414, 26.0225),
+    ('Budapest', 'neutral', 47.4979, 19.0402),
+    ('Sofia', 'neutral', 42.6977, 23.3219),
+    ('Krakow', 'neutral', 50.0647, 19.9450),
+    ('Lodz', 'neutral', 51.7592, 19.4560),
+    # Middle East
+    ('Baghdad', 'neutral', 33.3152, 44.3661),
+    ('Tehran', 'neutral', 35.6892, 51.3890),
+    ('Damascus', 'neutral', 33.5138, 36.2765),
+    ('Beirut', 'neutral', 33.8938, 35.5018),
+    # French and Italian Africa, Atlantic
+    ('Casablanca', 'neutral', 33.5731, -7.5898),
+    ('Oran', 'neutral', 35.6969, -0.6331),
+    ('Algiers', 'neutral', 36.7538, 3.0588),
+    ('Tunis', 'neutral', 36.8065, 10.1815),
+    ('Dakar', 'neutral', 14.7167, -17.4677),
+    # China and South-East Asia
+    ('Shanghai', 'neutral', 31.2304, 121.4737),
+    ('Nanking', 'neutral', 32.0603, 118.7969),
+    ('Peking', 'neutral', 39.9042, 116.4074),
+    ('Tientsin', 'neutral', 39.3434, 117.3616),
+    ('Canton', 'neutral', 23.1291, 113.2644),
+    ('Chungking', 'neutral', 29.4316, 106.9123),
+    ('Wuhan', 'neutral', 30.5928, 114.3055),
+    ('Changsha', 'neutral', 28.2282, 112.9388),
+    ('Bangkok', 'neutral', 13.7563, 100.5018),
+    ('Saigon', 'neutral', 10.8231, 106.6297),
+    ('Hanoi', 'neutral', 21.0278, 105.8342),
+    ('Batavia', 'neutral', -6.2088, 106.8456),
+    ('Surabaya', 'neutral', -7.2575, 112.7521),
+    ('Palembang', 'neutral', -2.9761, 104.7754),
 ]
+
+# The five capitals (everything else, including neutral towns, is not)
+CAPITALS = {'London', 'Berlin', 'Washington DC', 'Tokyo', 'Moscow'}
 
 # Approximate WW2-era metropolitan populations, in THOUSANDS. Drives each
 # city's drawn size and building count, and is reported in the city stats.
@@ -148,6 +299,58 @@ CITY_POPULATION = {
     'Moscow': 4130, 'Leningrad': 3190, 'Kiev': 850, 'Kharkov': 830,
     'Minsk': 240, 'Smolensk': 160, 'Gorky': 640, 'Stalingrad': 445,
     'Rostov': 510, 'Kuybyshev': 390,
+    # British Empire
+    'Coventry': 220, 'Hull': 320, 'Southampton': 180, 'Dover': 40,
+    'Gibraltar': 20, 'Valletta': 70, 'Cairo': 1300, 'Alexandria': 680,
+    'Suez': 110, 'Jerusalem': 130, 'Haifa': 100, 'Singapore': 750,
+    'Hong Kong': 1050, 'Kuala Lumpur': 110, 'Rangoon': 500,
+    'Mandalay': 150, 'Calcutta': 2100, 'Bombay': 1500, 'Delhi': 700,
+    'Madras': 780, 'Colombo': 360, 'Sydney': 1300, 'Darwin': 6,
+    'Port Moresby': 3, 'Rabaul': 5, 'Guadalcanal': 3,
+    # Greater Germany
+    'Konigsberg': 370, 'Danzig': 250, 'Essen': 660, 'Leipzig': 700,
+    'Nuremberg': 420, 'Kiel': 270,
+    # United States possessions
+    'Honolulu': 180, 'Manila': 630, 'Guam': 10,
+    # Empire of Japan
+    'Seoul': 930, 'Pusan': 250, 'Pyongyang': 290, 'Taipei': 350,
+    'Harbin': 500, 'Mukden': 850, 'Dairen': 550, 'Naha': 65,
+    'Saipan': 5, 'Truk': 3,
+    # Soviet Union additions
+    'Sevastopol': 110, 'Odessa': 600, 'Murmansk': 120,
+    'Archangelsk': 280, 'Kursk': 120, 'Voronezh': 340,
+    'Novorossiysk': 95, 'Vladivostok': 210,
+    # France
+    'Paris': 2850, 'Marseille': 630, 'Lyon': 570, 'Bordeaux': 260,
+    'Toulon': 150, 'Calais': 70, 'Dunkirk': 30, 'Dieppe': 25,
+    'Cherbourg': 40, 'Caen': 60, 'Brest': 80,
+    # Low Countries
+    'Amsterdam': 800, 'Rotterdam': 620, 'Arnhem': 90, 'Eindhoven': 110,
+    'Brussels': 900, 'Antwerp': 270, 'Liege': 160, 'Bastogne': 5,
+    # Scandinavia
+    'Oslo': 280, 'Narvik': 10, 'Trondheim': 55, 'Bergen': 100,
+    'Copenhagen': 700, 'Helsinki': 260, 'Viipuri': 75,
+    # Italy and empire
+    'Rome': 1300, 'Milan': 1100, 'Turin': 630, 'Genoa': 630,
+    'Bologna': 320, 'Naples': 950, 'Foggia': 60, 'Salerno': 80,
+    'Anzio': 10, 'Cassino': 20, 'Palermo': 400, 'Messina': 190,
+    'Tripoli': 130, 'Benghazi': 65, 'Tobruk': 15, 'Addis Ababa': 150,
+    'Asmara': 100,
+    # Balkans and Eastern Europe
+    'Athens': 1100, 'Thessaloniki': 240, 'Heraklion': 45,
+    'Belgrade': 320, 'Zagreb': 190, 'Sarajevo': 80, 'Bucharest': 870,
+    'Ploiesti': 80, 'Budapest': 1160, 'Sofia': 300, 'Krakow': 260,
+    'Lodz': 660,
+    # Middle East
+    'Baghdad': 400, 'Tehran': 700, 'Damascus': 300, 'Beirut': 230,
+    # Africa and Atlantic
+    'Casablanca': 350, 'Oran': 220, 'Algiers': 300, 'Tunis': 220,
+    'Dakar': 130,
+    # China and South-East Asia
+    'Shanghai': 3800, 'Nanking': 1000, 'Peking': 1550, 'Tientsin': 1200,
+    'Canton': 1100, 'Chungking': 640, 'Wuhan': 800, 'Changsha': 500,
+    'Bangkok': 680, 'Saigon': 250, 'Hanoi': 150, 'Batavia': 530,
+    'Surabaya': 340, 'Palembang': 110,
 }
 
 HARBOR_CITIES = {
@@ -376,8 +579,12 @@ class WorldData:
 
         edges = set()
         for country, idxs in by_country.items():
-            # MST over land-connected pairs only (no roads across the sea:
-            # island cities are served by transports instead)
+            # the five powers get a national trunk network (MST over
+            # land-connected pairs; the sea is served by transports).
+            # Neutral towns get no world-spanning tree -- only the local
+            # neighbour links below tie them into the road web.
+            if country == 'neutral' or len(idxs) < 2:
+                continue
             in_tree = {idxs[0]}
             while len(in_tree) < len(idxs):
                 best = None
@@ -388,14 +595,21 @@ class WorldData:
                         d = dist(i, j)
                         if best is None or d < best[0]:
                             best = (d, i, j)
-                if on_land(best[1], best[2]):
+                if best[0] <= 18.0 and on_land(best[1], best[2]):
                     edges.add((min(best[1], best[2]), max(best[1], best[2])))
                 in_tree.add(best[2])
-            for i in idxs:
-                near = sorted((dist(i, j), j) for j in idxs if j != i)
-                for _, j in near[:2]:
-                    if on_land(i, j):
-                        edges.add((min(i, j), max(i, j)))
+        # every city (any owner) ties into its two nearest neighbours
+        # within reach -- the continental road web crosses frontiers
+        n_all = len(self.cities)
+        for i in range(n_all):
+            near = sorted((dist(i, j), j) for j in range(n_all) if j != i)
+            linked = 0
+            for d, j in near:
+                if linked >= 2 or d > 10.0:
+                    break
+                if on_land(i, j):
+                    edges.add((min(i, j), max(i, j)))
+                    linked += 1
         self.roads = sorted(edges)
 
         # Give every road a snaking, organic centre-line instead of a
@@ -439,14 +653,14 @@ class WorldData:
         self.log("Road network: %d roads, %d bridges" %
                  (len(self.roads), len(self.bridges)))
 
-    def _curved_road_points(self, lat1, lon1, lat2, lon2, seed):
+    def _curved_road_points(self, lat1, lon1, lat2, lon2, seed, passes=5):
         """A gently snaking centre-line between two cities: recursive
         midpoint displacement, each displaced point pulled back onto land
         if it strays over water. Returns [(lat, lon), ...] incl. endpoints."""
         rng = np.random.RandomState(seed & 0xffffffff)
         pts = [(lat1, lon1), (lat2, lon2)]
         amp = 0.16                       # fraction of segment length
-        for _ in range(5):               # 5 passes -> up to 33 vertices
+        for _ in range(passes):          # 5 passes -> up to 33 vertices
             out = [pts[0]]
             for k in range(len(pts) - 1):
                 la1, lo1 = pts[k]
@@ -630,6 +844,8 @@ class WorldData:
         where new hulls take to the sea -- no more ships on land."""
         self.airfield_sites = {}
         self.harbor_sites = {}
+        self.airfield_spurs = {}        # name -> the DRAWN polyline; the
+        self.harbor_spurs = {}          # route graph follows it exactly
         self.spur_paths = []
         for (name, country, lat, lon) in self.cities:
             rng = np.random.RandomState(
@@ -646,17 +862,21 @@ class WorldData:
             if site is None:
                 site = self.nearest_land(lat, lon + 0.75)
             self.airfield_sites[name] = site
-            self.spur_paths.append(self._curved_road_points(
+            spur = self._curved_road_points(
                 lat, lon, site[0], site[1],
-                zlib.crc32(('spur:af:' + name).encode())))
+                zlib.crc32(('spur:af:' + name).encode()), passes=3)
+            self.airfield_spurs[name] = spur
+            self.spur_paths.append(spur)
             # harbor: the nearest OPEN water, if the sea is close by
             wl, wo = self.nearest_water(lat, lon, max_deg=1.6)
             if (self.is_water(wl, wo)
                     and latlon_dist_deg((lon, lat), (wo, wl)) <= 1.6):
                 self.harbor_sites[name] = (float(wl), float(wo))
-                self.spur_paths.append(self._curved_road_points(
+                spur = self._curved_road_points(
                     lat, lon, wl, wo,
-                    zlib.crc32(('spur:hb:' + name).encode())))
+                    zlib.crc32(('spur:hb:' + name).encode()), passes=3)
+                self.harbor_spurs[name] = spur
+                self.spur_paths.append(spur)
 
     # ================================================== base texture
     def _texture_cache(self):
@@ -805,7 +1025,8 @@ class WorldData:
 
         # cities: aerial-sketch street plan and rooftops, drawn straight
         # onto the map; size and building count scale with population
-        capitals = {(c[0], c[1]) for c in self.cities[::10]}
+        capitals = {(c[0], c[1]) for c in self.cities
+                    if c[0] in CAPITALS}
         for (name, country, lat, lon) in self.cities:
             pop_k = CITY_POPULATION.get(name, 120)
             margin = (0.055 + 0.0028 * math.sqrt(pop_k)) * 1.5
@@ -848,8 +1069,7 @@ class WorldData:
         self.city_plans = {}
         for (name, country, lat, lon) in self.cities:
             pop_k = CITY_POPULATION.get(name, 120)
-            capital = (name, country) in {(c[0], c[1])
-                                          for c in self.cities[::10]}
+            capital = name in CAPITALS
             self.city_plans[name] = self._build_city_plan(
                 name, pop_k, capital, lat, lon)
 

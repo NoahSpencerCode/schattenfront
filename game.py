@@ -40,8 +40,10 @@ from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL, AI_WAVE_INTERVAL,
                     NIGHT_VISION_FACTOR, PRODUCTION_TIME_FACTOR,
                     STARTING_FUNDS, SUPPLY_TRANSFER_RANGE, TAX_DEFAULT,
                     TAX_EQUILIBRIUM, UNIT_SPRITE_SCALE)
-from geodata import WorldData, HARBOR_CITIES, CITY_POPULATION
-from globe import Globe, make_surface_ring, orient_to_surface
+from geodata import (WorldData, HARBOR_CITIES, CITY_POPULATION,
+                     CAPITALS)
+from globe import (Globe, NAT_ORDER, make_surface_ring,
+                   orient_to_surface)
 from menu import MenuScreen
 from icons import get_icon_path
 from models import (make_bridge_marker, make_flat_ring,
@@ -85,7 +87,7 @@ class City:
         self.name = name
         self.country = country          # current owner
         self.home_country = country
-        self.capital = (index % 10 == 0)
+        self.capital = name in CAPITALS
         self.harbor = name in HARBOR_CITIES
         # WW2-era metropolitan population (persons)
         self.population = int(CITY_POPULATION.get(name, 120) * 1000)
@@ -603,11 +605,14 @@ class WW2RTSGame(ShowBase):
                           AI_STARTING_FUNDS) for c in COUNTRIES}
         self._ai_timers = {c: {'think': random.uniform(2, 6),
                                'wave': AI_WAVE_INTERVAL * random.uniform(.6, 1)}
-                           for c in COUNTRIES if c != country}
+                           for c in COUNTRIES
+                           if c != country and c != 'neutral'}
 
         for faction in COUNTRIES:
-            self._spawn_starting_forces(faction)
+            if faction != 'neutral':
+                self._spawn_starting_forces(faction)
 
+        self._update_borders()
         cap = self.capital_of(country)
         self.cam_lat = self.cam_lat_target = cap.lat
         self.cam_lon = self.cam_lon_target = cap.lon
@@ -699,6 +704,15 @@ class WW2RTSGame(ShowBase):
             if a.city is city:
                 return a
         return None
+
+    def _update_borders(self):
+        """Refresh the Voronoi border shader after any change of
+        ownership (capture or completed annexation)."""
+        if not self.globe:
+            return
+        idx = {k: i for i, k in enumerate(NAT_ORDER)}
+        self.globe.set_borders(
+            [(c.pos, idx.get(c.country, 5)) for c in self.cities])
 
     def harbor_of_city(self, city):
         for h in self.harbors:
@@ -886,6 +900,7 @@ class WW2RTSGame(ShowBase):
         for country, amount in take.items():
             if country not in self.eliminated:
                 self.funds[country] += amount
+        self._update_borders()      # annexations completed above
         if take.get(self.player_country):
             self.fax.post(
                 "FORTNIGHT TAX RECEIPTS",
@@ -2590,7 +2605,8 @@ class WW2RTSGame(ShowBase):
         for city in self.cities:
             for country in COUNTRIES:
                 if (country == city.country or country in self.eliminated
-                        or country == self.player_country):
+                        or country == self.player_country
+                        or country == 'neutral'):
                     continue
                 if len(self._capture_garrison(city, country)) \
                         >= city.required_infantry():
@@ -2637,6 +2653,7 @@ class WW2RTSGame(ShowBase):
         city.tax_rate = TAX_DEFAULT
         city.production = []
         city.refresh_marker()
+        self._update_borders()
         self._ai_overseas_cache.clear()
         # the city's airfield changes hands; aircraft caught on the
         # ground are lost
@@ -2673,7 +2690,7 @@ class WW2RTSGame(ShowBase):
         if self.game_over:
             return
         for country in COUNTRIES:
-            if country in self.eliminated:
+            if country in self.eliminated or country == 'neutral':
                 continue
             if not any(c.country == country for c in self.cities):
                 self.eliminated.add(country)
@@ -2693,7 +2710,7 @@ class WW2RTSGame(ShowBase):
                           (B("SURRENDERED"), B("ESC")),
                           sender="SUPREME HQ")
         elif all(c in self.eliminated or c == self.player_country
-                 for c in COUNTRIES):
+                 or c == 'neutral' for c in COUNTRIES):
             self.game_over = True
             self.fax.post("TOTAL VICTORY",
                           "%s. Church bells ring at home -- press %s "
