@@ -157,11 +157,10 @@ uniform float fog_saturation;
 // national territory: Voronoi cells around the cities. sites.w is the
 // owner index; owner 5 (neutral) draws no tint. The frontier is the
 // locus halfway between nearest cities of DIFFERENT owners.
-uniform vec4 sites[%(nsites)d];
-uniform int site_count;
+uniform int site_count;          // 0 until the border bake has landed
 uniform vec3 nat_tint[6];
-uniform float border_eps;
-uniform sampler2D border_ids;     // R = nearest site, G = nearest rival
+uniform sampler2D border_dA;     // bilinear float: empires 0-3 smooth-
+uniform sampler2D border_dB;     // min distance fields; 4-5 in B
 varying vec2 uv;
 varying vec3 world_normal;
 void main() {
@@ -206,89 +205,49 @@ void main() {
     if (site_count > 0) {
         vec2 buv = vec2(atan(nrm.y, nrm.x) * 0.15915494 + 0.5,
                         asin(clamp(nrm.z, -1.0, 1.0)) * 0.31830988 + 0.5);
-        // 4-tap candidate gather: the ID map only nominates which
-        // cities MIGHT matter here; everything visible is computed from
-        // SMOOTH-MIN empire distance fields over those candidates, so
-        // territory shapes have no sharp corners, no slivers between a
-        // nation's own cities, and no seams when the candidate set
-        // changes (far candidates vanish in the exponential tails).
-        vec2 tsz = vec2(1.0 / 2048.0, 1.0 / 1024.0);
-        vec4 idA = texture2D(border_ids, buv + tsz * vec2(-0.75, -0.75));
-        vec4 idB = texture2D(border_ids, buv + tsz * vec2( 0.75, -0.75));
-        vec4 idC = texture2D(border_ids, buv + tsz * vec2(-0.75,  0.75));
-        vec4 idD = texture2D(border_ids, buv + tsz * vec2( 0.75,  0.75));
-        int cand[8];
-        cand[0] = int(idA.r * 255.0 + 0.5);
-        cand[1] = int(idA.g * 255.0 + 0.5);
-        cand[2] = int(idB.r * 255.0 + 0.5);
-        cand[3] = int(idB.g * 255.0 + 0.5);
-        cand[4] = int(idC.r * 255.0 + 0.5);
-        cand[5] = int(idC.g * 255.0 + 0.5);
-        cand[6] = int(idD.r * 255.0 + 0.5);
-        cand[7] = int(idD.g * 255.0 + 0.5);
-        float cd[8];
-        float d1 = -2.0;
-        int i1 = 255;
-        for (int k = 0; k < 8; k++) {
-            cd[k] = -2.0;
-            if (cand[k] > 253) continue;
-            cd[k] = dot(nrm, sites[cand[k]].xyz);
-            if (cd[k] > d1) { d1 = cd[k]; i1 = cand[k]; }
-        }
+        // ONE globally continuous smooth-min distance field PER EMPIRE
+        // (baked over every city that empire owns). The shader argmins
+        // six smooth numbers -- there are no site pairs anywhere, so no
+        // seams, wedges or staircases can exist, even at triple points.
+        // Line thickness comes from screen-space derivatives: exactly
+        // constant pixel width at every zoom.
+        vec4 fA = texture2D(border_dA, buv);
+        vec4 fB = texture2D(border_dB, buv);
         bool land_px = distance(tex.rgb, vec3(0.173, 0.227, 0.310)) > 0.12
                     && distance(tex.rgb, vec3(0.243, 0.329, 0.431)) > 0.07;
-        if (land_px && i1 < 254) {
-            int o1 = int(sites[i1].w + 0.5);
-            float driv = -2.0;
-            int i2 = 255;
-            for (int k = 0; k < 8; k++) {
-                if (cand[k] > 253) continue;
-                if (int(sites[cand[k]].w + 0.5) == o1) continue;
-                if (cd[k] > driv) { driv = cd[k]; i2 = cand[k]; }
-            }
-            int o2 = 5;
-            if (i2 < 254) o2 = int(sites[i2].w + 0.5);
-            // smooth-min (k = 0.02 rad) distance to each empire
-            float sa = 0.0;
-            float sb = 0.0;
-            for (int k = 0; k < 8; k++) {
-                if (cand[k] > 253) continue;
-                float ang = acos(clamp(cd[k], -1.0, 1.0));
-                float e = exp(ang * -50.0);
-                int ow = int(sites[cand[k]].w + 0.5);
-                if (ow == o1) sa += e;
-                else if (ow == o2) sb += e;
-            }
-            float da = -0.02 * log(max(sa, 1e-24));
-            float db = 9.0;
-            float sd = 9.0;
-            if (i2 < 254) {
-                db = -0.02 * log(max(sb, 1e-24));
-                vec3 t1 = normalize(sites[i1].xyz - nrm * d1
-                                    + vec3(1e-8));
-                vec3 t2 = normalize(sites[i2].xyz - nrm * driv
-                                    + vec3(1e-8));
-                float grad = max(length(t1 - t2), 0.3);
-                sd = (db - da) / grad
-                   + 0.0012 * sin((da + db) * 120.0);
-            }
-            int owner = sd >= 0.0 ? o1 : o2;
-            float dmine = sd >= 0.0 ? da : db;
-            // the empire's writ runs only so far; the cap undulates on
-            // smooth sines so empty country gets an organic frontier
-            float wob = 0.004 * (sin(nrm.x * 21.0) + sin(nrm.y * 17.0)
-                                 + sin(nrm.z * 25.0));
-            float reach = 0.11 + wob;
-            if (dmine < reach && owner < 5) {
-                c = mix(c, nat_tint[owner], 0.22);
-                // round screen-space dots: identical size and spacing
-                // at every zoom, a true dotted line (no checkering)
-                vec2 dp = fract(gl_FragCoord.xy / 7.0) - 0.5;
-                bool dot_on = dot(dp, dp) < 0.09;
-                if (dot_on && (reach - dmine < border_eps
-                               || abs(sd) < border_eps)) {
-                    c = mix(c, vec3(0.06, 0.05, 0.04), 0.85);
-                }
+        float d1 = fA.r; int owner = 0;
+        if (fA.g < d1) { d1 = fA.g; owner = 1; }
+        if (fA.b < d1) { d1 = fA.b; owner = 2; }
+        if (fA.a < d1) { d1 = fA.a; owner = 3; }
+        if (fB.r < d1) { d1 = fB.r; owner = 4; }
+        if (fB.g < d1) { d1 = fB.g; owner = 5; }
+        float d2 = 9.0;
+        if (owner != 0 && fA.r < d2) d2 = fA.r;
+        if (owner != 1 && fA.g < d2) d2 = fA.g;
+        if (owner != 2 && fA.b < d2) d2 = fA.b;
+        if (owner != 3 && fA.a < d2) d2 = fA.a;
+        if (owner != 4 && fB.r < d2) d2 = fB.r;
+        if (owner != 5 && fB.g < d2) d2 = fB.g;
+        // screen-space derivatives MUST run in uniform control flow
+        // (inside a divergent branch they are undefined and speckle the
+        // whole map on tile-based GPUs)
+        float sdr = d2 - d1;                  // 0 on the frontier
+        float wpx = abs(sdr) / max(fwidth(sdr), 1e-6);
+        float rpx_den = max(fwidth(d1), 1e-6);
+        // the empire's writ runs only so far; the cap undulates on
+        // smooth sines so empty country gets an organic frontier
+        float wob = 0.004 * (sin(nrm.x * 21.0) + sin(nrm.y * 17.0)
+                             + sin(nrm.z * 25.0));
+        float reach = 0.11 + wob;
+        float rpx = abs(reach - d1) / rpx_den;
+        if (land_px && d1 < reach && owner < 5) {
+            c = mix(c, nat_tint[owner], 0.22);
+            // round screen-space dots: identical size and spacing at
+            // every zoom, a true dotted line (no checkering)
+            vec2 dp = fract(gl_FragCoord.xy / 7.0) - 0.5;
+            bool dot_on = dot(dp, dp) < 0.09;
+            if (dot_on && (wpx < 1.4 || rpx < 1.4)) {
+                c = mix(c, vec3(0.06, 0.05, 0.04), 0.85);
             }
         }
     }
@@ -348,10 +307,12 @@ class Globe:
         self._border_gen = 0
         self._border_bake = None
         self._pending_site_count = 0
-        dummy = Texture('border_ids')
-        dummy.setup2dTexture(1, 1, Texture.TUnsignedByte, Texture.FRgba8)
-        dummy.setRamImage(b'\xff\xff\xff\xff')
-        self.root.setShaderInput('border_ids', dummy)
+        for name in ('border_dA', 'border_dB'):
+            fdummy = Texture(name)
+            fdummy.setup2dTexture(1, 1, Texture.TFloat, Texture.FRgba32)
+            fdummy.setRamImage(
+                np.full(4, 9.0, dtype=np.float32).tobytes())
+            self.root.setShaderInput(name, fdummy)
 
         self.detail = DetailOverlay(base, world_data, self.root, self.shader)
         self._make_country_labels()
@@ -414,45 +375,47 @@ class Globe:
         return Globe._bids_grid
 
     def set_borders(self, entries):
-        """entries: [(unit_vec, owner_index 0..5), ...] — the Voronoi
-        sites the territory tint and dotted frontiers derive from.
-        Kicks a background bake; the map updates when it lands."""
-        from panda3d.core import Vec4
-        n = min(len(entries), 200)
-        for i in range(n):
-            pos, owner = entries[i]
-            self._sites_pta.setElement(
-                i, Vec4(pos.x, pos.y, pos.z, float(owner)))
+        """entries: [(unit_vec, owner_index 0..5), ...]. Bakes, on a
+        worker thread, the COMPLETE smooth-min distance fields over
+        every city of every empire: signed frontier distance + own-
+        empire distance per texel (float, bilinear at draw), plus the
+        owner pair per texel. Globally continuous by construction, so
+        the drawn borders can have no seams or slivers."""
         self._border_gen += 1
         gen = self._border_gen
+        n = len(entries)
         self._pending_site_count = n
-        S = np.array([[p.x, p.y, p.z] for (p, o) in entries[:n]],
+        S = np.array([[p.x, p.y, p.z] for (p, o) in entries],
                      dtype=np.float32).T          # (3, n)
-        owners = np.array([o for (p, o) in entries[:n]], dtype=np.int16)
+        owners = np.array([o for (p, o) in entries], dtype=np.int64)
+        onehot = np.zeros((n, 6), dtype=np.float32)
+        onehot[np.arange(n), owners] = 1.0
 
         def bake():
+            K = 0.02                # smooth-min radius, radians
             grid = self._border_grid()
             total = grid.shape[0]
-            i1 = np.empty(total, dtype=np.uint8)
-            i2 = np.empty(total, dtype=np.uint8)
+            dist6 = np.empty((total, 6), dtype=np.float32)
             step = 65536
             for a in range(0, total, step):
                 b = min(total, a + step)
                 with np.errstate(all='ignore'):
                     dots = grid[a:b] @ S              # (chunk, n)
-                best = np.argmax(dots, axis=1)
-                i1[a:b] = best.astype(np.uint8)
-                # best site of any OTHER owner
-                same = owners[None, :] == owners[best][:, None]
-                dots[same] = -2.0
-                rival = np.argmax(dots, axis=1)
-                has = dots[np.arange(b - a), rival] > -1.5
-                i2[a:b] = np.where(has, rival, 255).astype(np.uint8)
-            img = np.zeros((total, 4), dtype=np.uint8)
-            img[:, 2] = i1                            # BGRA: R in [2]
-            img[:, 1] = i2                            # G in [1]
-            img[:, 3] = 255
-            self._border_bake = (gen, img.tobytes())
+                np.clip(dots, -1.0, 1.0, out=dots)
+                ang = np.arccos(dots)
+                # smooth-min distance to EVERY empire at once
+                with np.errstate(all='ignore'):
+                    E = np.exp(ang * (-1.0 / K)) @ onehot   # (chunk, 6)
+                dist6[a:b] = -K * np.log(np.maximum(E, 1e-30))
+            fa = np.zeros((total, 4), dtype=np.float32)
+            fa[:, 2] = dist6[:, 0]                    # BGRA: R at [2]
+            fa[:, 1] = dist6[:, 1]                    # G at [1]
+            fa[:, 0] = dist6[:, 2]                    # B at [0]
+            fa[:, 3] = dist6[:, 3]                    # A at [3]
+            fb = np.zeros((total, 4), dtype=np.float32)
+            fb[:, 2] = dist6[:, 4]
+            fb[:, 1] = dist6[:, 5]
+            self._border_bake = (gen, fa.tobytes(), fb.tobytes())
 
         threading.Thread(target=bake, daemon=True).start()
 
@@ -462,16 +425,17 @@ class Globe:
         if bake is None or bake[0] != self._border_gen:
             return
         self._border_bake = None
-        gen, data = bake
-        tex = Texture('border_ids')
-        tex.setup2dTexture(self.BIDS_W, self.BIDS_H,
-                           Texture.TUnsignedByte, Texture.FRgba8)
-        tex.setRamImage(data)
-        tex.setMinfilter(SamplerState.FTNearest)
-        tex.setMagfilter(SamplerState.FTNearest)
-        tex.setWrapU(SamplerState.WMRepeat)
-        tex.setWrapV(SamplerState.WMClamp)
-        self.root.setShaderInput('border_ids', tex)
+        gen, fa_data, fb_data = bake
+        for name, data in (('border_dA', fa_data), ('border_dB', fb_data)):
+            ftex = Texture(name)
+            ftex.setup2dTexture(self.BIDS_W, self.BIDS_H,
+                                Texture.TFloat, Texture.FRgba32)
+            ftex.setRamImage(data)
+            ftex.setMinfilter(SamplerState.FTLinear)
+            ftex.setMagfilter(SamplerState.FTLinear)
+            ftex.setWrapU(SamplerState.WMRepeat)
+            ftex.setWrapV(SamplerState.WMClamp)
+            self.root.setShaderInput(name, ftex)
         self.root.setShaderInput('site_count', self._pending_site_count)
 
     # -------------------------------------------------------- country labels
