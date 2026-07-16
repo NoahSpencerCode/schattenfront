@@ -206,28 +206,81 @@ void main() {
     if (site_count > 0) {
         vec2 buv = vec2(atan(nrm.y, nrm.x) * 0.15915494 + 0.5,
                         asin(clamp(nrm.z, -1.0, 1.0)) * 0.31830988 + 0.5);
-        vec4 ids = texture2D(border_ids, buv);
-        int i1 = int(ids.r * 255.0 + 0.5);
-        int i2 = int(ids.g * 255.0 + 0.5);
+        // 4-tap candidate gather: the ID map only nominates which
+        // cities MIGHT matter here; the true nearest and its rival are
+        // then resolved analytically, so nothing ever staircases at
+        // texel resolution
+        vec2 tsz = vec2(1.0 / 2048.0, 1.0 / 1024.0);
+        vec4 idA = texture2D(border_ids, buv + tsz * vec2(-0.5, -0.5));
+        vec4 idB = texture2D(border_ids, buv + tsz * vec2( 0.5, -0.5));
+        vec4 idC = texture2D(border_ids, buv + tsz * vec2(-0.5,  0.5));
+        vec4 idD = texture2D(border_ids, buv + tsz * vec2( 0.5,  0.5));
+        int cand[8];
+        cand[0] = int(idA.r * 255.0 + 0.5);
+        cand[1] = int(idA.g * 255.0 + 0.5);
+        cand[2] = int(idB.r * 255.0 + 0.5);
+        cand[3] = int(idB.g * 255.0 + 0.5);
+        cand[4] = int(idC.r * 255.0 + 0.5);
+        cand[5] = int(idC.g * 255.0 + 0.5);
+        cand[6] = int(idD.r * 255.0 + 0.5);
+        cand[7] = int(idD.g * 255.0 + 0.5);
+        float d1 = -2.0;
+        int i1 = 255;
+        for (int k = 0; k < 8; k++) {
+            if (cand[k] > 253) continue;
+            float dc = dot(nrm, sites[cand[k]].xyz);
+            if (dc > d1) { d1 = dc; i1 = cand[k]; }
+        }
         vec4 s1 = sites[i1];
         int o1 = int(s1.w + 0.5);
-        float d1 = dot(nrm, s1.xyz);
+        float d2b = -2.0;
+        int i2 = 255;
+        for (int k = 0; k < 8; k++) {
+            if (cand[k] > 253) continue;
+            if (int(sites[cand[k]].w + 0.5) == o1) continue;
+            float dc = dot(nrm, sites[cand[k]].xyz);
+            if (dc > d2b) { d2b = dc; i2 = cand[k]; }
+        }
         float ang1 = acos(clamp(d1, -1.0, 1.0));
         bool land_px = distance(tex.rgb, vec3(0.173, 0.227, 0.310)) > 0.12
                     && distance(tex.rgb, vec3(0.243, 0.329, 0.431)) > 0.07;
-        if (land_px && ang1 < 0.30) {
-            if (o1 < 5) c = mix(c, nat_tint[o1], 0.22);
+        land_px = land_px && i1 < 254;
+        // a city's writ only runs so far: territory is capped, and the
+        // cap undulates smoothly (sines) so empty country gets an
+        // organic frontier, not a compass arc
+        float wob = 0.004 * (sin(nrm.x * 21.0) + sin(nrm.y * 17.0)
+                             + sin(nrm.z * 25.0));
+        float reach = 0.11 + wob;
+        if (land_px) {
+            // the ID map only NOMINATES the two candidate cities; which
+            // side of the frontier we are on is decided analytically,
+            // so the tint edge is as smooth as the dotted line and the
+            // two always coincide (no texel staircase)
+            int owner = o1;
+            float ango = ang1;
+            float w = 1e9;
             if (i2 < 254) {
                 vec4 s2 = sites[i2];
-                float d2 = dot(nrm, s2.xyz);
-                float ang2 = acos(clamp(d2, -1.0, 1.0));
+                float ang2 = acos(clamp(d2b, -1.0, 1.0));
                 vec3 t1 = normalize(s1.xyz - nrm * d1 + vec3(1e-8));
-                vec3 t2 = normalize(s2.xyz - nrm * d2 + vec3(1e-8));
+                vec3 t2 = normalize(s2.xyz - nrm * d2b + vec3(1e-8));
                 float grad = max(length(t1 - t2), 0.15);
-                float w = (ang2 - ang1) / grad;   // true frontier distance
-                if (abs(w) < border_eps
-                        && fract((ang1 + ang2) * 700.0) < 0.5) {
-                    c = mix(c, vec3(0.06, 0.05, 0.04), 0.75);
+                w = (ang2 - ang1) / grad
+                  + 0.0012 * sin((ang1 + ang2) * 120.0);
+                if (w < 0.0) {          // the rival's side of the line
+                    owner = int(s2.w + 0.5);
+                    ango = ang2;
+                }
+            }
+            if (ango < reach && owner < 5) {
+                c = mix(c, nat_tint[owner], 0.22);
+                // dotted line: fixed SCREEN-SPACE dot lattice, so dots
+                // keep exactly the same size and spacing at every zoom
+                bool dot_on = mod(floor(gl_FragCoord.x / 4.0)
+                                + floor(gl_FragCoord.y / 4.0), 2.0) < 0.5;
+                if (dot_on && (reach - ango < border_eps
+                               || abs(w) < border_eps)) {
+                    c = mix(c, vec3(0.06, 0.05, 0.04), 0.8);
                 }
             }
         }
@@ -330,7 +383,7 @@ class Globe:
         self.root.setShaderInput('comm_cos_eps', math.cos(eps))
         self.root.setShaderInput('comm_sin_eps', math.sin(eps))
         self.root.setShaderInput('border_eps',
-                                 max(0.0002, min(0.003, 0.00006 * alt)))
+                                 max(0.0001, min(0.0015, 0.00003 * alt)))
 
     # ------------------------------------------------- national borders
     # The per-pixel "which two cities matter" question is baked into a
