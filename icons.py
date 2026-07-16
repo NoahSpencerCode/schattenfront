@@ -229,6 +229,25 @@ def _draw_airfield(d, ink):
     d.ellipse([11, 15, 17, 21], fill=ln)
 
 
+def _draw_harbor(d, ink):
+    """Fleet yard, top-down, in the city-sketch palette: quay wall, two
+    piers reaching into the water, slipway, crane, breakwater."""
+    qw = (176, 161, 127, 255)          # rooftop tan
+    ln = (96, 83, 63, 255)             # street ink
+    d.rectangle([8, 30, 88, 46], fill=qw, outline=ln, width=3)   # quay
+    for x0 in (22, 56):                                          # piers
+        d.rectangle([x0, 46, x0 + 10, 78], fill=qw, outline=ln,
+                    width=2)
+    d.polygon([(38, 46), (52, 46), (55, 72), (35, 72)], fill=qw,
+              outline=ln)                                        # slipway
+    d.line([(40, 70), (50, 70)], fill=ln, width=2)
+    d.line([(40, 62), (50, 62)], fill=ln, width=2)
+    d.rectangle([70, 16, 84, 30], fill=qw, outline=ln, width=2)  # shed
+    d.line([(16, 30), (16, 12)], fill=ln, width=4)               # crane
+    d.line([(16, 12), (34, 20)], fill=ln, width=3)
+    d.arc([56, 70, 96, 96], 200, 330, fill=ln, width=4)          # breakwater
+
+
 def _draw_depot(d, ink):
     """Stacked supply crates."""
     for (x0, y0) in ((16, 52), (52, 52), (34, 20)):
@@ -405,6 +424,7 @@ _DRAWERS = {
     'city': _draw_city,
     'capital': _draw_capital,
     'airfield': _draw_airfield,
+    'harbor': _draw_harbor,
     'factory_button': _draw_factory_button,
     'tax_button': _draw_tax_button,
     'depot': _draw_depot,

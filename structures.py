@@ -145,6 +145,60 @@ class Airfield(Structure):
             self.game.on_airfield_destroyed(self, attacker)
 
 
+class Harbor(Structure):
+    """Fleet yard on the water. New hulls wait here as READY until the
+    player launches them -- a one-way event: once in the water a ship
+    never returns to the yard."""
+
+    ICON = 'harbor'
+    FIXED_SCALE = 0.045
+    TINT = 0.0                  # city-sketch palette, like the towns
+
+    def __init__(self, game, lat, lon, country, name, city=None):
+        self.city = city
+        self.ready = []                 # unit types awaiting launch
+        import zlib as _zlib
+        self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
+        Structure.__init__(self, game, lat, lon, country, name)
+
+        # ready-hull badge (ship pictogram + count)
+        c = COUNTRIES[country]['color']
+        self.badge = self.holder.attachNewNode('hull_badge')
+        pill = make_flat_disc('pill', 0.46, (c[0], c[1], c[2], 0.96),
+                              segments=20)
+        pill.setPos(0, -1.45, 0)
+        pill.reparentTo(self.badge)
+        rim = make_flat_ring('rim', 0.46, (0.13, 0.11, 0.09, 1.0),
+                             thickness=1.6, segments=20)
+        rim.setPos(0, -1.45, 0)
+        rim.reparentTo(self.badge)
+        ship = make_icon_quad(game.loader, 'destroyer_sea_sea', 'dark',
+                              half=0.30, depth=8)
+        ship.setPos(-0.14, -1.45, 0)
+        ship.reparentTo(self.badge)
+        tn = TextNode('count')
+        tn.setAlign(TextNode.ALeft)
+        if game.hud_font:
+            tn.setFont(game.hud_font)
+        tn.setTextColor(0.13, 0.11, 0.09, 1)
+        self.count_tn = tn
+        np_ = self.badge.attachNewNode(tn)
+        np_.setP(-90)
+        np_.setScale(0.5)
+        np_.setPos(0.10, -1.62, 0)
+        np_.setDepthOffset(8)
+        set_marker_layer(self.badge, LAYER_STRUCT + 2)
+        self.badge.hide()
+
+    def set_count(self, n):
+        if n > 0:
+            self.count_tn.setText("x%d" % n)
+            if self.badge.isHidden():
+                self.badge.show()
+        elif not self.badge.isHidden():
+            self.badge.hide()
+
+
 class Depot(Structure):
     """Supply cache: trucks deliver to and draw from it."""
 

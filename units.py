@@ -54,7 +54,7 @@ UNIT_TYPES = {
         'label': 'Engineer Company', 'domain': 'land', 'speed': 0.12,
         'vision': 0.7, 'hp': 50, 'cost': 200, 'build_time': 6,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'ENG',
-        'engineer': True},
+        'engineer': True, 'supply_cap': 1500.0},
 
     # ----- NAVY -----
     'naval_command': {

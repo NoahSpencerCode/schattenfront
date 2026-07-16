@@ -48,7 +48,8 @@ from models import (make_bridge_marker, make_flat_ring,
                     make_hit_flash_template, set_marker_layer,
                     LAYER_BRIDGE, LAYER_FLASH, LAYER_HOVER, LAYER_STRUCT)
 from pathfinding import MovementPlanner
-from structures import (Airfield, Bunker, Depot, AIRFIELD_STOCK_CAP,
+from structures import (Airfield, Bunker, Depot, Harbor,
+                        AIRFIELD_STOCK_CAP,
                         BUNKER_RADIUS, DEPOT_STOCK_CAP, SORTIE_COST)
 from ui import (TopBar, BottomBar, FaxPanel, BudgetFax, BriefingFax,
                 ProductionFax, TaxFax, B)
@@ -298,6 +299,7 @@ class WW2RTSGame(ShowBase):
         self.cities = []
         self.bridges = []
         self.airfields = []
+        self.harbors = []
         self.depots = []
         self.bunkers = []
         self.custom_roads = []          # engineer-built road nodepaths
@@ -307,6 +309,7 @@ class WW2RTSGame(ShowBase):
         self.selected = []
         self.selected_city = None
         self.selected_airfield = None
+        self.selected_harbor = None
         self.roster_base = None          # airfield/carrier whose menu is up
         self.groups = {}
         self.funds = {}
@@ -441,10 +444,12 @@ class WW2RTSGame(ShowBase):
         for c in self.cities:
             c.cleanup()
         self.cities = []
-        for group in (self.airfields, self.depots, self.bunkers):
+        for group in (self.airfields, self.harbors, self.depots,
+                      self.bunkers):
             for s in group:
                 s.cleanup()
         self.airfields = []
+        self.harbors = []
         self.depots = []
         self.bunkers = []
         for np_ in self.custom_roads:
@@ -572,29 +577,22 @@ class WW2RTSGame(ShowBase):
         progress("RAISING THE ARMIES...")
         self.cities = [City(self, i, n, c, la, lo)
                        for i, (n, c, la, lo) in enumerate(self.world.cities)]
-        # an airfield beside every city, sited on a random bearing (but
-        # deterministically — clients and server must agree on the map)
+        # an airfield beside every city and a harbor where the sea is
+        # near; both sited deterministically by the world data (which
+        # also draws their spur roads onto the map)
         self.airfields = []
+        self.harbors = []
         for c in self.cities:
-            rng = random.Random(zlib.crc32(
-                ('airfield:' + c.name).encode()))
-            bearings = list(range(0, 360, 30))
-            rng.shuffle(bearings)
-            site = None
-            for b in bearings:
-                la = c.lat + 0.7 * math.sin(math.radians(b))
-                lo = c.lon + 0.7 * math.cos(math.radians(b)) / \
-                    max(0.2, math.cos(math.radians(c.lat)))
-                if (self.world.is_land(la, lo)
-                        and self.world.is_land(la + 0.08, lo)
-                        and self.world.is_land(la - 0.08, lo)):
-                    site = (la, lo)
-                    break
-            if site is None:
-                site = self.world.nearest_land(c.lat, c.lon + 0.75)
+            site = self.world.airfield_sites[c.name]
             self.airfields.append(Airfield(self, site[0], site[1],
                                            c.country,
                                            "%s FIELD" % c.name.upper(),
+                                           city=c))
+            hs = self.world.harbor_sites.get(c.name)
+            c.harbor = hs is not None
+            if hs is not None:
+                self.harbors.append(Harbor(self, hs[0], hs[1], c.country,
+                                           "%s HARBOUR" % c.name.upper(),
                                            city=c))
         self.depots = []
         self.bunkers = []
@@ -661,10 +659,10 @@ class WW2RTSGame(ShowBase):
                             seed=20 + i)
         harbor = next((c for c in cities if c.harbor), None)
         if harbor:
-            wl, wo = self.world.nearest_water(harbor.lat, harbor.lon)
+            wl, wo = self.world.harbor_sites[harbor.name]
             for i, ut in enumerate(STARTING_NAVY):
-                self.spawn_unit(ut, faction, wl, wo, jitter=0.6, seed=30 + i,
-                                water=True)
+                self.spawn_unit(ut, faction, wl, wo, jitter=0.25,
+                                seed=30 + i, water=True)
 
     def spawn_unit(self, unit_type, faction, lat, lon, jitter=0.0, seed=0,
                    water=False, base=None):
@@ -700,6 +698,12 @@ class WW2RTSGame(ShowBase):
         for a in self.airfields:
             if a.city is city:
                 return a
+        return None
+
+    def harbor_of_city(self, city):
+        for h in self.harbors:
+            if h.city is city:
+                return h
         return None
 
     # ==================================================== input binding
@@ -747,7 +751,8 @@ class WW2RTSGame(ShowBase):
             self._budget_discard()
         elif self.pause_frame:
             self._close_pause_menu()
-        elif self.selected or self.selected_city or self.selected_airfield:
+        elif (self.selected or self.selected_city or self.selected_airfield
+                or self.selected_harbor):
             self.clear_selection()
         else:
             self._open_pause_menu()
@@ -1162,6 +1167,14 @@ class WW2RTSGame(ShowBase):
             self.clear_selection()
             self._select_airfield(field)
             return
+        own_harbors = [(h, h.pos * GLOBE_RADIUS) for h in self.harbors
+                       if h.country == self.player_country
+                       and self._facing_camera(h.pos)]
+        harbor = self._pick_object(mpos, own_harbors)
+        if harbor:
+            self.clear_selection()
+            self._select_harbor(harbor)
+            return
         own_cities = [(c, c.label_pos * GLOBE_RADIUS)
                       for c in self.cities
                       if c.country == self.player_country
@@ -1226,6 +1239,7 @@ class WW2RTSGame(ShowBase):
         self.roster_base = None
         self._select_city(None)
         self._select_airfield(None)
+        self._select_harbor(None)
         self._refresh_selection_ui()
 
     def _select_city(self, city):
@@ -1242,6 +1256,14 @@ class WW2RTSGame(ShowBase):
         self.selected_airfield = field
         if field:
             field.sel_ring.show()
+        self._refresh_selection_ui()
+
+    def _select_harbor(self, harbor):
+        if self.selected_harbor:
+            self.selected_harbor.sel_ring.hide()
+        self.selected_harbor = harbor
+        if harbor:
+            harbor.sel_ring.show()
         self._refresh_selection_ui()
 
     def assign_group(self, n):
@@ -1370,6 +1392,14 @@ class WW2RTSGame(ShowBase):
                 for u in commandable:
                     u.give_order({'kind': 'move',
                                   'goal': Vec3(field.pos)}, queue=shift)
+                lifts = [u for u in commandable
+                         if u.stats.get('capacity') and u.cargo
+                         and u.stats['domain'] == 'air']
+                if lifts:
+                    self.fax_short("AIR LIFT TO %s ORDERED -- %d UNIT(S) "
+                                   "ABOARD" % (field.name,
+                                               sum(len(u.cargo)
+                                                   for u in lifts)))
                 return
 
         if isinstance(target, Bridge):
@@ -1801,7 +1831,8 @@ class WW2RTSGame(ShowBase):
         if kind == 'build':
             # the engineers must actually be standing on the site before
             # the first shovel goes in
-            if unit.dist_to(order['site']) < 0.18:
+            near = 0.4 if order.get('what') == 'harbor' else 0.18
+            if unit.dist_to(order['site']) < near:
                 order['t'] -= globalClock.getDt() * self.game_speed
                 if order['t'] <= 0:
                     self._complete_build(unit, order)
@@ -2121,20 +2152,32 @@ class WW2RTSGame(ShowBase):
             sender="ENGINEER CORPS")
 
     # =============================================== engineering works
+    # works are paid for in SUPPLY from the engineer's own stores --
+    # the treasury never sees an engineering bill
     BUILD_WORKS = {
         'bridge':   ('BRIDGE', 250, 30.0),
-        'road':     ('ROAD', 400, 40.0),
-        'depot':    ('SUPPLY DEPOT', 400, 25.0),
-        'bunker':   ('BUNKER', 300, 18.0),
-        'airfield': ('AIRFIELD', 900, 45.0),
+        'road':     ('ROAD', 300, 40.0),
+        'depot':    ('SUPPLY DEPOT', 300, 25.0),
+        'bunker':   ('BUNKER', 250, 18.0),
+        'airfield': ('AIRFIELD', 500, 45.0),
+        'harbor':   ('HARBOUR', 500, 45.0),
     }
+
+    def _build_engineer(self):
+        return next((u for u in self.selected
+                     if u.stats.get('engineer')), None)
 
     def begin_build_mode(self, kind):
         label, cost, _t = self.BUILD_WORKS[kind]
-        if self.funds[self.player_country] < cost:
+        eng = self._build_engineer()
+        if eng is None:
+            return
+        if eng.supply < cost:
             self.fax.post("WORKS REFUSED",
-                          "Treasury cannot cover the %s (%s)." %
-                          (label, B("$%d" % cost)), sender="EXCHEQUER")
+                          "The company's stores cannot cover the %s "
+                          "(%s). Bring a supply column forward." %
+                          (label, B("%d LBS" % cost)),
+                          sender="ENGINEER CORPS")
             return
         self.build_mode = kind
         self.fax_short("SITE THE %s: RIGHT-CLICK THE MAP -- ESC CANCELS"
@@ -2153,7 +2196,19 @@ class WW2RTSGame(ShowBase):
         eng = engineers[0]
         lat, lon = vec_to_latlon(ground)
         label, cost, build_time = self.BUILD_WORKS[kind]
-        if kind != 'bridge' and self.world.is_water(lat, lon):
+        if kind == 'harbor':
+            # the quay goes ON the water, just off the shore
+            if self.world.is_land(lat, lon):
+                lat, lon = self.world.nearest_water(lat, lon, max_deg=1.0)
+            ground = latlon_to_vec(lat, lon)
+            if self.world.is_land(lat, lon):
+                self.fax.post("WORKS REFUSED",
+                              "%s -- a harbour wants open water." %
+                              B("NO ANCHORAGE AT THAT SITE"),
+                              sender="ENGINEER CORPS")
+                self.build_mode = None
+                return
+        elif kind != 'bridge' and self.world.is_water(lat, lon):
             lat, lon = self.world.nearest_land(lat, lon)
             ground = latlon_to_vec(lat, lon)
 
@@ -2168,13 +2223,14 @@ class WW2RTSGame(ShowBase):
             self.build_mode = None
             self._clear_road_plan()
             n_legs = len(points)
-            total_cost = cost + 150 * (n_legs - 1)
-            if self.funds[self.player_country] < total_cost:
+            total_cost = cost + 100 * (n_legs - 1)
+            if eng.supply < total_cost:
                 self.fax.post("WORKS REFUSED",
-                              "Treasury cannot cover the survey (%s)." %
-                              B("$%d" % total_cost), sender="EXCHEQUER")
+                              "Stores cannot cover the survey (%s)." %
+                              B("%d LBS" % total_cost),
+                              sender="ENGINEER CORPS")
                 return
-            self.funds[self.player_country] -= total_cost
+            eng.supply -= total_cost
             eng.give_order({'kind': 'build', 'what': 'road',
                             'site': Vec3(points[0]),
                             'points': points, 'from': Vec3(eng.pos),
@@ -2196,9 +2252,9 @@ class WW2RTSGame(ShowBase):
                               B("NO CROSSING AT THAT SITE"),
                               sender="ENGINEER CORPS")
                 return
-        if self.funds[self.player_country] < cost:
+        if eng.supply < cost:
             return
-        self.funds[self.player_country] -= cost
+        eng.supply -= cost
         eng.give_order({'kind': 'build', 'what': kind,
                         'site': Vec3(ground), 'from': Vec3(eng.pos),
                         't': build_time, 'cost': cost})
@@ -2248,6 +2304,10 @@ class WW2RTSGame(ShowBase):
                              "FIELD %d" % (len(self.airfields) + 1))
             field.stock = 0.0           # bring supplies by truck
             self.airfields.append(field)
+        elif kind == 'harbor':
+            self.harbors.append(
+                Harbor(self, lat, lon, country,
+                       "HARBOUR %d" % (len(self.harbors) + 1)))
         elif kind == 'bridge':
             self.bridges.append(Bridge(self, {'lat': lat, 'lon': lon,
                                               'road': (-1, -1)},
@@ -2461,6 +2521,30 @@ class WW2RTSGame(ShowBase):
                     self.funds[city.country] += \
                         stats_for(unit_type, city.country)['cost']
                     continue
+                # new hulls go to the fleet yard and wait for LAUNCH
+                # (the player's one-way launching ceremony; AI powers
+                # put theirs straight into the water)
+                if UNIT_TYPES[unit_type]['domain'] == 'sea':
+                    h = self.harbor_of_city(city)
+                    if h is not None:
+                        if city.country == self.player_country:
+                            h.ready.append(unit_type)
+                            h.set_count(len(h.ready))
+                            self.fortnight_delivered[unit_type] = \
+                                self.fortnight_delivered.get(unit_type,
+                                                             0) + 1
+                            lbl = stats_for(unit_type,
+                                            city.country)['label']
+                            self.fax_short("%s READY FOR LAUNCH AT %s" %
+                                           (lbl.upper(), h.name))
+                            if self.selected_harbor is h:
+                                self._refresh_harbor_ui(h)
+                        else:
+                            self.spawn_unit(unit_type, city.country,
+                                            h.lat, h.lon, jitter=0.2,
+                                            seed=random.randrange(9999),
+                                            water=True)
+                        continue
                 u = self.spawn_unit(unit_type, city.country, city.lat,
                                     city.lon, jitter=0.7,
                                     seed=random.randrange(9999),
@@ -2556,6 +2640,12 @@ class WW2RTSGame(ShowBase):
         self._ai_overseas_cache.clear()
         # the city's airfield changes hands; aircraft caught on the
         # ground are lost
+        hb = self.harbor_of_city(city)
+        if hb is not None:
+            hb.country = new_owner
+            hb.ready = []
+            hb.set_count(0)
+            hb.refresh_marker()
         field = self.airfield_of_city(city)
         if field is not None:
             for u in list(self.units):
@@ -3167,6 +3257,9 @@ class WW2RTSGame(ShowBase):
         if self.selected_airfield:
             self._refresh_airfield_ui(self.selected_airfield)
             return
+        if self.selected_harbor:
+            self._refresh_harbor_ui(self.selected_harbor)
+            return
         if self.selected_city:
             city = self.selected_city
             tag = " (CAPITAL)" if city.capital else ""
@@ -3245,6 +3338,31 @@ class WW2RTSGame(ShowBase):
                 base = u.based_at
                 base_name = (getattr(base, 'name', None) or
                              base.stats['label']).upper()
+                if u.stats.get('capacity'):
+                    # a parked air transport: full lift-management menu
+                    bar.set_title("%s -- LOADED %d/%d AT %s" %
+                                  (u.stats['label'].upper(),
+                                   len(u.cargo), u.stats['capacity'],
+                                   base_name))
+                    bar.set_info(
+                        "STRENGTH %d/%d   ENDURANCE %.0f MI   "
+                        "BASE STOCK %d LBS" %
+                        (int(u.hp), u.max_hp, u.stats['fuel'] * 60,
+                         int(self._base_stock(base))))
+                    entries = []
+                    if u.cargo:
+                        entries.append(("++ UNLOAD HERE ++",
+                                        self._unload_parked, [u]))
+                    entries += [("%d/%d" % (int(p.hp), p.max_hp),
+                                 self._noop, [],
+                                 get_icon_path(p.unit_type, 'dark'))
+                                for p in u.cargo]
+                    bar.add_buttons(entries)
+                    bar.set_hint(
+                        "RMB LAND UNITS ONTO THE FIELD TO BOARD -- RMB "
+                        "ANOTHER AIRFIELD TO FLY THE LIFT -- RMB OPEN "
+                        "GROUND TO PARADROP")
+                    return
                 bar.set_title("%s -- READY AT %s" %
                               (u.stats['label'].upper(), base_name))
                 bar.set_info("STRENGTH %d/%d   ENDURANCE %.0f MI   "
@@ -3299,6 +3417,42 @@ class WW2RTSGame(ShowBase):
     def _refresh_airfield_ui(self, field):
         self._refresh_air_roster(field)
 
+    def _refresh_harbor_ui(self, harbor):
+        bar = self.bottom_bar
+        bar.set_title("%s -- FLEET YARD" % harbor.name)
+        bar.set_info("READY HULLS %d   LAUNCHING IS ONE-WAY: A SHIP "
+                     "NEVER RETURNS TO THE YARD" % len(harbor.ready))
+        entries = []
+        for i, ut in enumerate(harbor.ready[:17]):
+            s = stats_for(ut, harbor.country)
+            entries.append(("LAUNCH %s" % s['label'][:14].upper(),
+                            self.launch_ship, [harbor, i],
+                            get_icon_path(ut, 'dark')))
+        bar.add_buttons(entries)
+        bar.set_hint("NEW HULLS ARRIVE HERE FROM THE FORTNIGHT BUDGET"
+                     if not harbor.ready else
+                     "CLICK A HULL TO PUT HER IN THE WATER")
+
+    def launch_ship(self, harbor, index):
+        """Slide a ready hull down the ways: a one-time event."""
+        if (harbor.country != self.player_country
+                or index >= len(harbor.ready)):
+            return
+        ut = harbor.ready.pop(index)
+        harbor.set_count(len(harbor.ready))
+        u = self.spawn_unit(ut, harbor.country, harbor.lat, harbor.lon,
+                            jitter=0.15, seed=random.randrange(9999),
+                            water=True)
+        self.fax_short("%s SLIDES DOWN THE WAYS AT %s" %
+                       (u.stats['label'].upper(), harbor.name))
+        if self.selected_harbor is harbor:
+            self._refresh_harbor_ui(harbor)
+
+    def _unload_parked(self, transport):
+        """Disembark a parked transport's load onto the apron."""
+        self._unload_cargo(transport)
+        self._refresh_selection_ui()
+
     def _refresh_air_roster(self, base):
         """Shared airfield/carrier menu: lists parked squadrons as
         buttons; selected ones are white-bordered.  Stays up while you
@@ -3344,7 +3498,8 @@ class WW2RTSGame(ShowBase):
         bar.set_title("ENGINEER COMPANY -- WORKS DETAIL")
         bar.set_info("STRENGTH %d/%d   SUPPLY %d LBS" %
                      (int(eng.hp), eng.max_hp, int(eng.supply)))
-        entries = [("%s $%d" % (label, cost), self.begin_build_mode, [kind])
+        entries = [("%s %dLB" % (label, cost), self.begin_build_mode,
+                    [kind])
                    for kind, (label, cost, _t) in self.BUILD_WORKS.items()]
         entries.append(("REPAIR: RMB BRIDGE", self._noop, []))
         bar.add_buttons(entries)

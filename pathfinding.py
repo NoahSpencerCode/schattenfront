@@ -187,6 +187,17 @@ class MovementPlanner:
                 edges.append((a, bn, seg_len / ROAD_SPEED_MULTIPLIER,
                               True, gate))
 
+        # spur roads: city to its airfield (fast final approach)
+        af_sites = getattr(w, 'airfield_sites', {})
+        for i, (name, country, lat, lon) in enumerate(w.cities):
+            site = af_sites.get(name)
+            if site is None:
+                continue
+            v = latlon_to_vec(site[0], site[1])
+            nn = len(nodes)
+            nodes.append((Vec3(v), site[0], site[1]))
+            road_chain(nodes[i][0], v, i, nn, [])
+
         for (i, j) in w.roads:
             bs = bridges_by_road.get((i, j), [])
             path = getattr(w, 'road_paths', {}).get((i, j))

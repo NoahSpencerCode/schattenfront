@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 13  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 14  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -185,6 +185,7 @@ class WorldData:
         self._build_fine_mask()          # fine: coastline-true legality
         self._build_roads_and_bridges()
         self._build_city_plans()         # one fixed layout per city
+        self._build_sites()              # airfield/harbor sites + spurs
         self.texture_path = self._build_texture()
 
     # ================================================ vector preprocessing
@@ -620,6 +621,43 @@ class WorldData:
     def nearest_land(self, lat, lon, max_deg=6.0):
         return self._nearest_terrain(lat, lon, True, max_deg)
 
+    # ============================================ airfield/harbor sites
+    def _build_sites(self):
+        """Deterministic airfield and harbor sites for every city (the
+        server and every client must agree on the map), plus the spur
+        roads that tie them to town. Harbors go to cities with open
+        water near; the quay sits ON the drawn water, which is also
+        where new hulls take to the sea -- no more ships on land."""
+        self.airfield_sites = {}
+        self.harbor_sites = {}
+        self.spur_paths = []
+        for (name, country, lat, lon) in self.cities:
+            rng = np.random.RandomState(
+                zlib.crc32(('airfield:' + name).encode()) & 0xffffffff)
+            site = None
+            for b in rng.permutation(range(0, 360, 30)):
+                la = lat + 0.7 * math.sin(math.radians(b))
+                lo = lon + 0.7 * math.cos(math.radians(b)) / \
+                    max(0.2, math.cos(math.radians(lat)))
+                if (self.is_land(la, lo) and self.is_land(la + 0.08, lo)
+                        and self.is_land(la - 0.08, lo)):
+                    site = (float(la), float(lo))
+                    break
+            if site is None:
+                site = self.nearest_land(lat, lon + 0.75)
+            self.airfield_sites[name] = site
+            self.spur_paths.append(self._curved_road_points(
+                lat, lon, site[0], site[1],
+                zlib.crc32(('spur:af:' + name).encode())))
+            # harbor: the nearest OPEN water, if the sea is close by
+            wl, wo = self.nearest_water(lat, lon, max_deg=1.6)
+            if (self.is_water(wl, wo)
+                    and latlon_dist_deg((lon, lat), (wo, wl)) <= 1.6):
+                self.harbor_sites[name] = (float(wl), float(wo))
+                self.spur_paths.append(self._curved_road_points(
+                    lat, lon, wl, wo,
+                    zlib.crc32(('spur:hb:' + name).encode())))
+
     # ================================================== base texture
     def _texture_cache(self):
         return os.path.join(CACHE_DIR, "globe_map_v%d.png" % TEXTURE_VERSION)
@@ -753,6 +791,17 @@ class WorldData:
                 line = [((lo + s - lon0) * sx, (lat1 - la) * sy)
                         for (la, lo) in path]
                 draw.line(line, fill=ROAD, width=road_w, joint='curve')
+
+        # spur roads: city to its airfield and its harbor quay
+        for path in getattr(self, 'spur_paths', []):
+            lons = [p[1] for p in path]
+            lats = [p[0] for p in path]
+            bb = (min(lons), min(lats), max(lons), max(lats))
+            for s in window_shifts(bb):
+                line = [((lo + s - lon0) * sx, (lat1 - la) * sy)
+                        for (la, lo) in path]
+                draw.line(line, fill=ROAD, width=max(2, road_w - 1),
+                          joint='curve')
 
         # cities: aerial-sketch street plan and rooftops, drawn straight
         # onto the map; size and building count scale with population
