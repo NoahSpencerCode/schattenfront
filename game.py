@@ -27,7 +27,8 @@ from panda3d.core import (AmbientLight, AntialiasAttrib, CardMaker,
                           TextPropertiesManager, TransparencyAttrib,
                           Vec3, Vec4, WindowProperties)
 
-from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL, AI_WAVE_INTERVAL,
+from ai import NationAI
+from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     AIR_VISION_MULT, VISION_SCALE,
                     BRIDGE_HP, BRIDGE_REPAIR_RATE, BUDGET_PERIOD_DAYS,
                     CAM_MAX_DIST, CAM_MIN_DIST, CAM_START_DIST,
@@ -401,8 +402,7 @@ class WW2RTSGame(ShowBase):
         self.planning_text = None
         self._city_ui_timer = 0.0
         self._top_bar_timer = 0.0
-        self._ai_timers = {}
-        self._ai_overseas_cache = {}
+        self._nation_ais = {}
         self._pending_ai_orders = []
         self._path_viz = None
         self._path_viz_timer = 0.0
@@ -548,7 +548,7 @@ class WW2RTSGame(ShowBase):
         self.kills = self.losses = 0
         self.out_of_contact = 0
         self.clock_minutes = 0.0
-        self._ai_overseas_cache = {}
+        self._nation_ais = {}
         self._pending_ai_orders = []
         self.unload_mode = False
         self._vision_units = []
@@ -623,17 +623,19 @@ class WW2RTSGame(ShowBase):
         progress("RAISING THE ARMIES...")
         self.cities = [City(self, i, n, c, la, lo)
                        for i, (n, c, la, lo) in enumerate(self.world.cities)]
-        # an airfield beside every city and a harbor where the sea is
-        # near; both sited deterministically by the world data (which
-        # also draws their spur roads onto the map)
+        # air and sea infrastructure is concentrated: the world data
+        # grants each power three airfields and three harbors (and big
+        # neutral towns theirs), siting them deterministically and
+        # drawing their spur roads onto the map
         self.airfields = []
         self.harbors = []
         for c in self.cities:
-            site = self.world.airfield_sites[c.name]
-            self.airfields.append(Airfield(self, site[0], site[1],
-                                           c.country,
-                                           "%s FIELD" % c.name.upper(),
-                                           city=c))
+            site = self.world.airfield_sites.get(c.name)
+            if site is not None:
+                self.airfields.append(Airfield(self, site[0], site[1],
+                                               c.country,
+                                               "%s FIELD" % c.name.upper(),
+                                               city=c))
             hs = self.world.harbor_sites.get(c.name)
             c.harbor = hs is not None
             if hs is not None:
@@ -642,15 +644,14 @@ class WW2RTSGame(ShowBase):
                                            city=c))
         self.depots = []
         self.bunkers = []
-        self._ai_overseas_cache = {}
         self._pending_ai_orders = []
 
         self.funds = {c: (STARTING_FUNDS if c == country else
                           AI_STARTING_FUNDS) for c in COUNTRIES}
-        self._ai_timers = {c: {'think': random.uniform(2, 6),
-                               'wave': AI_WAVE_INTERVAL * random.uniform(.6, 1)}
-                           for c in COUNTRIES
-                           if c != country and c != 'neutral'}
+        # every computer power gets a general staff playing by the
+        # player's own rules (budget, production, orders, annexation)
+        self._nation_ais = {c: NationAI(self, c) for c in COUNTRIES
+                            if c != country and c != 'neutral'}
 
         for faction in COUNTRIES:
             if faction != 'neutral':
@@ -894,13 +895,22 @@ class WW2RTSGame(ShowBase):
         return counts
 
     def _apply_fortnight_budget(self):
-        """Fortnight opens: the standing budget (last transmitted, or the
-        default) is executed against whatever the treasury holds."""
-        country = self.player_country
-        counts = dict(self.budget_counts)
+        """Fortnight opens: EVERY treasury executes its standing budget
+        under the same law -- the player's last transmitted manifest,
+        and each AI staff's own plan, against whatever each holds."""
+        self._execute_budget(self.player_country, self.budget_counts,
+                             announce=True)
+        for country, ai in self._nation_ais.items():
+            if country in self.eliminated:
+                continue
+            ai.plan_budget()
+            self._execute_budget(country, ai.budget_counts,
+                                 announce=False)
+
+    def _execute_budget(self, country, counts, announce):
         buy = {}
         spent = 0
-        for ut, n in counts.items():
+        for ut, n in dict(counts).items():
             cost = stats_for(ut, country)['cost']
             for _ in range(n):
                 if self.funds[country] - spent < cost:
@@ -910,10 +920,12 @@ class WW2RTSGame(ShowBase):
         if spent <= 0:
             return
         self.funds[country] -= spent
+        self._distribute_production(country, buy)
+        if not announce:
+            return
         # the production ledger the WAR INDUSTRIES page reports against
         self.fortnight_order = dict(buy)
         self.fortnight_delivered = {}
-        self._distribute_production(country, buy)
         lines = ", ".join("%dx %s" % (n, UNIT_TYPES[ut]['icon'])
                           for ut, n in buy.items() if n > 0)
         self.fax.post(
@@ -2644,19 +2656,9 @@ class WW2RTSGame(ShowBase):
         return True
 
     def _tick_capture(self, dt):
-        # AI powers annex automatically under the same infantry rule;
-        # the player uses the CAPTURE button on the city's menu
-        for city in self.cities:
-            for country in COUNTRIES:
-                if (country == city.country or country in self.eliminated
-                        or country == self.player_country
-                        or country == 'neutral'):
-                    continue
-                if len(self._capture_garrison(city, country)) \
-                        >= city.required_infantry():
-                    self.attempt_capture(city, country)
-                    break
-
+        # annexation is DELIBERATE for everyone: the player presses the
+        # CAPTURE button, the AI staffs order it in their capture stage
+        # -- both through attempt_capture and its garrison law
         # standalone (engineer-built) airfields fall to whoever holds
         # the ground
         for a in self.airfields:
@@ -2698,7 +2700,8 @@ class WW2RTSGame(ShowBase):
         city.production = []
         city.refresh_marker()
         self._update_borders()
-        self._ai_overseas_cache.clear()
+        for ai in self._nation_ais.values():
+            ai.on_ownership_change()
         # the city's airfield changes hands; aircraft caught on the
         # ground are lost
         hb = self.harbor_of_city(city)
@@ -2875,82 +2878,17 @@ class WW2RTSGame(ShowBase):
         self.globe.set_vision(entries)
 
     # ====================================================== AI
-    AI_ARMY_MIX = ['infantry', 'infantry', 'tank', 'tank', 'aa_artillery',
-                   'engineer', 'supply_truck', 'supply_truck']
-    AI_AIR_MIX = ['fighter', 'bomber', 'bomber']
-
     def _tick_ai(self, dt):
-        for country, timers in self._ai_timers.items():
+        """One nation runs ONE cheap staff stage per think tick; the
+        heavy lifting (route planning) drains through the shared
+        _pending_ai_orders queue a couple of orders per frame."""
+        for country, ai in self._nation_ais.items():
             if country in self.eliminated:
                 continue
-            timers['think'] -= dt * self.game_speed
-            timers['wave'] -= dt * self.game_speed
-            if timers['think'] <= 0:
-                timers['think'] = AI_THINK_INTERVAL * random.uniform(.7, 1.3)
-                self._ai_buy(country)
-            if timers['wave'] <= 0:
-                timers['wave'] = AI_WAVE_INTERVAL * random.uniform(.7, 1.3)
-                self._ai_launch_wave(country)
-
-    def _ai_buy(self, country):
-        cities = [c for c in self.cities if c.country == country]
-        if not cities:
-            return
-        overseas = self._ai_overseas(country)
-        pool = self.AI_AIR_MIX if (overseas and random.random() < 0.6) \
-            else self.AI_ARMY_MIX + self.AI_AIR_MIX
-        unit_type = random.choice(pool)
-        city = random.choice(cities)
-        if unit_type in self.AI_AIR_MIX and not city.capital:
-            city = next((c for c in cities if c.capital), city)
-            if not city.capital:
-                unit_type = random.choice(self.AI_ARMY_MIX)
-        cost = stats_for(unit_type, country)['cost']
-        if self.funds[country] >= cost:
-            self.funds[country] -= cost
-            self.queue_production(city, unit_type)
-
-    def _ai_overseas(self, country):
-        """Cached — geography only changes when cities change hands."""
-        if country in self._ai_overseas_cache:
-            return self._ai_overseas_cache[country]
-        my_cap = self.capital_of(country)
-        overseas = True
-        for other in COUNTRIES:
-            if other == country or other in self.eliminated:
-                continue
-            their = [c for c in self.cities if c.country == other]
-            if not their:
-                continue
-            path = self.planner.plan_land(my_cap.pos, their[0].pos)
-            if path is not None:
-                overseas = False
-                break
-        self._ai_overseas_cache[country] = overseas
-        return overseas
-
-    def _ai_launch_wave(self, country):
-        idle = [u for u in self.units
-                if u.alive and u.country == country and not u.order_queue
-                and not u.current_order and u.stats['damage'] > 0
-                and (u.stats['domain'] != 'air' or u.based_at is not None)]
-        if len(idle) < 3:
-            return
-        targets = [c for c in self.cities if c.country != country
-                   and c.country not in self.eliminated]
-        if not targets:
-            return
-        my_cap = self.capital_of(country)
-        targets.sort(key=lambda c: angle_between(my_cap.pos, c.pos))
-        target = targets[0]
-        for u in idle:
-            if u.stats['domain'] == 'land':
-                if random.random() < 0.5:
-                    continue
-            # queue instead of ordering now: route planning is spread
-            # over the next frames so a wave never stalls a frame
-            self._pending_ai_orders.append(
-                (u, {'kind': 'move', 'goal': Vec3(target.pos)}))
+            ai.timer -= dt * self.game_speed
+            if ai.timer <= 0:
+                ai.timer = AI_THINK_INTERVAL * random.uniform(0.7, 1.3)
+                ai.think()
 
     # ====================================================== camera
     def _tick_camera(self, dt):

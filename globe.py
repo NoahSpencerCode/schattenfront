@@ -342,7 +342,7 @@ class Globe:
     def set_comm_width(self, alt):
         """Scale the outline half-widths with camera altitude so the
         lines stay a few pixels wide at every zoom."""
-        eps = max(0.000075, min(0.002, 0.000045 * alt))
+        eps = max(0.000045, min(0.0012, 0.000027 * alt))
         self.root.setShaderInput('comm_cos_eps', math.cos(eps))
         self.root.setShaderInput('comm_sin_eps', math.sin(eps))
         self.root.setShaderInput('border_eps',

@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 17  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 18  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -871,41 +871,77 @@ class WorldData:
 
     # ============================================ airfield/harbor sites
     def _build_sites(self):
-        """Deterministic airfield and harbor sites for every city (the
-        server and every client must agree on the map), plus the spur
-        roads that tie them to town. Harbors go to cities with open
-        water near; the quay sits ON the drawn water, which is also
-        where new hulls take to the sea -- no more ships on land."""
+        """Deterministic airfield and harbor sites (the server and every
+        client must agree on the map), plus the spur roads that tie them
+        to town. Air and sea infrastructure is CONCENTRATED: each power
+        operates THREE airfields (the capital and its largest cities)
+        and THREE harbors (its largest coastal cities); neutral towns
+        only rate either if they hold a million souls or more. Harbors
+        go where open water is near; the quay sits ON the drawn water,
+        which is also where new hulls take to the sea."""
         self.airfield_sites = {}
         self.harbor_sites = {}
         self.airfield_spurs = {}        # name -> the DRAWN polyline; the
         self.harbor_spurs = {}          # route graph follows it exactly
         self.spur_paths = []
+
+        def popk(name):
+            return CITY_POPULATION.get(name, 120)
+
+        # which cities can host a quay at all (open water within reach)
+        coastal = {}
         for (name, country, lat, lon) in self.cities:
-            rng = np.random.RandomState(
-                zlib.crc32(('airfield:' + name).encode()) & 0xffffffff)
-            site = None
-            for b in rng.permutation(range(0, 360, 30)):
-                la = lat + 0.7 * math.sin(math.radians(b))
-                lo = lon + 0.7 * math.cos(math.radians(b)) / \
-                    max(0.2, math.cos(math.radians(lat)))
-                if (self.is_land(la, lo) and self.is_land(la + 0.08, lo)
-                        and self.is_land(la - 0.08, lo)):
-                    site = (float(la), float(lo))
-                    break
-            if site is None:
-                site = self.nearest_land(lat, lon + 0.75)
-            self.airfield_sites[name] = site
-            spur = self._curved_road_points(
-                lat, lon, site[0], site[1],
-                zlib.crc32(('spur:af:' + name).encode()), passes=3)
-            self.airfield_spurs[name] = spur
-            self.spur_paths.append(spur)
-            # harbor: the nearest OPEN water, if the sea is close by
             wl, wo = self.nearest_water(lat, lon, max_deg=1.6)
             if (self.is_water(wl, wo)
                     and latlon_dist_deg((lon, lat), (wo, wl)) <= 1.6):
-                self.harbor_sites[name] = (float(wl), float(wo))
+                coastal[name] = (float(wl), float(wo))
+
+        by_country = {}
+        for entry in self.cities:
+            by_country.setdefault(entry[1], []).append(entry)
+        air_ok, harbor_ok = set(), set()
+        for country, group in by_country.items():
+            if country == 'neutral':
+                for (name, _c, _la, _lo) in group:
+                    if popk(name) >= 1000:
+                        air_ok.add(name)
+                        if name in coastal:
+                            harbor_ok.add(name)
+                continue
+            ranked = sorted(group, key=lambda g: -popk(g[0]))
+            # airfields: the capital always flies, plus the biggest towns
+            picks = [g for g in ranked if g[0] in CAPITALS][:1]
+            picks += [g for g in ranked if g not in picks]
+            for g in picks[:3]:
+                air_ok.add(g[0])
+            sea = [g for g in ranked if g[0] in coastal]
+            for g in sea[:3]:
+                harbor_ok.add(g[0])
+
+        for (name, country, lat, lon) in self.cities:
+            if name in air_ok:
+                rng = np.random.RandomState(
+                    zlib.crc32(('airfield:' + name).encode()) & 0xffffffff)
+                site = None
+                for b in rng.permutation(range(0, 360, 30)):
+                    la = lat + 0.7 * math.sin(math.radians(b))
+                    lo = lon + 0.7 * math.cos(math.radians(b)) / \
+                        max(0.2, math.cos(math.radians(lat)))
+                    if (self.is_land(la, lo) and self.is_land(la + 0.08, lo)
+                            and self.is_land(la - 0.08, lo)):
+                        site = (float(la), float(lo))
+                        break
+                if site is None:
+                    site = self.nearest_land(lat, lon + 0.75)
+                self.airfield_sites[name] = site
+                spur = self._curved_road_points(
+                    lat, lon, site[0], site[1],
+                    zlib.crc32(('spur:af:' + name).encode()), passes=3)
+                self.airfield_spurs[name] = spur
+                self.spur_paths.append(spur)
+            if name in harbor_ok:
+                wl, wo = coastal[name]
+                self.harbor_sites[name] = (wl, wo)
                 spur = self._curved_road_points(
                     lat, lon, wl, wo,
                     zlib.crc32(('spur:hb:' + name).encode()), passes=3)
