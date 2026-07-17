@@ -1089,7 +1089,7 @@ class WW2RTSGame(ShowBase):
         cities = [c for c in self.cities if c.country == country]
         if not cities:
             return
-        harbors = [c for c in cities if c.harbor]
+        yards = [h for h in self.harbors if h.country == country]
         capital = next((c for c in cities if c.capital), cities[0])
         rr = {'land': 0, 'sea': 0}
         for ut, n in counts.items():
@@ -1097,10 +1097,15 @@ class WW2RTSGame(ShowBase):
             for _ in range(n):
                 domain = stats['domain']
                 if domain == 'sea':
-                    if not harbors:
+                    # hulls are laid down AT the yard, not in a city
+                    if not yards:
+                        self.funds[country] += stats['cost']
                         continue
-                    city = harbors[rr['sea'] % len(harbors)]
+                    h = yards[rr['sea'] % len(yards)]
                     rr['sea'] += 1
+                    h.production.append(
+                        [ut, stats['build_time'] * PRODUCTION_TIME_FACTOR])
+                    continue
                 elif domain == 'air':
                     city = capital
                 else:
@@ -2651,6 +2656,29 @@ class WW2RTSGame(ShowBase):
                                    (u.stats['label'].upper(),
                                     city.name.upper()))
 
+    def _tick_harbor_production(self, dt):
+        for h in self.harbors:
+            if not h.production:
+                continue
+            h.production[0][1] -= dt * self.game_speed
+            if h.production[0][1] > 0:
+                continue
+            unit_type, _ = h.production.pop(0)
+            if h.country == self.player_country:
+                h.ready.append(unit_type)
+                h.set_count(len(h.ready))
+                self.fortnight_delivered[unit_type] = \
+                    self.fortnight_delivered.get(unit_type, 0) + 1
+                lbl = stats_for(unit_type, h.country)['label']
+                self.fax_short("%s READY FOR LAUNCH AT %s" %
+                               (lbl.upper(), h.name))
+                if self.selected_harbor is h:
+                    self._refresh_harbor_ui(h)
+            else:
+                self.spawn_unit(unit_type, h.country, h.lat, h.lon,
+                                jitter=0.2, seed=random.randrange(9999),
+                                water=True)
+
     # ====================================================== capture
     def _capture_garrison(self, city, country):
         """The infantry a power has standing on the city."""
@@ -2730,6 +2758,18 @@ class WW2RTSGame(ShowBase):
         # ground are lost
         hb = self.harbor_of_city(city)
         if hb is not None:
+            # unfinished hulls move to a surviving yard of the old
+            # power; only a navy with NO yards left writes them off
+            if hb.production:
+                survivors = [h for h in self.harbors
+                             if h.country == old and h is not hb]
+                for i, item in enumerate(hb.production):
+                    if survivors:
+                        survivors[i % len(survivors)].production.append(
+                            item)
+                    else:
+                        self.funds[old] += stats_for(item[0], old)['cost']
+                hb.production = []
             hb.country = new_owner
             hb.ready = []
             hb.set_count(0)
@@ -3803,6 +3843,7 @@ class WW2RTSGame(ShowBase):
             self.units = [u for u in self.units if u.alive]
 
             self._tick_production(dt)
+            self._tick_harbor_production(dt)
             self._tick_ai(dt)
             self._tick_flashes(dt)
 

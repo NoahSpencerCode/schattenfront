@@ -157,6 +157,7 @@ class Harbor(Structure):
     def __init__(self, game, lat, lon, country, name, city=None):
         self.city = city
         self.ready = []                 # unit types awaiting launch
+        self.production = []            # hulls on the ways: [type, time]
         import zlib as _zlib
         self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
         Structure.__init__(self, game, lat, lon, country, name)
