@@ -241,13 +241,16 @@ void main() {
         float reach = 0.11 + wob;
         float rpx = abs(reach - d1) / rpx_den;
         if (land_px && d1 < reach && owner < 5) {
-            c = mix(c, nat_tint[owner], 0.22);
+            // territory wash: strong enough to read even for the drab
+            // feldgrau/olive nations against the tan map
+            c = mix(c, nat_tint[owner], 0.40);
             // round screen-space dots: identical size and spacing at
-            // every zoom, a true dotted line (no checkering)
-            vec2 dp = fract(gl_FragCoord.xy / 7.0) - 0.5;
-            bool dot_on = dot(dp, dp) < 0.09;
-            if (dot_on && (wpx < 1.4 || rpx < 1.4)) {
-                c = mix(c, vec3(0.06, 0.05, 0.04), 0.85);
+            // every zoom, a true dotted line (no checkering). A wider
+            // band + bigger dots makes the frontier unmistakable.
+            vec2 dp = fract(gl_FragCoord.xy / 9.0) - 0.5;
+            bool dot_on = dot(dp, dp) < 0.15;
+            if (dot_on && (wpx < 2.4 || rpx < 2.4)) {
+                c = mix(c, vec3(0.05, 0.04, 0.03), 0.92);
             }
         }
     }
