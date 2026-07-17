@@ -13,7 +13,8 @@ import threading
 
 import numpy as np
 from panda3d.core import (Geom, GeomNode, GeomTriangles, GeomVertexData,
-                          GeomVertexFormat, GeomVertexWriter, LineSegs,
+                          GeomVertexFormat, GeomVertexWriter, GeomLines,
+                          LineSegs,
                           Mat3, NodePath, Quat, Shader, TextNode, Texture,
                           TransparencyAttrib, Vec3, SamplerState,
                           ColorBlendAttrib)
@@ -28,6 +29,14 @@ from geodata import CACHE_DIR, TEXTURE_VERSION
 
 # owner index order for the border shader (5 = neutral, never tinted)
 NAT_ORDER = ('britain', 'germany', 'usa', 'japan', 'soviet', 'neutral')
+
+# dashed border lines exist at these zoom octaves (alt0 = 0.6 * 2^i for
+# i = BORDER_OCT_FIRST..): below alt ~2.5 the borders are faded out
+# anyway, so the two closest octaves are never built
+BORDER_OCT_FIRST = 2
+BORDER_OCT_ALTS = (2.4, 4.8, 9.6, 19.2, 38.4)
+BORDER_REACH = 0.11             # empire reach cap, radians
+BORDER_INK = (0.06, 0.05, 0.04)
 from utils import latlon_to_vec, north_tangent
 
 # Detail tiles are static for a given map version (units, bridges and
@@ -159,9 +168,6 @@ uniform float fog_saturation;
 // locus halfway between nearest cities of DIFFERENT owners.
 uniform int site_count;          // 0 until the border bake has landed
 uniform vec3 nat_tint[6];
-uniform float dash_freq0;        // world dash frequency, octave A
-uniform float dash_freq1;        // octave B (half of A)
-uniform float dash_blend;        // crossfade A->B near the hand-over
 uniform float border_fade;       // 0 close up .. 1 zoomed out
 uniform sampler2D border_dA;     // bilinear float: empires 0-3 smooth-
 uniform sampler2D border_dB;     // min distance fields; 4-5 in B
@@ -206,15 +212,17 @@ void main() {
     // loop = cheap); the frontier itself is analytic: gradient-
     // normalized so the dotted line keeps a CONSTANT width and regular
     // dashes however the cities happen to lie.
-    if (site_count > 0) {
+    if (site_count > 0 && border_fade > 0.003) {
         vec2 buv = vec2(atan(nrm.y, nrm.x) * 0.15915494 + 0.5,
                         asin(clamp(nrm.z, -1.0, 1.0)) * 0.31830988 + 0.5);
         // ONE globally continuous smooth-min distance field PER EMPIRE
         // (baked over every city that empire owns). The shader argmins
         // six smooth numbers -- there are no site pairs anywhere, so no
         // seams, wedges or staircases can exist, even at triple points.
-        // Line thickness comes from screen-space derivatives: exactly
-        // constant pixel width at every zoom.
+        // The shader only paints the territory WASH; the dotted border
+        // line itself is real polyline geometry traced from these same
+        // fields on the worker thread (see set_borders), which is the
+        // only way to get truly even, consistent dashes.
         vec4 fA = texture2D(border_dA, buv);
         vec4 fB = texture2D(border_dB, buv);
         bool land_px = distance(tex.rgb, vec3(0.173, 0.227, 0.310)) > 0.12
@@ -225,49 +233,15 @@ void main() {
         if (fA.a < d1) { d1 = fA.a; owner = 3; }
         if (fB.r < d1) { d1 = fB.r; owner = 4; }
         if (fB.g < d1) { d1 = fB.g; owner = 5; }
-        float d2 = 9.0;
-        if (owner != 0 && fA.r < d2) d2 = fA.r;
-        if (owner != 1 && fA.g < d2) d2 = fA.g;
-        if (owner != 2 && fA.b < d2) d2 = fA.b;
-        if (owner != 3 && fA.a < d2) d2 = fA.a;
-        if (owner != 4 && fB.r < d2) d2 = fB.r;
-        if (owner != 5 && fB.g < d2) d2 = fB.g;
-        // screen-space derivatives MUST run in uniform control flow
-        // (inside a divergent branch they are undefined and speckle the
-        // whole map on tile-based GPUs)
-        float sdr = d2 - d1;                  // 0 on the frontier
-        float wpx = abs(sdr) / max(fwidth(sdr), 1e-6);
-        float rpx_den = max(fwidth(d1), 1e-6);
         // the empire's writ runs only so far; the cap undulates on
         // smooth sines so empty country gets an organic frontier
         float wob = 0.004 * (sin(nrm.x * 21.0) + sin(nrm.y * 17.0)
                              + sin(nrm.z * 25.0));
         float reach = 0.11 + wob;
-        float rpx = abs(reach - d1) / rpx_den;
-        if (land_px && d1 < reach && owner < 5 && border_fade > 0.003) {
+        if (land_px && d1 < reach && owner < 5) {
             // territory wash: reads at a glance zoomed out, fades away
             // up close so it never recolours the streets
             c = mix(c, nat_tint[owner], 0.40 * border_fade);
-            // dashes ANCHORED TO THE MAP: a world-space interference
-            // field sampled along the frontier, so the pattern pans and
-            // rotates with the terrain instead of swimming across it.
-            // The dash length is quantized to OCTAVES of the zoom (the
-            // pattern is frozen to the world while zooming) with a short
-            // crossfade at each hand-over; three incommensurate axes
-            // guarantee the pattern never degenerates whatever way the
-            // line runs.
-            float da = sin(nrm.x * dash_freq0 + 0.5)
-                     + sin(nrm.y * dash_freq0 * 1.13 + 1.7)
-                     + sin(nrm.z * dash_freq0 * 0.87 + 2.9);
-            float db = sin(nrm.x * dash_freq1 + 0.5)
-                     + sin(nrm.y * dash_freq1 * 1.13 + 1.7)
-                     + sin(nrm.z * dash_freq1 * 0.87 + 2.9);
-            float dash_on = mix(step(1.0, abs(da)),
-                                step(1.0, abs(db)), dash_blend);
-            if (wpx < 2.4 || rpx < 2.4) {
-                c = mix(c, vec3(0.05, 0.04, 0.03),
-                        0.92 * dash_on * border_fade);
-            }
         }
     }
     gl_FragColor = vec4(c, 1.0);
@@ -323,10 +297,8 @@ class Globe:
         self.root.setShaderInput('site_count', 0)
         self.root.setShaderInput('nat_tint', self._tint_pta)
         self.root.setShaderInput('border_eps', 0.0022)
-        self.root.setShaderInput('dash_freq0', 900.0)
-        self.root.setShaderInput('dash_freq1', 450.0)
-        self.root.setShaderInput('dash_blend', 0.0)
         self.root.setShaderInput('border_fade', 1.0)
+        self._border_line_nodes = []    # dashed line geometry, per octave
         self._border_gen = 0
         self._border_bake = None
         self._pending_site_count = 0
@@ -375,23 +347,34 @@ class Globe:
         self.root.setShaderInput('comm_sin_eps', math.sin(eps))
         self.root.setShaderInput('border_eps',
                                  max(0.0001, min(0.0015, 0.00003 * alt)))
-        # border dashes are anchored to the map; their world length is
-        # quantized to zoom OCTAVES so the pattern stays frozen to the
-        # terrain while zooming (a continuously-tracking frequency made
-        # the dashes slide). Near each octave hand-over the two dash
-        # scales crossfade, so there is never a pop either.
-        a = max(0.6, min(45.0, alt))
-        x = math.log(a / 0.6) / math.log(2.0)
-        f = x - math.floor(x)
-        alt0 = 0.6 * (2.0 ** math.floor(x))
-        self.root.setShaderInput('dash_freq0', math.pi / (0.0004 * alt0))
-        self.root.setShaderInput('dash_freq1', math.pi / (0.0008 * alt0))
-        t = max(0.0, min(1.0, (f - 0.7) / 0.3))
-        self.root.setShaderInput('dash_blend', t * t * (3.0 - 2.0 * t))
         # territory colours are an overview aid: full strength zoomed
         # out, gone at street level so they never tint the buildings
         fd = max(0.0, min(1.0, (alt - 2.5) / 9.5))
-        self.root.setShaderInput('border_fade', fd * fd * (3.0 - 2.0 * fd))
+        fade = fd * fd * (3.0 - 2.0 * fd)
+        self.root.setShaderInput('border_fade', fade)
+        # the dashed border lines are real geometry, one node per zoom
+        # OCTAVE (dash length doubles each octave, so dashes hold a
+        # steady on-screen size while staying glued to the terrain).
+        # Crossfade neighbouring octaves near the hand-over: no pop,
+        # and nothing ever slides while zooming or panning.
+        if self._border_line_nodes:
+            a = max(0.6, min(45.0, alt))
+            x = math.log(a / 0.6) / math.log(2.0)
+            i = int(math.floor(x))
+            t = max(0.0, min(1.0, (x - i - 0.7) / 0.3))
+            blend = t * t * (3.0 - 2.0 * t)
+            n_oct = len(self._border_line_nodes)
+            alphas = [0.0] * n_oct
+            for i_oct, w in ((i, 1.0 - blend), (i + 1, blend)):
+                j = min(max(i_oct - BORDER_OCT_FIRST, 0), n_oct - 1)
+                alphas[j] += w
+            for np_, aw in zip(self._border_line_nodes, alphas):
+                aa = aw * fade
+                if aa <= 0.004:
+                    np_.hide()
+                else:
+                    np_.show()
+                    np_.setColorScale(1.0, 1.0, 1.0, aa)
 
     # ------------------------------------------------- national borders
     # The per-pixel "which two cities matter" question is baked into a
@@ -463,9 +446,267 @@ class Globe:
             fb = np.zeros((total, 4), dtype=np.float32)
             fb[:, 2] = dist6[:, 4]
             fb[:, 1] = dist6[:, 5]
-            self._border_bake = (gen, fa.tobytes(), fb.tobytes())
+            # trace the actual border curves out of the same fields and
+            # pre-cut them into evenly spaced dashes (one geometry per
+            # zoom octave): the drawn line is real geometry, so its
+            # thickness and dash rhythm are exact everywhere
+            lines = self._trace_border_lines(
+                dist6.reshape(self.BIDS_H, self.BIDS_W, 6), grid)
+            self._border_bake = (gen, fa.tobytes(), fb.tobytes(), lines)
 
         threading.Thread(target=bake, daemon=True).start()
+
+    # ------------------------------------------- border line extraction
+    # The dotted border is drawn as REAL polyline geometry: the zero
+    # contour of each empire's "territory field" is traced (marching
+    # squares + chain linking), smoothed, and chopped into dashes by
+    # ARC LENGTH.  Every dash is therefore the same length with the
+    # same gap, the thickness is a constant pixel width from the line
+    # renderer, and the whole thing is glued to the terrain.  Worker
+    # thread only.
+
+    def _trace_border_lines(self, D, grid):
+        """D: (H, W, 6) smooth-min distance per empire; grid: (H*W, 3)
+        unit vectors. Returns [(verts (n,3) f32, segs (m,2) u32), ...]
+        one entry per zoom octave in BORDER_OCT_ALTS."""
+        H, W = self.BIDS_H, self.BIDS_W
+        gx, gy, gz = grid[:, 0], grid[:, 1], grid[:, 2]
+        reach = (BORDER_REACH + 0.004 * (np.sin(gx * 21.0)
+                                         + np.sin(gy * 17.0)
+                                         + np.sin(gz * 25.0))
+                 ).reshape(H, W).astype(np.float32)
+        oct_pts = [[] for _ in BORDER_OCT_ALTS]
+        oct_segs = [[] for _ in BORDER_OCT_ALTS]
+        oct_base = [0] * len(BORDER_OCT_ALTS)
+        for e in range(5):                    # neutral draws no border
+            d_e = D[:, :, e]
+            others = np.delete(D, e, axis=2)
+            d_riv = others.min(axis=2)
+            riv_arg = others.argmin(axis=2)
+            riv_idx = np.where(riv_arg >= e, riv_arg + 1, riv_arg)
+            # territory: closer to us than any rival AND within reach
+            F = np.minimum(reach - d_e, d_riv - d_e)
+            frontier = d_riv < reach          # which constraint binds
+            for chain, closed in self._march_chains(F):
+                if closed:
+                    chain = chain + [chain[0]]   # dashes wrap the loop
+                pts = self._chain_to_xyz(chain, W, H)
+                for _ in range(2):
+                    pts = self._chaikin(pts, False)
+                seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+                s = np.concatenate(([0.0], np.cumsum(seg)))
+                if s[-1] < 1e-4:
+                    continue
+                for oi, alt0 in enumerate(BORDER_OCT_ALTS):
+                    self._emit_dashes(
+                        pts, s, 0.0005 * alt0, e, frontier, riv_idx,
+                        W, H, oct_pts[oi], oct_segs[oi], oct_base, oi)
+        out = []
+        R = GLOBE_RADIUS * LIFT_RING
+        for oi in range(len(BORDER_OCT_ALTS)):
+            if oct_pts[oi]:
+                verts = np.concatenate(oct_pts[oi]).astype(np.float32) * R
+                segs = np.concatenate(oct_segs[oi]).astype(np.uint32)
+            else:
+                verts = np.zeros((0, 3), np.float32)
+                segs = np.zeros((0, 2), np.uint32)
+            out.append((verts, segs))
+        return out
+
+    def _emit_dashes(self, pts, s, period, e, frontier, riv_idx, W, H,
+                     out_pts, out_segs, out_base, oi):
+        """Chop one traced chain into dashes of even arc length, drop
+        dashes over water or on a frontier the lower-indexed empire
+        already draws, and append the survivors as line segments."""
+        total = s[-1]
+        duty = 0.55 * period
+        n_dash = int(total / period) + 1
+        mids_s = []
+        spans = []
+        for k in range(n_dash):
+            s0 = k * period
+            s1 = min(s0 + duty, total)
+            if s1 - s0 < 0.25 * duty:
+                continue
+            spans.append((s0, s1))
+            mids_s.append(0.5 * (s0 + s1))
+        if not spans:
+            return
+        mids = self._interp_along(pts, s, np.array(mids_s))
+        lat = np.degrees(np.arcsin(np.clip(mids[:, 2], -1.0, 1.0)))
+        lon = np.degrees(np.arctan2(mids[:, 1], mids[:, 0]))
+        keep = self.world.fine_flags(lat, lon)
+        # tie-break: a frontier is one line, drawn by the lower index
+        r = np.clip(((90.0 - lat) / 180.0 * H).astype(np.int64), 0, H - 1)
+        c = ((lon + 180.0) / 360.0 * W).astype(np.int64) % W
+        shared = frontier[r, c] & (riv_idx[r, c] < e)
+        keep &= ~shared
+        for ki, (s0, s1) in enumerate(spans):
+            if not keep[ki]:
+                continue
+            i0 = np.searchsorted(s, s0, side='right')
+            i1 = np.searchsorted(s, s1, side='left')
+            piece = [self._interp_along(pts, s, np.array([s0]))[0]]
+            piece.extend(pts[i0:i1])
+            piece.append(self._interp_along(pts, s, np.array([s1]))[0])
+            piece = np.asarray(piece, dtype=np.float32)
+            n = len(piece)
+            if n < 2:
+                continue
+            base = out_base[oi]
+            idx = np.arange(base, base + n - 1, dtype=np.uint32)
+            out_pts.append(piece)
+            out_segs.append(np.stack([idx, idx + 1], axis=1))
+            out_base[oi] = base + n
+
+    @staticmethod
+    def _interp_along(pts, s, sq):
+        """Points at arc positions sq along the polyline (pts, s)."""
+        i = np.clip(np.searchsorted(s, sq, side='right'), 1, len(s) - 1)
+        s0, s1 = s[i - 1], s[i]
+        t = ((sq - s0) / np.maximum(s1 - s0, 1e-12))[:, None]
+        return pts[i - 1] * (1.0 - t) + pts[i] * t
+
+    @staticmethod
+    def _chain_to_xyz(chain, W, H):
+        """Fractional (row, col) grid coords -> unit sphere points."""
+        rc = np.asarray(chain, dtype=np.float64)
+        lat = (rc[:, 0] + 0.5) / H * np.pi - np.pi / 2.0
+        lon = (rc[:, 1] + 0.5) / W * 2.0 * np.pi - np.pi
+        cl = np.cos(lat)
+        return np.stack([cl * np.cos(lon), cl * np.sin(lon),
+                         np.sin(lat)], axis=1)
+
+    @staticmethod
+    def _chaikin(pts, closed):
+        """One corner-cutting pass (then re-projected to the sphere)."""
+        if len(pts) < 3:
+            return pts
+        a, b = pts[:-1], pts[1:]
+        q = 0.75 * a + 0.25 * b
+        r = 0.25 * a + 0.75 * b
+        out = np.empty((2 * len(a) + (0 if closed else 2), 3))
+        if closed:
+            out[0::2] = q
+            out[1::2] = r
+        else:
+            out[0] = pts[0]
+            out[1:-1:2] = q
+            out[2:-1:2] = r
+            out[-1] = pts[-1]
+        out /= np.linalg.norm(out, axis=1, keepdims=True)
+        return out
+
+    def _march_chains(self, F):
+        """Marching squares over F (wrapping in longitude): yields
+        (chain of fractional (row, col) points, closed?) for the zero
+        contour, already linked into ordered polylines."""
+        H, W = F.shape
+        P = F > 0.0
+        Pr = np.roll(P, -1, axis=1)
+        case = (P[:-1, :].astype(np.int8) + 2 * Pr[:-1, :]
+                + 4 * Pr[1:, :] + 8 * P[1:, :])
+        rs, cs = np.nonzero((case > 0) & (case < 15))
+        CONN = {1: (('t', 'l'),), 14: (('t', 'l'),),
+                2: (('t', 'r'),), 13: (('t', 'r'),),
+                3: (('l', 'r'),), 12: (('l', 'r'),),
+                4: (('r', 'b'),), 11: (('r', 'b'),),
+                6: (('t', 'b'),), 9: (('t', 'b'),),
+                7: (('l', 'b'),), 8: (('l', 'b'),)}
+        Fr = np.roll(F, -1, axis=1)
+        adj = {}
+        cross = {}
+
+        def edge_id(kind, r, c):
+            if kind == 't':
+                return (0, r, c)
+            if kind == 'b':
+                return (0, r + 1, c)
+            if kind == 'l':
+                return (1, r, c)
+            return (1, r, (c + 1) % W)      # 'r'
+
+        def crossing(eid):
+            p = cross.get(eid)
+            if p is None:
+                k, r, c = eid
+                f0 = F[r, c]
+                f1 = Fr[r, c] if k == 0 else F[r + 1, c]
+                t = f0 / (f0 - f1)
+                p = (r, c + t) if k == 0 else (r + t, c)
+                cross[eid] = p
+            return p
+
+        for r, c in zip(rs.tolist(), cs.tolist()):
+            cs_ = case[r, c]
+            if cs_ == 5 or cs_ == 10:
+                centre = 0.25 * (F[r, c] + Fr[r, c]
+                                 + F[r + 1, c] + Fr[r + 1, c])
+                if cs_ == 5:
+                    conns = (('t', 'r'), ('b', 'l')) if centre > 0 \
+                        else (('t', 'l'), ('r', 'b'))
+                else:
+                    conns = (('t', 'l'), ('r', 'b')) if centre > 0 \
+                        else (('t', 'r'), ('b', 'l'))
+            else:
+                conns = CONN[cs_]
+            for ka, kb in conns:
+                ea, eb = edge_id(ka, r, c), edge_id(kb, r, c)
+                adj.setdefault(ea, []).append(eb)
+                adj.setdefault(eb, []).append(ea)
+
+        chains = []
+        seen = set()
+        # open chains first (rare), then loops
+        starts = [e for e, nb in adj.items() if len(nb) == 1]
+        starts += list(adj.keys())
+        for start in starts:
+            if start in seen:
+                continue
+            seen.add(start)
+            chain = [start]
+            prev, cur = None, start
+            closed = False
+            while True:
+                nxt = None
+                for nb in adj[cur]:
+                    if nb is not prev and nb != prev:
+                        nxt = nb
+                        break
+                if nxt is None:
+                    break
+                if nxt == start:
+                    closed = True
+                    break
+                if nxt in seen:
+                    chain.append(nxt)
+                    break
+                seen.add(nxt)
+                chain.append(nxt)
+                prev, cur = cur, nxt
+            if len(chain) >= 3:
+                chains.append(([crossing(e) for e in chain], closed))
+        return chains
+
+    @staticmethod
+    def _build_line_geom(verts, segs):
+        """(n,3) float32 verts + (m,2) uint32 pairs -> GeomNode."""
+        vdata = GeomVertexData('border_dash', GeomVertexFormat.getV3(),
+                               Geom.UHStatic)
+        vdata.uncleanSetNumRows(len(verts))
+        vdata.modifyArray(0).modifyHandle().copyDataFrom(
+            verts.tobytes())
+        prim = GeomLines(Geom.UHStatic)
+        prim.setIndexType(Geom.NTUint32)
+        arr = prim.modifyVertices()
+        arr.uncleanSetNumRows(segs.size)
+        arr.modifyHandle().copyDataFrom(
+            np.ascontiguousarray(segs, dtype=np.uint32).tobytes())
+        geom = Geom(vdata)
+        geom.addPrimitive(prim)
+        gnode = GeomNode('border_dash')
+        gnode.addGeom(geom)
+        return gnode
 
     def tick_border_bake(self):
         """Main thread: upload a finished border bake (cheap, rare)."""
@@ -473,7 +714,7 @@ class Globe:
         if bake is None or bake[0] != self._border_gen:
             return
         self._border_bake = None
-        gen, fa_data, fb_data = bake
+        gen, fa_data, fb_data, lines = bake
         for name, data in (('border_dA', fa_data), ('border_dB', fb_data)):
             ftex = Texture(name)
             ftex.setup2dTexture(self.BIDS_W, self.BIDS_H,
@@ -485,6 +726,19 @@ class Globe:
             ftex.setWrapV(SamplerState.WMClamp)
             self.root.setShaderInput(name, ftex)
         self.root.setShaderInput('site_count', self._pending_site_count)
+        for np_ in self._border_line_nodes:
+            np_.removeNode()
+        self._border_line_nodes = []
+        for verts, segs in lines:
+            np_ = self.root.attachNewNode(self._build_line_geom(verts,
+                                                                segs))
+            np_.setRenderModeThickness(2)
+            np_.setColor(*BORDER_INK, 1.0)
+            np_.setLightOff()
+            np_.setDepthOffset(4)
+            np_.setTransparency(TransparencyAttrib.MAlpha)
+            np_.hide()                      # set_comm_width unhides
+            self._border_line_nodes.append(np_)
 
     # -------------------------------------------------------- country labels
     def _make_country_labels(self):
