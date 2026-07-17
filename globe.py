@@ -159,7 +159,10 @@ uniform float fog_saturation;
 // locus halfway between nearest cities of DIFFERENT owners.
 uniform int site_count;          // 0 until the border bake has landed
 uniform vec3 nat_tint[6];
-uniform float dash_freq;         // world dash frequency, follows zoom
+uniform float dash_freq0;        // world dash frequency, octave A
+uniform float dash_freq1;        // octave B (half of A)
+uniform float dash_blend;        // crossfade A->B near the hand-over
+uniform float border_fade;       // 0 close up .. 1 zoomed out
 uniform sampler2D border_dA;     // bilinear float: empires 0-3 smooth-
 uniform sampler2D border_dB;     // min distance fields; 4-5 in B
 varying vec2 uv;
@@ -241,21 +244,29 @@ void main() {
                              + sin(nrm.z * 25.0));
         float reach = 0.11 + wob;
         float rpx = abs(reach - d1) / rpx_den;
-        if (land_px && d1 < reach && owner < 5) {
-            // territory wash: strong enough to read even for the drab
-            // feldgrau/olive nations against the tan map
-            c = mix(c, nat_tint[owner], 0.40);
+        if (land_px && d1 < reach && owner < 5 && border_fade > 0.003) {
+            // territory wash: reads at a glance zoomed out, fades away
+            // up close so it never recolours the streets
+            c = mix(c, nat_tint[owner], 0.40 * border_fade);
             // dashes ANCHORED TO THE MAP: a world-space interference
             // field sampled along the frontier, so the pattern pans and
             // rotates with the terrain instead of swimming across it.
-            // dash_freq tracks the zoom so dashes keep a readable
-            // on-screen length; three incommensurate axes guarantee the
-            // pattern never degenerates whatever way the line runs.
-            float dash = sin(nrm.x * dash_freq + 0.5)
-                       + sin(nrm.y * dash_freq * 1.13 + 1.7)
-                       + sin(nrm.z * dash_freq * 0.87 + 2.9);
-            if (abs(dash) > 1.0 && (wpx < 2.4 || rpx < 2.4)) {
-                c = mix(c, vec3(0.05, 0.04, 0.03), 0.92);
+            // The dash length is quantized to OCTAVES of the zoom (the
+            // pattern is frozen to the world while zooming) with a short
+            // crossfade at each hand-over; three incommensurate axes
+            // guarantee the pattern never degenerates whatever way the
+            // line runs.
+            float da = sin(nrm.x * dash_freq0 + 0.5)
+                     + sin(nrm.y * dash_freq0 * 1.13 + 1.7)
+                     + sin(nrm.z * dash_freq0 * 0.87 + 2.9);
+            float db = sin(nrm.x * dash_freq1 + 0.5)
+                     + sin(nrm.y * dash_freq1 * 1.13 + 1.7)
+                     + sin(nrm.z * dash_freq1 * 0.87 + 2.9);
+            float dash_on = mix(step(1.0, abs(da)),
+                                step(1.0, abs(db)), dash_blend);
+            if (wpx < 2.4 || rpx < 2.4) {
+                c = mix(c, vec3(0.05, 0.04, 0.03),
+                        0.92 * dash_on * border_fade);
             }
         }
     }
@@ -312,7 +323,10 @@ class Globe:
         self.root.setShaderInput('site_count', 0)
         self.root.setShaderInput('nat_tint', self._tint_pta)
         self.root.setShaderInput('border_eps', 0.0022)
-        self.root.setShaderInput('dash_freq', 900.0)
+        self.root.setShaderInput('dash_freq0', 900.0)
+        self.root.setShaderInput('dash_freq1', 450.0)
+        self.root.setShaderInput('dash_blend', 0.0)
+        self.root.setShaderInput('border_fade', 1.0)
         self._border_gen = 0
         self._border_bake = None
         self._pending_site_count = 0
@@ -361,10 +375,23 @@ class Globe:
         self.root.setShaderInput('comm_sin_eps', math.sin(eps))
         self.root.setShaderInput('border_eps',
                                  max(0.0001, min(0.0015, 0.00003 * alt)))
-        # border dashes are anchored to the map; their world length
-        # tracks the zoom so they stay ~16 px long on screen
-        self.root.setShaderInput(
-            'dash_freq', math.pi / (0.0004 * max(0.6, min(45.0, alt))))
+        # border dashes are anchored to the map; their world length is
+        # quantized to zoom OCTAVES so the pattern stays frozen to the
+        # terrain while zooming (a continuously-tracking frequency made
+        # the dashes slide). Near each octave hand-over the two dash
+        # scales crossfade, so there is never a pop either.
+        a = max(0.6, min(45.0, alt))
+        x = math.log(a / 0.6) / math.log(2.0)
+        f = x - math.floor(x)
+        alt0 = 0.6 * (2.0 ** math.floor(x))
+        self.root.setShaderInput('dash_freq0', math.pi / (0.0004 * alt0))
+        self.root.setShaderInput('dash_freq1', math.pi / (0.0008 * alt0))
+        t = max(0.0, min(1.0, (f - 0.7) / 0.3))
+        self.root.setShaderInput('dash_blend', t * t * (3.0 - 2.0 * t))
+        # territory colours are an overview aid: full strength zoomed
+        # out, gone at street level so they never tint the buildings
+        fd = max(0.0, min(1.0, (alt - 2.5) / 9.5))
+        self.root.setShaderInput('border_fade', fd * fd * (3.0 - 2.0 * fd))
 
     # ------------------------------------------------- national borders
     # The per-pixel "which two cities matter" question is baked into a
@@ -405,7 +432,15 @@ class Globe:
         onehot[np.arange(n), owners] = 1.0
 
         def bake():
-            K = 0.02                # smooth-min radius, radians
+            # smooth-min radius. Keep SMALL: the log-sum-exp field is a
+            # density estimator, so a big K lets a CLUSTER of rival
+            # cities out-pull a single nearby city (Calais+Dunkirk+Lille
+            # were pushing the border past British Dover, and Britain's
+            # own dense isles pushed red tint onto the Calais coast).
+            # At K=0.006 only cities within ~75 km sway a point, so the
+            # border lands at the halfway point between the two NEAREST
+            # cities while corners stay visibly rounded.
+            K = 0.006
             grid = self._border_grid()
             total = grid.shape[0]
             dist6 = np.empty((total, 6), dtype=np.float32)
