@@ -159,6 +159,7 @@ uniform float fog_saturation;
 // locus halfway between nearest cities of DIFFERENT owners.
 uniform int site_count;          // 0 until the border bake has landed
 uniform vec3 nat_tint[6];
+uniform float dash_freq;         // world dash frequency, follows zoom
 uniform sampler2D border_dA;     // bilinear float: empires 0-3 smooth-
 uniform sampler2D border_dB;     // min distance fields; 4-5 in B
 varying vec2 uv;
@@ -244,12 +245,16 @@ void main() {
             // territory wash: strong enough to read even for the drab
             // feldgrau/olive nations against the tan map
             c = mix(c, nat_tint[owner], 0.40);
-            // round screen-space dots: identical size and spacing at
-            // every zoom, a true dotted line (no checkering). A wider
-            // band + bigger dots makes the frontier unmistakable.
-            vec2 dp = fract(gl_FragCoord.xy / 9.0) - 0.5;
-            bool dot_on = dot(dp, dp) < 0.15;
-            if (dot_on && (wpx < 2.4 || rpx < 2.4)) {
+            // dashes ANCHORED TO THE MAP: a world-space interference
+            // field sampled along the frontier, so the pattern pans and
+            // rotates with the terrain instead of swimming across it.
+            // dash_freq tracks the zoom so dashes keep a readable
+            // on-screen length; three incommensurate axes guarantee the
+            // pattern never degenerates whatever way the line runs.
+            float dash = sin(nrm.x * dash_freq + 0.5)
+                       + sin(nrm.y * dash_freq * 1.13 + 1.7)
+                       + sin(nrm.z * dash_freq * 0.87 + 2.9);
+            if (abs(dash) > 1.0 && (wpx < 2.4 || rpx < 2.4)) {
                 c = mix(c, vec3(0.05, 0.04, 0.03), 0.92);
             }
         }
@@ -307,6 +312,7 @@ class Globe:
         self.root.setShaderInput('site_count', 0)
         self.root.setShaderInput('nat_tint', self._tint_pta)
         self.root.setShaderInput('border_eps', 0.0022)
+        self.root.setShaderInput('dash_freq', 900.0)
         self._border_gen = 0
         self._border_bake = None
         self._pending_site_count = 0
@@ -355,6 +361,10 @@ class Globe:
         self.root.setShaderInput('comm_sin_eps', math.sin(eps))
         self.root.setShaderInput('border_eps',
                                  max(0.0001, min(0.0015, 0.00003 * alt)))
+        # border dashes are anchored to the map; their world length
+        # tracks the zoom so they stay ~16 px long on screen
+        self.root.setShaderInput(
+            'dash_freq', math.pi / (0.0004 * max(0.6, min(45.0, alt))))
 
     # ------------------------------------------------- national borders
     # The per-pixel "which two cities matter" question is baked into a
