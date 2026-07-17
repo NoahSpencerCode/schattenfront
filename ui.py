@@ -703,84 +703,140 @@ class TaxFax:
 
 
 class ProductionFax:
-    """War-industries state: one row per unit type in this fortnight's
-    order -- 'delivered/ordered' tally and a progress bar for the item
-    of that type nearest to delivery. Two columns; everything fits above
-    the acknowledge button."""
+    """War-industries state, LIVE: grouped ARMY / AIR FORCE / NAVY,
+    one row per unit type in this fortnight's order with a
+    delivered/ordered tally and a progress bar for the item of that
+    type nearest to delivery. The figures refresh while the page is
+    open -- the manifest is a wire to the factory floor, not a
+    photograph of it."""
 
     BAR_W = 0.40
 
-    def __init__(self, base, rows, on_close):
+    def __init__(self, base, sections, on_close):
         self.base = base
         self.on_close = on_close
-        f = base.hud_font
+        self.f = base.hud_font
         self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
                                  frameSize=(-1.12, 1.12, -0.88, 0.88),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
                     frameSize=(-1.12, 1.12, 0.855, 0.88))
+        tn, _ = _make_text(self.frame, self.f, (0, 0.78), 0.045, INK,
+                           TextNode.ACenter)
+        tn.setText("*** WAR INDUSTRIES -- PRODUCTION STATE ***")
+        self.head_tn, _ = _make_text(self.frame, self.f, (0, 0.70),
+                                     0.032, INK_FAINT, TextNode.ACenter)
+        tn, _ = _make_text(self.frame, self.f, (0, 0.655), 0.032, INK,
+                           TextNode.ACenter)
+        tn.setText("-" * 74)
+        DirectButton(parent=self.frame, text="++ FILE AND ACKNOWLEDGE ++",
+                     text_scale=0.040, text_fg=INK, text_font=self.f,
+                     frameColor=BTN_PAPER,
+                     frameSize=(-0.42, 0.42, -0.038, 0.054),
+                     relief=DGG.FLAT, command=self._close,
+                     pos=(0, 0, -0.78))
+        self._grid = []             # destroyable widgets of the grid
+        self._widgets = {}          # label -> (tally_tn, fill, pct_tn)
+        self._keys = None
+        self.update(sections)
+
+    # ------------------------------------------------------------ live
+    def update(self, sections):
+        """Refresh the figures in place; rebuild the grid only when the
+        set of lines itself changes (a new fortnight order)."""
+        done_all = sum(r[2] for _s, rows in sections for r in rows)
+        total_all = sum(r[3] for _s, rows in sections for r in rows)
+        self.head_tn.setText("FORTNIGHT ORDER: %d OF %d ITEMS DELIVERED"
+                             % (done_all, total_all))
+        keys = tuple((s, r[0]) for s, rows in sections for r in rows)
+        if keys != self._keys:
+            self._keys = keys
+            self._build_grid(sections)
+            return
+        for _sec, rows in sections:
+            for (label, _icon, done, total, prog) in rows:
+                if label not in self._widgets:
+                    continue        # overflowed the sheet
+                tally, fill, pct = self._widgets[label]
+                tally.setText("%d/%d" % (done, total))
+                w = max(0.0, min(1.0, prog)) * self.BAR_W
+                if w > 0.003:
+                    fill.show()
+                    fill['frameSize'] = (0, w, -0.009, 0.009)
+                else:
+                    fill.hide()
+                pct.setText("%d%%" % int(prog * 100))
+
+    def _build_grid(self, sections):
+        for w in self._grid:
+            w.destroy() if hasattr(w, 'destroy') else w.removeNode()
+        self._grid = []
+        self._widgets = {}
 
         def text(t, pos, scale=0.032, color=INK, align=TextNode.ALeft):
-            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
+            tn, np_ = _make_text(self.frame, self.f, pos, scale, color,
+                                 align)
             tn.setText(t)
+            self._grid.append(np_)
             return tn
 
-        text("*** WAR INDUSTRIES -- PRODUCTION STATE ***",
-             (0, 0.78), 0.045, INK, TextNode.ACenter)
-        done_all = sum(r[2] for r in rows)
-        total_all = sum(r[3] for r in rows)
-        text("FORTNIGHT ORDER: %d OF %d ITEMS DELIVERED"
-             % (done_all, total_all), (0, 0.70), 0.032, INK_FAINT,
-             TextNode.ACenter)
-        text("-" * 74, (0, 0.655), 0.032, INK, TextNode.ACenter)
-
-        if not rows:
+        # flatten sections into grid slots: a branch header, then rows
+        slots = []
+        for sec_label, rows in sections:
+            if rows:
+                slots.append(('H', sec_label))
+                slots.extend(('R',) + r for r in rows)
+        if not slots:
             text("ALL PRODUCTION LINES IDLE.", (0, 0.30), 0.04, INK,
                  TextNode.ACenter)
             text("THE NEXT FORTNIGHT APPROPRIATION WILL SET THEM "
                  "TURNING AGAIN.", (0, 0.22), 0.030, INK_FAINT,
                  TextNode.ACenter)
+            return
 
         col_x = (-1.02, 0.10)
         row_y0 = 0.56
-        row_h = 0.125
-        per_col = 9
-        for i, (label, icon, done, total, progress) in enumerate(rows[:18]):
+        row_h = 0.111
+        per_col = 11
+        for i, slot in enumerate(slots[:22]):
             col = i // per_col
             x = col_x[col]
             y = row_y0 - (i % per_col) * row_h
-            # pictogram
+            if slot[0] == 'H':
+                text("++ %s ++" % slot[1], (x + 0.035, y), 0.030,
+                     (0.52, 0.10, 0.06, 1.0))
+                continue
+            _tag, label, icon, done, total, prog = slot
             ic = DirectFrame(parent=self.frame, relief=None,
                              frameColor=(0, 0, 0, 0), image=icon,
                              image_scale=0.036,
                              frameSize=(-0.04, 0.04, -0.04, 0.04),
                              pos=(x + 0.035, 0, y - 0.012))
             ic.setTransparency(True)
+            self._grid.append(ic)
             text(label[:24], (x + 0.085, y), 0.028)
-            text("%d/%d" % (done, total), (x + 0.92, y), 0.030,
-                 INK, TextNode.ARight)
-            # progress bar for the next delivery of this type
+            tally = text("%d/%d" % (done, total), (x + 0.92, y), 0.030,
+                         INK, TextNode.ARight)
             bx = x + 0.085
-            DirectFrame(parent=self.frame,
-                        frameColor=(0.72, 0.68, 0.56, 1.0),
-                        frameSize=(0, self.BAR_W, -0.009, 0.009),
-                        pos=(bx, 0, y - 0.045))
-            fill = max(0.0, min(1.0, progress)) * self.BAR_W
-            if fill > 0.003:
-                DirectFrame(parent=self.frame,
-                            frameColor=(0.35, 0.28, 0.16, 1.0),
-                            frameSize=(0, fill, -0.009, 0.009),
-                            pos=(bx, 0, y - 0.045))
-            pct = "%d%%" % int(progress * 100)
-            text(pct, (bx + self.BAR_W + 0.03, y - 0.056), 0.024,
-                 INK_FAINT)
-
-        DirectButton(parent=self.frame, text="++ FILE AND ACKNOWLEDGE ++",
-                     text_scale=0.040, text_fg=INK, text_font=f,
-                     frameColor=BTN_PAPER,
-                     frameSize=(-0.42, 0.42, -0.038, 0.054),
-                     relief=DGG.FLAT, command=self._close,
-                     pos=(0, 0, -0.78))
+            back = DirectFrame(parent=self.frame,
+                               frameColor=(0.72, 0.68, 0.56, 1.0),
+                               frameSize=(0, self.BAR_W, -0.009, 0.009),
+                               pos=(bx, 0, y - 0.045))
+            self._grid.append(back)
+            fill = DirectFrame(parent=self.frame,
+                               frameColor=(0.35, 0.28, 0.16, 1.0),
+                               frameSize=(0, max(0.004,
+                                                 min(1.0, prog)
+                                                 * self.BAR_W),
+                                          -0.009, 0.009),
+                               pos=(bx, 0, y - 0.045))
+            self._grid.append(fill)
+            if prog <= 0.008:
+                fill.hide()
+            pct = text("%d%%" % int(prog * 100),
+                       (bx + self.BAR_W + 0.03, y - 0.056), 0.024,
+                       INK_FAINT)
+            self._widgets[label] = (tally, fill, pct)
 
     def _close(self):
         self.on_close()

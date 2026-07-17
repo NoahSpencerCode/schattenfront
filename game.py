@@ -1053,36 +1053,52 @@ class WW2RTSGame(ShowBase):
             self.tax_fax.destroy()
             self.tax_fax = None
 
-    def open_factory_report(self):
-        """The war-industries FAX: per unit type, how many of this
-        fortnight's order have been delivered, and how far along the
-        next one on the line is."""
-        if self.game_state != 'playing' or self.briefing_fax:
-            return
+    def _factory_sections(self):
+        """The manifest's live data: this fortnight's order grouped
+        ARMY / AIR FORCE / NAVY, with progress read from wherever the
+        work actually happens -- city workshops, airfield aprons and
+        harbor ways."""
         player = self.player_country
-        rows = []
+        queues = []
+        for c in self.cities:
+            if c.country == player:
+                queues.extend(c.production)
+        for a in self.airfields:
+            if a.country == player:
+                queues.extend(a.production)
+        for h in self.harbors:
+            if h.country == player:
+                queues.extend(h.production)
+        by_branch = {'land': [], 'air': [], 'sea': []}
         for ut, total in self.fortnight_order.items():
             s = stats_for(ut, player)
             done = min(total, self.fortnight_delivered.get(ut, 0))
-            # progress of the closest-to-delivery item of this type
             build = max(1.0, s['build_time'] * PRODUCTION_TIME_FACTOR)
             progress = None
-            for c in self.cities:
-                if c.country != player:
-                    continue
-                for (qut, secs) in c.production:
-                    if qut == ut:
-                        p = 1.0 - max(0.0, secs) / build
-                        progress = p if progress is None \
-                            else max(progress, p)
+            for (qut, secs) in queues:
+                if qut == ut:
+                    p = 1.0 - max(0.0, secs) / build
+                    progress = p if progress is None else max(progress, p)
             if done >= total:
                 progress = 1.0
-            rows.append((s['label'].upper(),
-                         get_icon_path(ut, 'dark'),
-                         done, total,
-                         0.0 if progress is None else progress))
-        rows.sort(key=lambda r: r[0])
-        self.briefing_fax = ProductionFax(self, rows,
+            by_branch[UNIT_TYPES[ut]['domain']].append(
+                (s['label'].upper(), get_icon_path(ut, 'dark'),
+                 done, total, 0.0 if progress is None else progress))
+        for rows in by_branch.values():
+            rows.sort(key=lambda r: r[0])
+        return [(title, by_branch[dom])
+                for dom, title in (('land', 'ARMY'),
+                                   ('air', 'AIR FORCE'),
+                                   ('sea', 'NAVY'))
+                if by_branch[dom]]
+
+    def open_factory_report(self):
+        """The war-industries FAX: the fortnight order by branch, live
+        while the page is open."""
+        if self.game_state != 'playing' or self.briefing_fax:
+            return
+        self._factory_timer = 0.5
+        self.briefing_fax = ProductionFax(self, self._factory_sections(),
                                           self._close_briefing)
 
     def _distribute_production(self, country, counts):
@@ -3850,6 +3866,11 @@ class WW2RTSGame(ShowBase):
             self._tick_production(dt)
             self._tick_airfield_production(dt)
             self._tick_harbor_production(dt)
+            if isinstance(self.briefing_fax, ProductionFax):
+                self._factory_timer -= dt
+                if self._factory_timer <= 0:
+                    self._factory_timer = 0.5
+                    self.briefing_fax.update(self._factory_sections())
             self._tick_ai(dt)
             self._tick_flashes(dt)
 
