@@ -19,7 +19,8 @@ from config import (AIR_VISION_MULT, COMM_RADIUS_FACTOR, COUNTRIES,
 from globe import make_surface_ring, orient_to_surface
 from models import (make_flat_ring, make_icon_quad, set_marker_layer,
                     unit_layer_base)
-from utils import north_tangent, slerp, angle_between
+from utils import (north_tangent, slerp, angle_between,
+                   vec_to_latlon)
 
 # domain: where the unit lives.  targets: what its guns can hurt.
 UNIT_TYPES = {
@@ -706,6 +707,16 @@ class Unit:
         target, speed_mult = self.path[0]
         speed = (self.stats['speed'] * UNIT_SPEED_FACTOR * speed_mult *
                  self.game.game_speed)
+        # the climb bites: off-road land movement pays the real grade
+        # (roads are engineered and exempt; one sample per leg)
+        if self.stats['domain'] == 'land' and speed_mult <= 1.001:
+            if getattr(self, '_slope_tgt', None) is not target:
+                self._slope_tgt = target
+                la1, lo1 = vec_to_latlon(self.pos)
+                la2, lo2 = vec_to_latlon(target)
+                self._slope_fac = self.game.world.terrain.speed_factor(
+                    la1, lo1, la2, lo2)
+            speed *= self._slope_fac
         ang = angle_between(self.pos, target)
         step = speed * dt / GLOBE_RADIUS
         if ang <= step or ang < 1e-5:

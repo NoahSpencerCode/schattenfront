@@ -155,6 +155,9 @@ uniform vec3 sun_dir;
 uniform float night_darkness;
 uniform vec4 vision[%(nvis)d];    // xyz = centre dir, w = cos(radius)
 uniform int vision_count;
+// terrain line of sight: row i = source i's cos(visible radius) by
+// azimuth (east-based, -pi..pi across the row, wrapping)
+uniform sampler2D vis_prof;
 // wireless net: xyz = centre dir, w = cos(radius); the outline drawn is
 // the PERIMETER OF THE UNION -- arcs inside another circle are negated
 uniform vec4 comm[%(nvis)d];
@@ -185,7 +188,21 @@ void main() {
     bool seen = false;
     for (int i = 0; i < %(nvis)d; i++) {
         if (i >= vision_count) break;
-        if (dot(nrm, vision[i].xyz) > vision[i].w) { seen = true; break; }
+        vec3 s = vision[i].xyz;
+        float dp = dot(nrm, s);
+        if (dp <= vision[i].w) continue;   // outside even the full circle
+        // inside the circle: the RELIEF decides. Sample this source's
+        // visibility radius at the fragment's azimuth.
+        vec3 e = (abs(s.z) > 0.999) ? vec3(1.0, 0.0, 0.0)
+                                    : normalize(cross(vec3(0.0, 0.0, 1.0),
+                                                      s));
+        vec3 nn = cross(s, e);
+        vec3 d = nrm - s * dp;
+        float az = atan(dot(d, nn), dot(d, e));
+        float cr = texture2D(vis_prof,
+                             vec2(az * 0.15915494 + 0.5,
+                                  (float(i) + 0.5) / %(nvis)d.0)).r;
+        if (dp > cr) { seen = true; break; }
     }
     if (!seen) {
         float g = dot(c, vec3(0.299, 0.587, 0.114));
@@ -279,6 +296,18 @@ class Globe:
         from panda3d.core import PTA_LVecBase4f, Vec4
         self._vision_pta = PTA_LVecBase4f.emptyArray(MAX_VISION_SOURCES)
         self._comm_pta = PTA_LVecBase4f.emptyArray(MAX_VISION_SOURCES)
+        # per-source terrain LOS: cos(radius) by azimuth, one row each
+        self._vis_prof_buf = np.ones((MAX_VISION_SOURCES, 64),
+                                     dtype=np.float32)
+        self._vis_prof_tex = Texture('vis_prof')
+        self._vis_prof_tex.setup2dTexture(64, MAX_VISION_SOURCES,
+                                          Texture.TFloat, Texture.FR32)
+        self._vis_prof_tex.setRamImage(self._vis_prof_buf.tobytes())
+        self._vis_prof_tex.setMinfilter(SamplerState.FTLinear)
+        self._vis_prof_tex.setMagfilter(SamplerState.FTLinear)
+        self._vis_prof_tex.setWrapU(SamplerState.WMRepeat)
+        self._vis_prof_tex.setWrapV(SamplerState.WMClamp)
+        self.root.setShaderInput('vis_prof', self._vis_prof_tex)
         self.root.setShaderInput('sun_dir', Vec3(1, 0, 0))
         self.root.setShaderInput('night_darkness', NIGHT_DARKNESS)
         self.root.setShaderInput('vision', self._vision_pta)
@@ -320,15 +349,25 @@ class Globe:
         self.root.setShaderInput('sun_dir', sun_dir)
 
     def set_vision(self, entries):
-        """entries: [(unit_vec, radius_world_units), ...] — the sharp
-        vision fields inside which the map keeps its full colour."""
+        """entries: [(unit_vec, radius_world_units, los_profile), ...]
+        — the sharp vision fields inside which the map keeps its full
+        colour. los_profile (angular radii by azimuth, or None for a
+        plain circle) warps each field around the RELIEF: the row is
+        packed as cos(radius) into one small texture the fog shader
+        samples by azimuth."""
         from panda3d.core import Vec4
         n = min(len(entries), MAX_VISION_SOURCES)
+        prof = self._vis_prof_buf
         for i in range(n):
-            pos, radius = entries[i]
+            pos, radius, los = entries[i]
             self._vision_pta.setElement(
                 i, Vec4(pos.x, pos.y, pos.z,
                         math.cos(radius / GLOBE_RADIUS)))
+            if los is None:
+                prof[i, :] = math.cos(radius / GLOBE_RADIUS)
+            else:
+                np.cos(np.minimum(los, math.pi), out=prof[i, :])
+        self._vis_prof_tex.setRamImage(prof.tobytes())
         self.root.setShaderInput('vision_count', n)
 
     def set_comm(self, entries):
