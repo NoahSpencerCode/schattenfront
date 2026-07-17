@@ -1107,7 +1107,18 @@ class WW2RTSGame(ShowBase):
                         [ut, stats['build_time'] * PRODUCTION_TIME_FACTOR])
                     continue
                 elif domain == 'air':
-                    city = capital
+                    # aircraft take shape ON the airfield apron (ground
+                    # fields only -- carriers base wings, not factories)
+                    fields = [a for a in self.airfields
+                              if a.country == country]
+                    if not fields:
+                        self.funds[country] += stats['cost']
+                        continue
+                    f = fields[rr.setdefault('air', 0) % len(fields)]
+                    rr['air'] += 1
+                    f.production.append(
+                        [ut, stats['build_time'] * PRODUCTION_TIME_FACTOR])
+                    continue
                 else:
                     city = cities[rr['land'] % len(cities)]
                     rr['land'] += 1
@@ -2171,6 +2182,7 @@ class WW2RTSGame(ShowBase):
                 self.unit_destroyed(u, attacker)
         if self.selected_airfield is field:
             self._select_airfield(None)
+        self._relocate_works(field, field.country, self.airfields)
         if field in self.airfields:
             self.airfields.remove(field)
         field.cleanup()
@@ -2179,36 +2191,6 @@ class WW2RTSGame(ShowBase):
             "%s has been %s. Aircraft on the ground are lost." %
             (B(field.name), B("CRATERED AND BURNT")),
             sender="FIELD COMMAND")
-        self._cancel_air_production(field.country)
-
-    def _cancel_air_production(self, country):
-        """No airfields, no aircraft: if a nation can no longer base
-        aircraft anywhere, scrap and refund any still on the works
-        lists rather than delivering them onto open ground."""
-        if self.airfields_of(country):
-            return
-        refunded = 0
-        n = 0
-        for city in self.cities:
-            if city.country != country:
-                continue
-            kept = []
-            for entry in city.production:
-                if UNIT_TYPES[entry[0]]['domain'] == 'air':
-                    refunded += stats_for(entry[0], country)['cost']
-                    n += 1
-                else:
-                    kept.append(entry)
-            city.production = kept
-        if n:
-            self.funds[country] += refunded
-            if country == self.player_country:
-                self.fax.post(
-                    "AIR PROGRAMME SUSPENDED",
-                    "%s remain. %d aircraft struck from the works "
-                    "lists; $%d refunded to the treasury." %
-                    (B("NO AIRFIELDS"), n, refunded),
-                    sender="AIR MINISTRY")
 
     def on_bridge_destroyed(self, bridge, attacker):
         if self.planner:
@@ -2656,6 +2638,37 @@ class WW2RTSGame(ShowBase):
                                    (u.stats['label'].upper(),
                                     city.name.upper()))
 
+    def _relocate_works(self, structure, owner, fleet):
+        """A production site is lost: unfinished work moves to a
+        surviving same-power site; only a power with none left writes
+        the work off as a refund."""
+        if not structure.production:
+            return
+        survivors = [s for s in fleet
+                     if s.country == owner and s is not structure]
+        for i, item in enumerate(structure.production):
+            if survivors:
+                survivors[i % len(survivors)].production.append(item)
+            else:
+                self.funds[owner] += stats_for(item[0], owner)['cost']
+        structure.production = []
+
+    def _tick_airfield_production(self, dt):
+        for f in self.airfields:
+            if not f.production:
+                continue
+            f.production[0][1] -= dt * self.game_speed
+            if f.production[0][1] > 0:
+                continue
+            unit_type, _ = f.production.pop(0)
+            u = self.spawn_unit(unit_type, f.country, f.lat, f.lon,
+                                seed=random.randrange(9999), base=f)
+            if f.country == self.player_country:
+                self.fortnight_delivered[unit_type] = \
+                    self.fortnight_delivered.get(unit_type, 0) + 1
+                self.fax_short("%s REPORTING FOR DUTY AT %s" %
+                               (u.stats['label'].upper(), f.name))
+
     def _tick_harbor_production(self, dt):
         for h in self.harbors:
             if not h.production:
@@ -2732,6 +2745,7 @@ class WW2RTSGame(ShowBase):
                 for p in list(self.units):
                     if p.alive and p.based_at is a and p.country == old:
                         self.unit_destroyed(p, None)
+                self._relocate_works(a, old, self.airfields)
                 a.country = occupier
                 a.refresh_marker()
                 if self.player_country in (old, occupier):
@@ -2758,18 +2772,9 @@ class WW2RTSGame(ShowBase):
         # ground are lost
         hb = self.harbor_of_city(city)
         if hb is not None:
-            # unfinished hulls move to a surviving yard of the old
-            # power; only a navy with NO yards left writes them off
-            if hb.production:
-                survivors = [h for h in self.harbors
-                             if h.country == old and h is not hb]
-                for i, item in enumerate(hb.production):
-                    if survivors:
-                        survivors[i % len(survivors)].production.append(
-                            item)
-                    else:
-                        self.funds[old] += stats_for(item[0], old)['cost']
-                hb.production = []
+            # unfinished hulls follow the same relocation law as the
+            # airfields: surviving yards inherit, else a refund
+            self._relocate_works(hb, old, self.harbors)
             hb.country = new_owner
             hb.ready = []
             hb.set_count(0)
@@ -2779,10 +2784,10 @@ class WW2RTSGame(ShowBase):
             for u in list(self.units):
                 if u.alive and u.based_at is field and u.country == old:
                     self.unit_destroyed(u, None)
+            self._relocate_works(field, old, self.airfields)
             field.country = new_owner
             field.refresh_marker()
             self._refresh_air_base(field)
-            self._cancel_air_production(old)   # old owner may be fieldless
         if new_owner == self.player_country:
             self.fax.post("CITY TAKEN",
                           "Colours raised over %s. Annexation is in "
@@ -3843,6 +3848,7 @@ class WW2RTSGame(ShowBase):
             self.units = [u for u in self.units if u.alive]
 
             self._tick_production(dt)
+            self._tick_airfield_production(dt)
             self._tick_harbor_production(dt)
             self._tick_ai(dt)
             self._tick_flashes(dt)

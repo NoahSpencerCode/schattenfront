@@ -93,6 +93,7 @@ class Airfield(Structure):
         self.stock = AIRFIELD_STOCK_CAP
         self.hp = AIRFIELD_HP
         self.max_hp = AIRFIELD_HP
+        self.production = []            # wings on the line: [type, time]
         # every field is laid out on its own compass bearing
         import zlib as _zlib
         self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
