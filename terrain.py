@@ -158,7 +158,7 @@ class Terrain:
 
     # ---------------------------------------------------- hillshade art
     def shade_window(self, lon0, lat0, lon1, lat1, w, h,
-                     strength=0.16, azimuth=315.0, altitude=45.0):
+                     strength=0.45, azimuth=315.0, altitude=45.0):
         """(shade, high) for a lon/lat window at w x h: 'shade' is a
         multiplicative hillshade around 1.0, 'high' a 0..1 mask easing
         in above ~800 m for the hypsometric stone tint."""
@@ -178,7 +178,7 @@ class Terrain:
         hs = (np.sin(alt) * np.cos(slope) +
               np.cos(alt) * np.sin(slope) * np.cos(az - aspect))
         shade = 1.0 + strength * (hs - np.sin(alt)) / max(0.2, np.sin(alt))
-        high = np.clip((e - 800.0) / 2400.0, 0.0, 1.0)
+        high = np.clip((e - 400.0) / 1600.0, 0.0, 1.0)
         return shade.astype(np.float32), high.astype(np.float32)
 
     # ---------------------------------------------------- line of sight
@@ -213,4 +213,12 @@ class Terrain:
         radii[none_hidden] = range_rad
         # seeing at least a step ahead keeps units from going blind in
         # a gully
-        return np.maximum(radii, steps[0]).astype(np.float32)
+        radii = np.maximum(radii, steps[0])
+        # the FIELD is presentation as much as survey: smooth the
+        # outline with a circular binomial blur so the shape flows in
+        # subtle curves instead of ray-to-ray corners
+        k = np.array([1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0])
+        k /= k.sum()
+        wrapped = np.concatenate([radii[-3:], radii, radii[:3]])
+        radii = np.convolve(wrapped, k, mode='valid')
+        return radii.astype(np.float32)

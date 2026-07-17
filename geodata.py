@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 20  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 21  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -1069,7 +1069,7 @@ class WorldData:
                                                     lon1, lat1, w, h)
             STONE = np.array((151, 140, 120), dtype=np.float32)
             fa = arr.astype(np.float32)
-            hi3 = (0.38 * high)[:, :, None]
+            hi3 = (0.55 * high)[:, :, None]
             fa = fa * (1.0 - hi3) + STONE[None, None, :] * hi3
             fa *= shade[:, :, None]
             fa = np.clip(fa, 0, 255)
