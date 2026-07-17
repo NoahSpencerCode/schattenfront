@@ -29,15 +29,19 @@ import numpy as np
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
 DEM_NPY = os.path.join(CACHE_DIR, "etopo1_60s_i2.npy")
+DEM_NPY_5M = os.path.join(CACHE_DIR, "etopo1_5m_i2.npy")
 DEM_ZIP = os.path.join(CACHE_DIR, "etopo1_ice_g_i2.zip")
 DEM_URL = ("https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO1/data/"
            "ice_surface/grid_registered/binary/etopo1_ice_g_i2.zip")
 
-DEM_W, DEM_H = 21600, 10800     # one arc-minute cells
+DEM_W, DEM_H = 4320, 2160       # five arc-minute cells (~9 km)
+CELLS_PER_DEG = 12.0
 EARTH_R_M = 6371000.0
 
 # ---- gameplay tuning (moderate doctrine) --------------------------------
-OBSERVER_M = 60.0               # observation mast above local ground
+OBSERVER_M = 110.0              # default observer height: every unit
+                                # and town watches from a mast/steeple,
+                                # so a dip underfoot cannot blind it
 TARGET_M = 25.0                 # a division shows this much above its
                                 # ground: dust, vehicles, smoke
 GRADE_BLOCK = 0.13              # mean grade beyond which land cannot pass
@@ -52,29 +56,35 @@ def _log(msg):
 
 
 def ensure_dem(log=_log):
-    """Download and unpack the ETOPO1 grid on first run."""
-    if os.path.exists(DEM_NPY):
-        return DEM_NPY
+    """The 5-arc-minute grid the game plays on, derived once from the
+    ETOPO1 source (downloaded on first run)."""
+    if os.path.exists(DEM_NPY_5M):
+        return DEM_NPY_5M
     os.makedirs(CACHE_DIR, exist_ok=True)
-    if not os.path.exists(DEM_ZIP):
-        log("downloading ETOPO1 relief (322 MB, first run only)...")
-        tmp = DEM_ZIP + ".part"
-        urllib.request.urlretrieve(DEM_URL, tmp)
-        os.replace(tmp, DEM_ZIP)
-    log("unpacking the relief grid...")
-    with zipfile.ZipFile(DEM_ZIP) as zf:
-        name = next(n for n in zf.namelist() if n.endswith(".bin"))
-        raw = zf.read(name)
-    # grid-registered: 21601 x 10801, int16 LE, row 0 at 90N/180W.
-    grid = np.frombuffer(raw, dtype="<i2").reshape(10801, 21601)
-    np.save(DEM_NPY, np.ascontiguousarray(grid[:DEM_H, :DEM_W]))
-    del raw, grid
-    try:
-        os.remove(DEM_ZIP)
-    except OSError:
-        pass
-    log("relief ready: %s" % DEM_NPY)
-    return DEM_NPY
+    if not os.path.exists(DEM_NPY):
+        if not os.path.exists(DEM_ZIP):
+            log("downloading ETOPO1 relief (322 MB, first run only)...")
+            tmp = DEM_ZIP + ".part"
+            urllib.request.urlretrieve(DEM_URL, tmp)
+            os.replace(tmp, DEM_ZIP)
+        log("unpacking the relief grid...")
+        with zipfile.ZipFile(DEM_ZIP) as zf:
+            name = next(n for n in zf.namelist() if n.endswith(".bin"))
+            raw = zf.read(name)
+        # grid-registered: 21601 x 10801, int16 LE, row 0 at 90N/180W.
+        grid = np.frombuffer(raw, dtype="<i2").reshape(10801, 21601)
+        np.save(DEM_NPY, np.ascontiguousarray(grid[:10800, :21600]))
+        del raw, grid
+        try:
+            os.remove(DEM_ZIP)
+        except OSError:
+            pass
+    log("smoothing the relief to five arc-minutes...")
+    fine = np.load(DEM_NPY, mmap_mode="r")
+    coarse = fine.reshape(2160, 5, 4320, 5).mean(axis=(1, 3))
+    np.save(DEM_NPY_5M, np.round(coarse).astype(np.int16))
+    log("relief ready: %s" % DEM_NPY_5M)
+    return DEM_NPY_5M
 
 
 class Terrain:
@@ -89,8 +99,9 @@ class Terrain:
         """Elevation in metres (vectorized; sea clamps to 0)."""
         lat = np.asarray(lat, dtype=np.float64)
         lon = np.asarray(lon, dtype=np.float64)
-        r = np.clip(((90.0 - lat) * 60.0).astype(np.int64), 0, DEM_H - 1)
-        c = ((lon + 180.0) * 60.0).astype(np.int64) % DEM_W
+        r = np.clip(((90.0 - lat) * CELLS_PER_DEG).astype(np.int64),
+                    0, DEM_H - 1)
+        c = ((lon + 180.0) * CELLS_PER_DEG).astype(np.int64) % DEM_W
         e = self.elev[r, c].astype(np.float32)
         return np.maximum(e, 0.0)
 
@@ -101,8 +112,9 @@ class Terrain:
         """Smooth elevation for the hillshade art."""
         lat = np.asarray(lat, dtype=np.float64)
         lon = np.asarray(lon, dtype=np.float64)
-        rf = np.clip((90.0 - lat) * 60.0 - 0.5, 0.0, DEM_H - 1.001)
-        cf = ((lon + 180.0) * 60.0 - 0.5) % DEM_W
+        rf = np.clip((90.0 - lat) * CELLS_PER_DEG - 0.5,
+                     0.0, DEM_H - 1.001)
+        cf = ((lon + 180.0) * CELLS_PER_DEG - 0.5) % DEM_W
         r0 = rf.astype(np.int64)
         c0 = cf.astype(np.int64)
         r1 = np.minimum(r0 + 1, DEM_H - 1)
@@ -158,16 +170,30 @@ class Terrain:
 
     # ---------------------------------------------------- hillshade art
     def shade_window(self, lon0, lat0, lon1, lat1, w, h,
-                     strength=0.45, azimuth=315.0, altitude=45.0):
+                     strength=0.90, azimuth=315.0, altitude=45.0):
         """(shade, high) for a lon/lat window at w x h: 'shade' is a
         multiplicative hillshade around 1.0, 'high' a 0..1 mask easing
-        in above ~800 m for the hypsometric stone tint."""
-        lats = lat1 - (lat1 - lat0) * ((np.arange(h) + 0.5) / h)
-        lons = lon0 + (lon1 - lon0) * ((np.arange(w) + 0.5) / w)
+        in over the high country for the hypsometric stone tint.
+
+        The shading is computed at the DEM's OWN cell resolution and
+        then smoothly upsampled -- shading a magnified grid per output
+        pixel leaves a blocky quilt of cells at close zoom."""
+        from PIL import Image as _Image
+        gh = int(min(h, max(8, (lat1 - lat0) * CELLS_PER_DEG * 2)))
+        gw = int(min(w, max(8, (lon1 - lon0) * CELLS_PER_DEG * 2)))
+        # a margin of grid cells beyond the window keeps the gradient
+        # two-sided at the edges: adjoining tiles shade seamlessly
+        pad = 3
+        py = pad * (lat1 - lat0) / gh
+        px = pad * (lon1 - lon0) / gw
+        lats = (lat1 + py) - (lat1 - lat0 + 2 * py) * \
+            ((np.arange(gh + 2 * pad) + 0.5) / (gh + 2 * pad))
+        lons = (lon0 - px) + (lon1 - lon0 + 2 * px) * \
+            ((np.arange(gw + 2 * pad) + 0.5) / (gw + 2 * pad))
         e = self.sample_bilinear(lats[:, None], lons[None, :])
-        # metres per pixel for the gradient
-        mpp_y = max(1.0, (lat1 - lat0) / h * 111120.0)
-        mpp_x = max(1.0, (lon1 - lon0) / w * 111120.0 *
+        # metres per grid step for the gradient
+        mpp_y = max(1.0, (lat1 - lat0) / gh * 111120.0)
+        mpp_x = max(1.0, (lon1 - lon0) / gw * 111120.0 *
                     max(0.15, math.cos(math.radians(0.5 * (lat0 + lat1)))))
         gy, gx = np.gradient(e, mpp_y, mpp_x)
         az = math.radians(azimuth)
@@ -178,7 +204,23 @@ class Terrain:
         hs = (np.sin(alt) * np.cos(slope) +
               np.cos(alt) * np.sin(slope) * np.cos(az - aspect))
         shade = 1.0 + strength * (hs - np.sin(alt)) / max(0.2, np.sin(alt))
+        shade = np.clip(shade, 0.30, 1.45)
         high = np.clip((e - 400.0) / 1600.0, 0.0, 1.0)
+        # resize WITH the margin still attached, then crop in output
+        # pixels: the interpolation kernel never sees an array edge
+        # inside the window, so adjoining tiles match exactly
+        ox = max(1, int(round(pad * w / gw)))
+        oy = max(1, int(round(pad * h / gh)))
+        shade = np.asarray(_Image.fromarray(
+            shade.astype(np.float32), mode='F').resize(
+                (w + 2 * ox, h + 2 * oy), _Image.BICUBIC),
+            dtype=np.float32)[oy:oy + h, ox:ox + w]
+        high = np.asarray(_Image.fromarray(
+            high.astype(np.float32), mode='F').resize(
+                (w + 2 * ox, h + 2 * oy), _Image.BICUBIC),
+            dtype=np.float32)[oy:oy + h, ox:ox + w]
+        shade = np.clip(shade, 0.30, 1.45)
+        high = np.clip(high, 0.0, 1.0)
         return shade.astype(np.float32), high.astype(np.float32)
 
     # ---------------------------------------------------- line of sight
@@ -187,7 +229,7 @@ class Terrain:
         """Angular visibility radius per azimuth (radians), marched
         over the relief with earth-curvature drop. A ray ends at the
         first crest that hides the ground beyond."""
-        h0 = self.elev_at(lat, lon) + OBSERVER_M
+        e0 = self.elev_at(lat, lon)
         # azimuth convention MATCHES the fog shader: angle from local
         # EAST, counter-clockwise, -pi..pi (texel k = (az+pi)/2pi * n)
         az = np.linspace(-math.pi, math.pi, n_az, endpoint=False)
@@ -197,6 +239,9 @@ class Terrain:
         dlat = np.degrees(steps)[None, :] * np.sin(az)[:, None]
         dlon = np.degrees(steps)[None, :] * np.cos(az)[:, None] / coslat
         e = self.sample_m(lat + dlat, lon + dlon)      # (n_az, n_steps)
+        # the eye stands on the better of the spot itself and its
+        # immediate surroundings: one low sample cannot sink the mast
+        h0 = max(e0, float(e[:, 0].mean())) + OBSERVER_M
         dist_m = steps[None, :] * EARTH_R_M
         drop = dist_m * dist_m / (2.0 * EARTH_R_M)     # curvature
         ang = (e - h0 - drop) / dist_m                 # bare terrain
