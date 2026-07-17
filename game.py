@@ -757,7 +757,8 @@ class WW2RTSGame(ShowBase):
             return
         idx = {k: i for i, k in enumerate(NAT_ORDER)}
         self.globe.set_borders(
-            [(c.pos, idx.get(c.country, 5)) for c in self.cities])
+            [(c.pos, 6 if c.annexing else idx.get(c.country, 5))
+             for c in self.cities])
 
     def harbor_of_city(self, city):
         for h in self.harbors:
@@ -2435,26 +2436,31 @@ class WW2RTSGame(ShowBase):
         starving get flagged.  Logistics wins wars."""
         units = self.units
 
-        # 1) cities are bottomless sources for anything nearby
+        # 1) cities load ONLY the supply carriers (trucks and supply
+        # ships); the fighting formations must be fed by their train.
+        # A city still being annexed supplies nothing.
         for u in units:
             if (not u.alive or u.carried_by
-                    or u.stats['supply_cap'] <= 0
+                    or not u.stats.get('supply_carrier')
                     or u.supply >= u.stats['supply_cap']):
                 continue
             for c in self.cities:
-                if c.country == u.country and u.dist_to(c.pos) < 0.6:
+                if (c.country == u.country and not c.annexing
+                        and u.dist_to(c.pos) < 0.6):
                     u.supply = u.stats['supply_cap']
                     break
 
         # city-side airfields refill from their city; carriers at a
         # friendly harbor take on aviation stock
         for a in self.airfields:
-            if a.city is not None and a.city.country == a.country:
+            if (a.city is not None and a.city.country == a.country
+                    and not a.city.annexing):
                 a.stock = AIRFIELD_STOCK_CAP
         for u in units:
             if u.alive and u.unit_type == 'aircraft_carrier':
                 for c in self.cities:
                     if (c.country == u.country and c.harbor
+                            and not c.annexing
                             and u.dist_to(c.pos) < 1.0):
                         u.av_stock = AIRFIELD_STOCK_CAP
                         break
@@ -2612,26 +2618,28 @@ class WW2RTSGame(ShowBase):
                 # (the player's one-way launching ceremony; AI powers
                 # put theirs straight into the water)
                 if UNIT_TYPES[unit_type]['domain'] == 'sea':
+                    # a hull with no quay is refunded, never beached
                     h = self.harbor_of_city(city)
-                    if h is not None:
-                        if city.country == self.player_country:
-                            h.ready.append(unit_type)
-                            h.set_count(len(h.ready))
-                            self.fortnight_delivered[unit_type] = \
-                                self.fortnight_delivered.get(unit_type,
-                                                             0) + 1
-                            lbl = stats_for(unit_type,
-                                            city.country)['label']
-                            self.fax_short("%s READY FOR LAUNCH AT %s" %
-                                           (lbl.upper(), h.name))
-                            if self.selected_harbor is h:
-                                self._refresh_harbor_ui(h)
-                        else:
-                            self.spawn_unit(unit_type, city.country,
-                                            h.lat, h.lon, jitter=0.2,
-                                            seed=random.randrange(9999),
-                                            water=True)
+                    if h is None:
+                        self.funds[city.country] += \
+                            stats_for(unit_type, city.country)['cost']
                         continue
+                    if city.country == self.player_country:
+                        h.ready.append(unit_type)
+                        h.set_count(len(h.ready))
+                        self.fortnight_delivered[unit_type] = \
+                            self.fortnight_delivered.get(unit_type, 0) + 1
+                        lbl = stats_for(unit_type, city.country)['label']
+                        self.fax_short("%s READY FOR LAUNCH AT %s" %
+                                       (lbl.upper(), h.name))
+                        if self.selected_harbor is h:
+                            self._refresh_harbor_ui(h)
+                    else:
+                        self.spawn_unit(unit_type, city.country,
+                                        h.lat, h.lon, jitter=0.2,
+                                        seed=random.randrange(9999),
+                                        water=True)
+                    continue
                 u = self.spawn_unit(unit_type, city.country, city.lat,
                                     city.lon, jitter=0.7,
                                     seed=random.randrange(9999),
@@ -2789,7 +2797,7 @@ class WW2RTSGame(ShowBase):
 
         # communication sources: command units' circles + city land lines
         comm_sources = [(c.pos, CITY_COMM_RADIUS) for c in self.cities
-                        if c.country == player]
+                        if c.country == player and not c.annexing]
         for u in self.units:
             if (u.alive and u.country == player and not u.carried_by
                     and u.stats.get('comm')):

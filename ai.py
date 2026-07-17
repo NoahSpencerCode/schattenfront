@@ -117,6 +117,11 @@ class NationAI:
         self._defend()              # every sitting: the homeland first
         stage = self.stage
         self.stage = (self.stage + 1) % self.STAGES
+        # a power without an objective is not at war: pick one NOW,
+        # whatever the rotation says -- expansion never pauses (the
+        # probes are cached, so an exhausted map costs nothing)
+        if self.objective is None and stage != 0:
+            self._stage_strategy()
         if stage == 0:
             self._stage_strategy()
         elif stage == 1:

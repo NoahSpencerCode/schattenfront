@@ -58,7 +58,8 @@ SUPPLY_TRANSFER_RANGE = 0.3   # trucks/ships hand over within this floor
 # outside friendly vision the map is darker and drained of colour
 FOG_BRIGHTNESS = 0.8          # 20% darker
 FOG_SATURATION = 0.5          # 50% less saturated
-MAX_VISION_SOURCES = 96       # shader uniform budget
+MAX_VISION_SOURCES = 160      # shader uniform budget (a big fleet
+                              # must never lose its vision circles)
 
 # Economy — the fortnight budget. Cities pay their taxes once per
 # fortnight; the take depends on each city's tax rate and the health of

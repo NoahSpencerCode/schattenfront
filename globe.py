@@ -233,15 +233,19 @@ void main() {
         if (fA.a < d1) { d1 = fA.a; owner = 3; }
         if (fB.r < d1) { d1 = fB.r; owner = 4; }
         if (fB.g < d1) { d1 = fB.g; owner = 5; }
+        if (fB.b < d1) { d1 = fB.b; owner = 6; }
         // the empire's writ runs only so far; the cap undulates on
         // smooth sines so empty country gets an organic frontier
         float wob = 0.004 * (sin(nrm.x * 21.0) + sin(nrm.y * 17.0)
                              + sin(nrm.z * 25.0));
         float reach = 0.11 + wob;
-        if (land_px && d1 < reach && owner < 5) {
+        if (land_px && d1 < reach && owner != 5) {
             // territory wash: reads at a glance zoomed out, fades away
-            // up close so it never recolours the streets
-            c = mix(c, nat_tint[owner], 0.40 * border_fade);
+            // up close so it never recolours the streets. A city under
+            // annexation wears BLACK until it is absorbed.
+            vec3 tint = vec3(0.05, 0.05, 0.05);
+            if (owner < 5) tint = nat_tint[owner];
+            c = mix(c, tint, 0.40 * border_fade);
         }
     }
     gl_FragColor = vec4(c, 1.0);
@@ -411,7 +415,9 @@ class Globe:
         S = np.array([[p.x, p.y, p.z] for (p, o) in entries],
                      dtype=np.float32).T          # (3, n)
         owners = np.array([o for (p, o) in entries], dtype=np.int64)
-        onehot = np.zeros((n, 6), dtype=np.float32)
+        # 7 classes: empires 0-4, neutral 5, and 6 = cities still being
+        # annexed, which carry their own BLACK border until absorbed
+        onehot = np.zeros((n, 7), dtype=np.float32)
         onehot[np.arange(n), owners] = 1.0
 
         def bake():
@@ -426,7 +432,7 @@ class Globe:
             K = 0.006
             grid = self._border_grid()
             total = grid.shape[0]
-            dist6 = np.empty((total, 6), dtype=np.float32)
+            dist6 = np.empty((total, 7), dtype=np.float32)
             step = 65536
             for a in range(0, total, step):
                 b = min(total, a + step)
@@ -436,7 +442,7 @@ class Globe:
                 ang = np.arccos(dots)
                 # smooth-min distance to EVERY empire at once
                 with np.errstate(all='ignore'):
-                    E = np.exp(ang * (-1.0 / K)) @ onehot   # (chunk, 6)
+                    E = np.exp(ang * (-1.0 / K)) @ onehot   # (chunk, 7)
                 dist6[a:b] = -K * np.log(np.maximum(E, 1e-30))
             fa = np.zeros((total, 4), dtype=np.float32)
             fa[:, 2] = dist6[:, 0]                    # BGRA: R at [2]
@@ -446,12 +452,13 @@ class Globe:
             fb = np.zeros((total, 4), dtype=np.float32)
             fb[:, 2] = dist6[:, 4]
             fb[:, 1] = dist6[:, 5]
+            fb[:, 0] = dist6[:, 6]              # annexing class in B
             # trace the actual border curves out of the same fields and
             # pre-cut them into evenly spaced dashes (one geometry per
             # zoom octave): the drawn line is real geometry, so its
             # thickness and dash rhythm are exact everywhere
             lines = self._trace_border_lines(
-                dist6.reshape(self.BIDS_H, self.BIDS_W, 6), grid)
+                dist6.reshape(self.BIDS_H, self.BIDS_W, 7), grid)
             self._border_bake = (gen, fa.tobytes(), fb.tobytes(), lines)
 
         threading.Thread(target=bake, daemon=True).start()
@@ -478,7 +485,7 @@ class Globe:
         oct_pts = [[] for _ in BORDER_OCT_ALTS]
         oct_segs = [[] for _ in BORDER_OCT_ALTS]
         oct_base = [0] * len(BORDER_OCT_ALTS)
-        for e in range(5):                    # neutral draws no border
+        for e in (0, 1, 2, 3, 4, 6):          # neutral draws no border
             d_e = D[:, :, e]
             others = np.delete(D, e, axis=2)
             d_riv = others.min(axis=2)
@@ -539,7 +546,8 @@ class Globe:
         # tie-break: a frontier is one line, drawn by the lower index
         r = np.clip(((90.0 - lat) / 180.0 * H).astype(np.int64), 0, H - 1)
         c = ((lon + 180.0) / 360.0 * W).astype(np.int64) % W
-        shared = frontier[r, c] & (riv_idx[r, c] < e)
+        riv = riv_idx[r, c]
+        shared = frontier[r, c] & (riv < e) & (riv != 5)
         keep &= ~shared
         for ki, (s0, s1) in enumerate(spans):
             if not keep[ki]:
