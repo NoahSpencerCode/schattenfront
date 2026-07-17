@@ -75,7 +75,7 @@ PRODUCTION_TIME_FACTOR = 4.0  # works orders take this much longer
 CAPTURE_INFANTRY_PER_MILLION = 1.0   # garrison cost to annex a city
 
 # Combat / capture
-CITY_CAPTURE_RANGE = 0.5      # world units
+CITY_CAPTURE_RANGE = 0.15     # world units: standing ON the town
 CITY_CAPTURE_TIME = 8.0       # seconds
 BRIDGE_HP = 120
 BRIDGE_REPAIR_RATE = 12       # hp/sec by engineers

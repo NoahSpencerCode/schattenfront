@@ -2226,12 +2226,12 @@ class WW2RTSGame(ShowBase):
     # works are paid for in SUPPLY from the engineer's own stores --
     # the treasury never sees an engineering bill
     BUILD_WORKS = {
-        'bridge':   ('BRIDGE', 250, 30.0),
-        'road':     ('ROAD', 300, 40.0),
-        'depot':    ('SUPPLY DEPOT', 300, 25.0),
-        'bunker':   ('BUNKER', 250, 18.0),
-        'airfield': ('AIRFIELD', 500, 45.0),
-        'harbor':   ('HARBOUR', 500, 45.0),
+        'bridge':   ('BRIDGE', 50, 30.0),
+        'road':     ('ROAD', 60, 40.0),
+        'depot':    ('SUPPLY DEPOT', 60, 25.0),
+        'bunker':   ('BUNKER', 50, 18.0),
+        'airfield': ('AIRFIELD', 100, 45.0),
+        'harbor':   ('HARBOUR', 100, 45.0),
     }
 
     def _build_engineer(self):
@@ -2294,7 +2294,7 @@ class WW2RTSGame(ShowBase):
             self.build_mode = None
             self._clear_road_plan()
             n_legs = len(points)
-            total_cost = cost + 100 * (n_legs - 1)
+            total_cost = cost + 20 * (n_legs - 1)
             if eng.supply < total_cost:
                 self.fax.post("WORKS REFUSED",
                               "Stores cannot cover the survey (%s)." %
@@ -2385,11 +2385,21 @@ class WW2RTSGame(ShowBase):
                                        len(self.bridges)))
             self.planner.notify_bridge_change()
         elif kind == 'road':
+            # the laid road is EXACTLY a map road: the same snaking
+            # centre-line generator, the same ink, and the drawn curve
+            # itself becomes fast road edges in the route graph
             pts = order.get('points') or [site]
             chain = [order['from']] + list(pts)
             for a, b in zip(chain[:-1], chain[1:]):
-                self.planner.add_custom_road(a, b)
-                self._draw_custom_road(a, b)
+                la1, lo1 = vec_to_latlon(a)
+                la2, lo2 = vec_to_latlon(b)
+                seed = zlib.crc32(("eng:%.3f,%.3f,%.3f,%.3f"
+                                   % (la1, lo1, la2, lo2)).encode())
+                curve = self.world._curved_road_points(
+                    la1, lo1, la2, lo2, seed, passes=3)
+                poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
+                self.planner.add_custom_road(poly)
+                self._draw_custom_road(poly)
         self._apply_marker_scale()
         if country == self.player_country:
             self.fax.post("WORKS COMPLETE",
@@ -2397,20 +2407,26 @@ class WW2RTSGame(ShowBase):
                           (B(label), self._grid_ref(lat, lon)),
                           sender="ENGINEER CORPS")
 
-    def _draw_custom_road(self, a, b):
+    def _draw_custom_road(self, poly):
+        """Ink the built road with the map's own dirt-road colour,
+        following the same snaking centre-line the route graph uses."""
         segs = LineSegs()
         segs.setThickness(2.5)
-        segs.setColor(0.48, 0.38, 0.24, 1.0)
+        segs.setColor(122 / 255.0, 96 / 255.0, 62 / 255.0, 1.0)
         from utils import slerp
-        n = max(2, int(angle_between(a, b) * GLOBE_RADIUS / 0.2))
-        for i in range(n + 1):
-            p = slerp(a, b, i / n) * (GLOBE_RADIUS * LIFT_GROUND)
-            if i == 0:
-                segs.moveTo(p)
-            else:
-                segs.drawTo(p)
+        first = True
+        for a, b in zip(poly[:-1], poly[1:]):
+            n = max(1, int(angle_between(a, b) * GLOBE_RADIUS / 0.2))
+            for i in range(0 if first else 1, n + 1):
+                p = slerp(a, b, i / n) * (GLOBE_RADIUS * LIFT_GROUND)
+                if first:
+                    segs.moveTo(p)
+                    first = False
+                else:
+                    segs.drawTo(p)
         np_ = self.render.attachNewNode(segs.create())
         np_.setLightOff()
+        np_.setDepthOffset(2)
         self.custom_roads.append(np_)
 
     # ====================================================== logistics

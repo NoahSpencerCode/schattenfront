@@ -114,6 +114,7 @@ class NationAI:
 
     # --------------------------------------------------------- thinking
     def think(self):
+        self._defend()              # every sitting: the homeland first
         stage = self.stage
         self.stage = (self.stage + 1) % self.STAGES
         if stage == 0:
@@ -124,6 +125,51 @@ class NationAI:
             self._stage_capture_and_defense()
         else:
             self._stage_support()
+
+    def _defend(self):
+        """Enemy ground forces near ANY of our towns are met: the
+        nearest soldiers drop what they are doing and intercept.  Runs
+        every think tick so a marching column cannot stroll through the
+        country unopposed."""
+        g = self.g
+        threat_city = None
+        for c in g.cities:
+            if c.country != self.country:
+                continue
+            for u in g.units:
+                if (u.alive and not u.carried_by
+                        and u.country not in (self.country, 'neutral')
+                        and u.country not in g.eliminated
+                        and u.stats['domain'] == 'land'
+                        and u.stats['damage'] > 0
+                        and angle_between(u.pos, c.pos) < 0.05):
+                    threat_city = c
+                    break
+            if threat_city is not None:
+                break
+        if threat_city is None:
+            return
+        defenders = sorted(
+            (u for u in g.units
+             if u.alive and u.country == self.country
+             and not u.carried_by and u.stats['domain'] == 'land'
+             and u.stats['damage'] > 0),
+            key=lambda u: angle_between(u.pos, threat_city.pos))
+        sent = 0
+        for u in defenders[:10]:
+            if angle_between(u.pos, threat_city.pos) < 0.02:
+                continue            # already on the spot
+            cur = u.current_order or {}
+            goal = cur.get('goal')
+            if goal is not None and \
+                    angle_between(goal, threat_city.pos) < 0.01:
+                continue            # already marching there
+            u.clear_orders()
+            g._pending_ai_orders.append(
+                (u, {'kind': 'move', 'goal': Vec3(threat_city.pos)}))
+            sent += 1
+            if sent >= 6:
+                break
 
     # ---- stage 0: the war council picks THE objective ---------------
     def _stage_strategy(self):
@@ -240,31 +286,32 @@ class NationAI:
                     >= city.required_infantry():
                 g.attempt_capture(city, self.country)
                 break               # one deed per sitting
-        # capital defense: recall the nearest idle soldiers when enemy
-        # ground forces close in
-        cap = g.capital_of(self.country)
-        if cap is None:
+        # a thin garrison net: spare infantry from the staging pool
+        # picket the towns that stand empty (interception in _defend
+        # does the heavy lifting; this keeps eyes and a tripwire there)
+        if self.objective is None or self.staging is None:
             return
-        threat = any(
-            u.alive and u.country not in (self.country, 'neutral')
-            and u.country not in g.eliminated
-            and u.stats['domain'] == 'land' and u.stats['damage'] > 0
-            and not u.carried_by
-            and angle_between(u.pos, cap.pos) < 0.045
-            for u in g.units)
-        if not threat:
+        own_land = [u for u in g.units
+                    if u.alive and u.country == self.country
+                    and not u.carried_by and u.stats['domain'] == 'land']
+        bare = []
+        for c in g.cities:
+            if c.country != self.country:
+                continue
+            if not any(angle_between(u.pos, c.pos) < 0.02
+                       for u in own_land):
+                bare.append(c)
+        if not bare:
             return
-        defenders = sorted(
-            (u for u in g.units
-             if u.alive and u.country == self.country
-             and u.stats['domain'] == 'land' and u.stats['damage'] > 0
-             and not u.carried_by),
-            key=lambda u: angle_between(u.pos, cap.pos))
-        for u in defenders[:6]:
-            if angle_between(u.pos, cap.pos) > 0.02:
-                u.clear_orders()
-                g._pending_ai_orders.append(
-                    (u, {'kind': 'move', 'goal': Vec3(cap.pos)}))
+        need = self.objective.required_infantry() + 2
+        spare = [u for u in own_land
+                 if u.unit_type == 'infantry'
+                 and not u.current_order and not u.order_queue
+                 and angle_between(u.pos, self.staging.pos) < 0.05]
+        surplus = spare[need:]      # the strike group keeps its draft
+        for u, c in zip(surplus, bare[:2]):
+            g._pending_ai_orders.append(
+                (u, {'kind': 'move', 'goal': Vec3(c.pos)}))
 
     # ---- stage 3: air cover, fleets, logistics, the sea lift ---------
     def _stage_support(self):

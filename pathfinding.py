@@ -52,23 +52,29 @@ class MovementPlanner:
     def notify_bridge_change(self):
         self._river_ok_cache.clear()
 
-    def add_custom_road(self, a_vec, b_vec):
-        """Engineer-built road: a chain of fast edges with evenly
-        spaced nodes so traffic can join anywhere along it."""
+    def add_custom_road(self, poly):
+        """Engineer-built road: the DRAWN centre-line polyline becomes a
+        chain of fast road edges (nodes at every bend plus evenly spaced
+        infill), identical in function to a map road -- traffic follows
+        the laid curve exactly and can join it anywhere along the way."""
         if self._static_edges is None:
             self._build_land_graph()
         nodes, edges = self._nodes, self._static_edges
-        total = angle_between(a_vec, b_vec) * GLOBE_RADIUS
-        nseg = max(1, int(total / ROAD_NODE_SPACING))
-        prev = len(nodes)
-        nodes.append((Vec3(a_vec), *vec_to_latlon(a_vec)))
-        for k in range(1, nseg + 1):
-            v = slerp(a_vec, b_vec, k / nseg)
-            idx = len(nodes)
-            nodes.append((Vec3(v), *vec_to_latlon(v)))
-            seg = angle_between(nodes[prev][0], v) * GLOBE_RADIUS
-            edges.append((prev, idx, seg / ROAD_SPEED_MULTIPLIER, True, []))
-            prev = idx
+        prev = None
+        for a_vec, b_vec in zip(poly[:-1], poly[1:]):
+            if prev is None:
+                prev = len(nodes)
+                nodes.append((Vec3(a_vec), *vec_to_latlon(a_vec)))
+            total = angle_between(a_vec, b_vec) * GLOBE_RADIUS
+            nseg = max(1, int(total / ROAD_NODE_SPACING))
+            for k in range(1, nseg + 1):
+                v = slerp(a_vec, b_vec, k / nseg)
+                idx = len(nodes)
+                nodes.append((Vec3(v), *vec_to_latlon(v)))
+                seg = angle_between(nodes[prev][0], v) * GLOBE_RADIUS
+                edges.append((prev, idx, seg / ROAD_SPEED_MULTIPLIER,
+                              True, []))
+                prev = idx
 
     # ------------------------------------------------------------ helpers
     def _alive_bridges(self):
