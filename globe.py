@@ -924,10 +924,14 @@ class DetailOverlay:
                 except OSError:
                     data = None
                 if data is None:
+                    # the two close tiers get magnified on screen, so
+                    # paint them 2x supersampled (anti-aliased strokes);
+                    # tier 2's texels are subpixel at its altitudes
                     img = self.world.render_region(
                         sw[0], sw[1], sw[2], sw[3],
                         DETAIL_TEX_SIZE, DETAIL_TEX_SIZE,
-                        border_w=3, road_w=4, mottle=True)
+                        border_w=3, road_w=4, mottle=True,
+                        ss=2 if tier < 2 else 1)
                     if self._gen != gen:
                         return
                     arr = np.asarray(img, dtype=np.uint8)

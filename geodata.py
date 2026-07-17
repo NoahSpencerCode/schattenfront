@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 16  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 17  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -931,15 +931,22 @@ class WorldData:
     # ================================================== region rendering
     def render_region(self, lon0, lat0, lon1, lat1, w, h,
                       border_w=2, road_w=3, city_r=8, mottle=False,
-                      land_only=False):
+                      land_only=False, ss=1):
         """Draw a lon/lat window of the map at any resolution.
 
         Used both for the base globe texture and, in realtime, for the
         high-detail overlay while zoomed in.  Pure PIL/numpy — safe to
         call from a worker thread.  land_only stops after the land fill
         and rivers: the exact water shape the map displays, used to keep
-        city buildings and streets off the water.
+        city buildings and streets off the water.  ss > 1 supersamples:
+        everything is painted at ss times the resolution (stroke widths
+        scaled to match) and LANCZOS-downsampled at the end, so lines
+        and edges come out anti-aliased instead of stair-stepped.
         """
+        out_w, out_h = w, h
+        w, h = w * ss, h * ss
+        border_w *= ss
+        road_w *= ss
         img = Image.new('RGB', (w, h), OCEAN)
         draw = ImageDraw.Draw(img)
         sx = w / (lon1 - lon0)
@@ -1011,9 +1018,11 @@ class WorldData:
             for i in idx:
                 pts = ring_pts(self.river_line(i), s)
                 draw.line(pts, fill=RIVER,
-                          width=3 if self.river_major[i] else 1)
+                          width=(3 * ss) if self.river_major[i] else ss)
 
         if land_only:
+            if ss > 1:
+                img = img.resize((out_w, out_h), Image.LANCZOS)
             return img
 
         # borders / coastlines (reuse the fill pass transforms)
@@ -1070,6 +1079,8 @@ class WorldData:
                 y = (lat1 - lat) * sy
                 self._draw_city_sketch(draw, x, y, sx, sy, name,
                                        (name, country) in capitals, pop_k)
+        if ss > 1:
+            img = img.resize((out_w, out_h), Image.LANCZOS)
         return img
 
     _noise_cache = None

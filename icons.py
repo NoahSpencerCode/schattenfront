@@ -13,7 +13,9 @@ from PIL import Image, ImageDraw
 
 ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "assets", "icons")
-SIZE = 96
+SIZE = 96          # LOGICAL coordinate space every drawer works in
+OUT_SIZE = 384     # saved resolution: 4x, so deep zoom stays sharp
+_SS = 8            # drawn at SIZE*_SS, then LANCZOS-downsampled (AA)
 INK_DARK = (32, 26, 20, 255)
 INK_LIGHT = (235, 229, 205, 255)
 INK_RED = (200, 30, 20, 255)
@@ -824,24 +826,81 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 7   # bump when drawings change to invalidate the cache
+ICON_VERSION = 8   # bump when drawings change to invalidate the cache
+
+
+class _ScaledDraw:
+    """ImageDraw proxy that multiplies every coordinate and stroke
+    width by a constant, so the drawers keep working in their familiar
+    96-space while the canvas is a big supersampled sheet."""
+
+    def __init__(self, draw, k):
+        self._d = draw
+        self._k = k
+
+    def _xy(self, xy):
+        k = self._k
+        out = []
+        for p in xy:
+            if isinstance(p, (tuple, list)):
+                out.append(tuple(v * k for v in p))
+            else:
+                out.append(p * k)
+        return out
+
+    def _kw(self, kw):
+        # scale explicit widths; strokes that relied on PIL's 1 px
+        # default must scale too or they would vanish on downsample
+        kw = dict(kw)
+        kw['width'] = max(1, int(round(kw.get('width', 1) * self._k)))
+        return kw
+
+    def line(self, xy, **kw):
+        self._d.line(self._xy(xy), **self._kw(kw))
+
+    def rectangle(self, xy, **kw):
+        self._d.rectangle(self._xy(xy), **self._kw(kw))
+
+    def ellipse(self, xy, **kw):
+        self._d.ellipse(self._xy(xy), **self._kw(kw))
+
+    def polygon(self, xy, **kw):
+        if 'outline' in kw and kw['outline'] is not None:
+            kw = self._kw(kw)
+        self._d.polygon(self._xy(xy), **kw)
+
+    def rounded_rectangle(self, xy, radius=0, **kw):
+        if 'outline' in kw and kw['outline'] is not None:
+            kw = self._kw(kw)
+        self._d.rounded_rectangle(self._xy(xy), radius=radius * self._k,
+                                  **kw)
+
+    def arc(self, xy, start, end, **kw):
+        self._d.arc(self._xy(xy), start, end, **self._kw(kw))
+
+    def pieslice(self, xy, start, end, **kw):
+        self._d.pieslice(self._xy(xy), start, end, **kw)
 
 
 def get_icon_path(unit_type, variant='dark', nation=None):
     """Path to the icon PNG, generating it on first request. Top-down
-    unit sprites vary by nation (each power fields its own marks)."""
+    unit sprites vary by nation (each power fields its own marks).
+    Icons are drawn onto an 8x supersampled canvas and downsampled to
+    OUT_SIZE, so their edges are anti-aliased and stay smooth even
+    magnified at street-level zoom."""
     os.makedirs(ICON_DIR, exist_ok=True)
     tag = ("%s@%s" % (unit_type, nation)
            if (nation and variant == 'unit') else unit_type)
     path = os.path.join(ICON_DIR, "%s_%s_v%d.png"
                         % (tag, variant, ICON_VERSION))
     if not os.path.exists(path):
-        img = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
+        img = Image.new('RGBA', (SIZE * _SS, SIZE * _SS), (0, 0, 0, 0))
+        d = _ScaledDraw(ImageDraw.Draw(img), _SS)
         if variant == 'unit':
             _TOP_DOWN.get(unit_type, _tu_infantry)(d, _WHITE, nation)
         else:
             ink = _INKS.get(variant, INK_DARK)
             _DRAWERS.get(unit_type, _draw_infantry)(d, ink)
+        img = img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
         img.save(path)
     return path

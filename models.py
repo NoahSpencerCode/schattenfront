@@ -150,6 +150,7 @@ def _icon_texture(loader, name, variant, nation=None):
                                                nation=nation))
         tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
         tex.setMagfilter(SamplerState.FTLinear)
+        tex.setAnisotropicDegree(4)     # keeps glancing angles crisp
         _icon_tex_cache[key] = tex
     return tex
 
