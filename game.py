@@ -20,11 +20,12 @@ import zlib
 from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from direct.showbase.ShowBase import ShowBase
 from direct.task import Task
-from panda3d.core import (AmbientLight, CardMaker, DirectionalLight,
+from panda3d.core import (AmbientLight, AntialiasAttrib, CardMaker,
+                          DirectionalLight, FrameBufferProperties,
                           KeyboardButton, LineSegs, Point2, Point3,
                           SamplerState, TextNode, TextProperties,
                           TextPropertiesManager, TransparencyAttrib,
-                          Vec3, Vec4)
+                          Vec3, Vec4, WindowProperties)
 
 from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL, AI_WAVE_INTERVAL,
                     AIR_VISION_MULT, VISION_SCALE,
@@ -45,6 +46,7 @@ from geodata import (WorldData, HARBOR_CITIES, CITY_POPULATION,
 from globe import (Globe, NAT_ORDER, make_surface_ring,
                    orient_to_surface)
 from menu import MenuScreen
+from settings import load_settings, save_settings
 from icons import get_icon_path
 from models import (make_bridge_marker, make_flat_ring,
                     make_hit_flash_template, set_marker_layer,
@@ -246,6 +248,13 @@ class WW2RTSGame(ShowBase):
         self.setBackgroundColor(0.04, 0.05, 0.08)
         self.camLens.setNearFar(0.05, 500.0)
 
+        # player settings (main.py already requested the multisample
+        # framebuffer before the window opened; here we switch the
+        # scene's antialias attribute on to use it)
+        self.settings = load_settings()
+        self.aa_samples = int(self.settings.get('antialias', 0))
+        self._apply_aa_attrib()
+
         # open fully expanded; the OS pointer stays visible by default --
         # the software cursor sprite only appears for the special modes
         # (attack / embark / disembark)
@@ -403,6 +412,41 @@ class WW2RTSGame(ShowBase):
         self.taskMgr.add(self.update, 'update')
 
     # ================================================== lighting & clock
+    # --------------------------------------------------- player settings
+    def _apply_aa_attrib(self):
+        if self.aa_samples > 0:
+            self.render.setAntialias(AntialiasAttrib.MMultisample)
+        else:
+            self.render.clearAntialias()
+
+    def set_antialias(self, samples):
+        """Persist an MSAA sample count (0/2/4/8) and apply it now.
+        The framebuffer's sample count is fixed at window creation, so
+        the main window is reopened with the new properties; the scene
+        graph, GUI and camera all survive the swap."""
+        self.aa_samples = int(samples)
+        self.settings['antialias'] = self.aa_samples
+        save_settings(self.settings)
+        # offscreen/headless runs have no window to rebuild
+        if self.win is not None and hasattr(self.win, 'requestProperties'):
+            fbp = FrameBufferProperties()
+            fbp.setRgbColor(True)
+            fbp.setColorBits(24)
+            fbp.setAlphaBits(8)
+            fbp.setDepthBits(24)
+            fbp.setBackBuffers(1)
+            if self.aa_samples > 0:
+                fbp.setMultisamples(self.aa_samples)
+            wp = WindowProperties(self.win.getProperties())
+            try:
+                self.openMainWindow(props=wp, fbprops=fbp,
+                                    keepCamera=True)
+                self.setBackgroundColor(0.04, 0.05, 0.08)
+            except Exception as exc:
+                print("Could not rebuild the window for the AA change:",
+                      exc)
+        self._apply_aa_attrib()
+
     def _setup_lighting(self):
         amb = AmbientLight('ambient')
         amb.setColor(Vec4(0.55, 0.55, 0.52, 1))

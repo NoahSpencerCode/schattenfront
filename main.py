@@ -25,6 +25,14 @@ loadPrcFileData('', 'text-flatten 1')
 loadPrcFileData('', 'textures-power-2 none')
 # no audio: the menu reel plays silent and the game has no sound yet
 loadPrcFileData('', 'audio-library-name null')
+
+# anti-aliasing must be requested before the window opens (the
+# settings menu can also rebuild the window at runtime)
+from settings import load_settings
+_aa = int(load_settings().get('antialias', 0))
+if _aa > 0:
+    loadPrcFileData('', 'framebuffer-multisample 1')
+    loadPrcFileData('', 'multisamples %d' % _aa)
 if SHOW_FPS_METER:
     loadPrcFileData('', 'show-frame-rate-meter 1')
 

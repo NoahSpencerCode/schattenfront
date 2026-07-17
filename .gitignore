@@ -35,6 +35,7 @@ env/
 .DS_Store
 
 # Game Files
+settings.json
 saves/
 media/
 data/cache/

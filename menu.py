@@ -164,7 +164,7 @@ class MenuScreen:
         for w in self.widgets:
             w.destroy() if hasattr(w, 'destroy') else w.removeNode()
         self.widgets = []
-        for key in ('n', 'h', 'q', 'b', 'escape',
+        for key in ('n', 'h', 'q', 'b', 's', 'escape',
                     '1', '2', '3', '4', '5', '6'):
             self.base.ignore(key)
 
@@ -178,11 +178,13 @@ class MenuScreen:
                      ['new'])
         self._button("[H]  HOST GAME", (0, 0.02), self.show_country_select,
                      ['host'])
-        self._button("[Q]  QUIT", (0, -0.14), self._quit)
+        self._button("[S]  SETTINGS", (0, -0.14), self.show_settings)
+        self._button("[Q]  QUIT", (0, -0.30), self._quit)
         self._text("WAR OFFICE * GENERAL STAFF * FIELD COMMAND EDITION",
                    (0, -0.85), 0.035, SUB_COLOR)
         self.base.accept('n', self.show_country_select, ['new'])
         self.base.accept('h', self.show_country_select, ['host'])
+        self.base.accept('s', self.show_settings)
         self.base.accept('q', self._quit)
 
     def show_country_select(self, mode='new'):
@@ -262,6 +264,79 @@ class MenuScreen:
                      scale=0.04)
         self.base.accept('b', self.show_main)
         self.base.accept('escape', self.show_main)
+
+    def show_settings(self):
+        self._clear()
+        frame = DirectFrame(parent=self.root, frameColor=PAPER,
+                            frameSize=(-0.95, 0.95, -0.78, 0.78),
+                            state=DGG.NORMAL)
+        self.widgets.append(frame)
+        top = DirectFrame(parent=frame, frameColor=PAPER_EDGE,
+                          frameSize=(-0.95, 0.95, 0.755, 0.78))
+        self.widgets.append(top)
+
+        def paper_text(text, pos, scale, color=INK,
+                       align=TextNode.ACenter):
+            tn = TextNode('paper_text')
+            tn.setText(text)
+            tn.setAlign(align)
+            if self.base.hud_font:
+                tn.setFont(self.base.hud_font)
+            tn.setTextColor(*color)
+            np_ = frame.attachNewNode(tn)
+            np_.setPos(pos[0], 0, pos[1])
+            np_.setScale(scale)
+            self.widgets.append(np_)
+
+        paper_text("*** INCOMING FAX ***", (0, 0.68), 0.045)
+        paper_text("FROM : WAR OFFICE, SIGNALS AND OPTICS SECTION",
+                   (-0.85, 0.60), 0.037, INK, TextNode.ALeft)
+        paper_text("RE   : TECHNICAL ORDER -- PROJECTION EQUIPMENT",
+                   (-0.85, 0.545), 0.037, INK, TextNode.ALeft)
+        paper_text("-" * 52, (0, 0.50), 0.04)
+        paper_text("ANTI-ALIASING SMOOTHS THE DRAWN LINES AND EDGES",
+                   (0, 0.42), 0.037)
+        paper_text("OF THE MAP.  SELECT A GRADE OF OPTICS BELOW.",
+                   (0, 0.37), 0.037)
+
+        current = int(getattr(self.base, 'aa_samples', 0))
+        choices = ((0, 'OFF'), (2, 'MSAA 2X'), (4, 'MSAA 4X'),
+                   (8, 'MSAA 8X'))
+        xs = (-0.66, -0.22, 0.22, 0.66)
+        for i, ((val, label), x) in enumerate(zip(choices, xs)):
+            active = (val == current)
+            btn = DirectButton(
+                parent=frame,
+                text="[%d] %s" % (i + 1, label),
+                text_scale=0.04, text_fg=INK,
+                text_font=self.base.hud_font,
+                frameColor=((0.78, 0.72, 0.55, 1.0) if active else
+                            (0.86, 0.82, 0.68, 0.0),
+                            (0.80, 0.74, 0.55, 1.0),
+                            (0.70, 0.66, 0.54, 0.9),
+                            (0.5, 0.5, 0.5, 0.3)),
+                frameSize=(-0.20, 0.20, -0.05, 0.075), relief=DGG.FLAT,
+                command=self._set_antialias, extraArgs=[val],
+                pos=(x, 0, 0.16))
+            self.widgets.append(btn)
+            self.base.accept(str(i + 1), self._set_antialias, [val])
+        stamp = next(lbl for v, lbl in choices if v == current)
+        paper_text("IN EFFECT: %s" % stamp, (0, 0.02), 0.037,
+                   (0.52, 0.10, 0.06, 1.0))
+        paper_text("(THE PROJECTOR FLICKERS ONCE WHILE THE OPTICS",
+                   (0, -0.12), 0.032, INK_FAINT)
+        paper_text("ARE EXCHANGED.  THE SETTING IS KEPT ON FILE.)",
+                   (0, -0.16), 0.032, INK_FAINT)
+        paper_text("++ MESSAGE ENDS ++", (0, -0.62), 0.035)
+        self._button("[B]  BACK", (0, -0.92), self.show_main, width=0.3,
+                     scale=0.04)
+        self.base.accept('b', self.show_main)
+        self.base.accept('escape', self.show_main)
+
+    def _set_antialias(self, samples):
+        if hasattr(self.base, 'set_antialias'):
+            self.base.set_antialias(samples)
+        self.show_settings()            # refresh the IN EFFECT stamp
 
     def _pick(self, country):
         self.on_start_game(country)
