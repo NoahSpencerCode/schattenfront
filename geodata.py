@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 27  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 28  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -1075,7 +1075,7 @@ class WorldData:
             # CONTOUR LINES, the cartographer's voice: a faded ink line
             # every 400 m, a firmer one at each 2000 m index
             CONTOUR = np.array((74, 64, 50), dtype=np.float32)
-            for lv in range(400, 4401, 400):
+            for lv in range(200, 4401, 200):
                 m = e_hi >= lv
                 edge = (m != np.roll(m, 1, axis=0)) | \
                        (m != np.roll(m, -1, axis=0)) | \
@@ -1084,7 +1084,7 @@ class WorldData:
                 edge[0, :] = edge[-1, :] = False
                 edge[:, 0] = edge[:, -1] = False
                 edge &= land_px
-                a = 0.60 if lv % 2000 == 0 else 0.35
+                a = 0.55 if lv % 1000 == 0 else 0.30
                 fa[edge] = fa[edge] * (1.0 - a) + CONTOUR[None, :] * a
             fa = np.clip(fa, 0, 255)
             keep = ~land_px

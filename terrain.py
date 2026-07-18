@@ -29,7 +29,8 @@ import numpy as np
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
 DEM_NPY = os.path.join(CACHE_DIR, "etopo1_60s_i2.npy")
-DEM_NPY_5M = os.path.join(CACHE_DIR, "etopo1_5ms_i2.npy")
+DEM_NPY_5M = os.path.join(CACHE_DIR, "etopo1_5m_i2.npy")
+DEM_NPY_ART = os.path.join(CACHE_DIR, "etopo1_5ms_i2.npy")
 DEM_ZIP = os.path.join(CACHE_DIR, "etopo1_ice_g_i2.zip")
 DEM_URL = ("https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO1/data/"
            "ice_surface/grid_registered/binary/etopo1_ice_g_i2.zip")
@@ -44,10 +45,11 @@ OBSERVER_M = 110.0              # default observer height: every unit
                                 # so a dip underfoot cannot blind it
 TARGET_M = 25.0                 # a division shows this much above its
                                 # ground: dust, vehicles, smoke
-GRADE_BLOCK = 0.075             # calibrated to the GENERALIZED grid:
-                                # the Brenner (0.064) stays open, the
-                                # Mont Blanc massif (0.099), Gotthard,
-                                # Caucasus and Himalaya crossings block
+GRADE_BLOCK = 0.085             # calibrated to the bilinear gameplay
+                                # grid: Brenner (0.051), Gotthard
+                                # (0.070) and the Harz stay open; Mont
+                                # Blanc (0.145), the Caucasus (0.104)
+                                # and the Himalaya (0.152) block
 GRADE_SLOW = 14.0               # speed = 1 / (1 + GRADE_SLOW * climb)
 SPEED_FLOOR = 0.35              # never slower than this on a legal slope
 LOS_AZIMUTHS = 64               # rays per vision field
@@ -59,10 +61,13 @@ def _log(msg):
 
 
 def ensure_dem(log=_log):
-    """The 5-arc-minute grid the game plays on, derived once from the
-    ETOPO1 source (downloaded on first run)."""
-    if os.path.exists(DEM_NPY_5M):
-        return DEM_NPY_5M
+    """TWO grids off one source: the GAMEPLAY grid (plain 5-arc-minute
+    block mean -- real valleys and ridges at unit scale) and the ART
+    grid (an extra ~18 km Gaussian pass -- the broad generalized shapes
+    a 1940s sheet would print). Vision and movement read the first,
+    hillshade and contours draw the second."""
+    if os.path.exists(DEM_NPY_5M) and os.path.exists(DEM_NPY_ART):
+        return DEM_NPY_5M, DEM_NPY_ART
     os.makedirs(CACHE_DIR, exist_ok=True)
     if not os.path.exists(DEM_NPY):
         if not os.path.exists(DEM_ZIP):
@@ -86,18 +91,17 @@ def ensure_dem(log=_log):
     fine = np.load(DEM_NPY, mmap_mode="r")
     coarse = fine.reshape(2160, 5, 4320, 5).mean(axis=(1, 3)) \
         .astype(np.float32)
-    # GENERALIZE: a Gaussian pass (~18 km) melts survey noise off the
-    # plains and turns jagged crests into the broad shapes a 1940s
-    # situation map would print. Movement, vision and the drawn art
-    # all read this same generalized ground truth.
+    np.save(DEM_NPY_5M, np.round(coarse).astype(np.int16))
+    # the ART grid gets the generalizing Gaussian (~18 km): survey
+    # noise melts off the plains, crests become broad printed masses
     k = np.exp(-0.5 * (np.arange(-6, 7) / 2.0) ** 2).astype(np.float32)
     k /= k.sum()
     for axis in (1, 0):
         coarse = sum(w * np.roll(coarse, s, axis=axis)
                      for s, w in zip(range(-6, 7), k))
-    np.save(DEM_NPY_5M, np.round(coarse).astype(np.int16))
-    log("relief ready: %s" % DEM_NPY_5M)
-    return DEM_NPY_5M
+    np.save(DEM_NPY_ART, np.round(coarse).astype(np.int16))
+    log("relief ready: %s / %s" % (DEM_NPY_5M, DEM_NPY_ART))
+    return DEM_NPY_5M, DEM_NPY_ART
 
 
 class Terrain:
@@ -105,7 +109,9 @@ class Terrain:
     one memory-mapped elevation grid."""
 
     def __init__(self, log=_log):
-        self.elev = np.load(ensure_dem(log), mmap_mode="r")
+        play, art = ensure_dem(log)
+        self.elev = np.load(play, mmap_mode="r")      # gameplay truth
+        self.elev_art = np.load(art, mmap_mode="r")   # the drawn sheet
 
     # ------------------------------------------------------- sampling
     def sample_m(self, lat, lon):
@@ -121,8 +127,11 @@ class Terrain:
     def elev_at(self, lat, lon):
         return float(self.sample_m(np.float64(lat), np.float64(lon)))
 
-    def sample_bilinear(self, lat, lon):
-        """Smooth elevation for the hillshade art."""
+    def sample_bilinear(self, lat, lon, field=None):
+        """Smoothly interpolated elevation (gameplay field unless the
+        art field is passed)."""
+        if field is None:
+            field = self.elev
         lat = np.asarray(lat, dtype=np.float64)
         lon = np.asarray(lon, dtype=np.float64)
         rf = np.clip((90.0 - lat) * CELLS_PER_DEG - 0.5,
@@ -134,10 +143,10 @@ class Terrain:
         c1 = (c0 + 1) % DEM_W
         wr = (rf - r0).astype(np.float32)
         wc = (cf - c0).astype(np.float32)
-        e00 = self.elev[r0, c0].astype(np.float32)
-        e01 = self.elev[r0, c1].astype(np.float32)
-        e10 = self.elev[r1, c0].astype(np.float32)
-        e11 = self.elev[r1, c1].astype(np.float32)
+        e00 = field[r0, c0].astype(np.float32)
+        e01 = field[r0, c1].astype(np.float32)
+        e10 = field[r1, c0].astype(np.float32)
+        e11 = field[r1, c1].astype(np.float32)
         e = (e00 * (1 - wr) * (1 - wc) + e01 * (1 - wr) * wc
              + e10 * wr * (1 - wc) + e11 * wr * wc)
         return np.maximum(e, 0.0)
@@ -153,7 +162,7 @@ class Terrain:
         t = np.linspace(0.0, 1.0, n + 1)
         las = la1 + (la2 - la1) * t
         los = lo1 + (lo2 - lo1) * t
-        e = self.sample_m(las, los)
+        e = self.sample_bilinear(las, los)
         run_m = max(1.0, d_deg * 111120.0 / n)   # metres per sample step
         rise = np.diff(e)
         grades = rise / run_m
@@ -203,7 +212,8 @@ class Terrain:
             ((np.arange(gh + 2 * pad) + 0.5) / (gh + 2 * pad))
         lons = (lon0 - px) + (lon1 - lon0 + 2 * px) * \
             ((np.arange(gw + 2 * pad) + 0.5) / (gw + 2 * pad))
-        e = self.sample_bilinear(lats[:, None], lons[None, :])
+        e = self.sample_bilinear(lats[:, None], lons[None, :],
+                                 field=self.elev_art)
         # metres per grid step for the gradient
         mpp_y = max(1.0, (lat1 - lat0) / gh * 111120.0)
         mpp_x = max(1.0, (lon1 - lon0) / gw * 111120.0 *
@@ -247,7 +257,8 @@ class Terrain:
         """Angular visibility radius per azimuth (radians), marched
         over the relief with earth-curvature drop. A ray ends at the
         first crest that hides the ground beyond."""
-        e0 = self.elev_at(lat, lon)
+        e0 = float(self.sample_bilinear(np.float64(lat),
+                                        np.float64(lon)))
         # azimuth convention MATCHES the fog shader: angle from local
         # EAST, counter-clockwise, -pi..pi (texel k = (az+pi)/2pi * n)
         az = np.linspace(-math.pi, math.pi, n_az, endpoint=False)
@@ -256,7 +267,8 @@ class Terrain:
         coslat = max(0.15, math.cos(math.radians(lat)))
         dlat = np.degrees(steps)[None, :] * np.sin(az)[:, None]
         dlon = np.degrees(steps)[None, :] * np.cos(az)[:, None] / coslat
-        e = self.sample_m(lat + dlat, lon + dlon)      # (n_az, n_steps)
+        e = self.sample_bilinear(lat + dlat,
+                                 lon + dlon)       # (n_az, n_steps)
         # the eye stands on the better of the spot itself and its
         # immediate surroundings: one low sample cannot sink the mast
         h0 = max(e0, float(e[:, 0].mean())) + OBSERVER_M
