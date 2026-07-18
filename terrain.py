@@ -214,6 +214,7 @@ class Terrain:
             ((np.arange(gw + 2 * pad) + 0.5) / (gw + 2 * pad))
         e = self.sample_bilinear(lats[:, None], lons[None, :],
                                  field=self.elev_art)
+        e_play = self.sample_bilinear(lats[:, None], lons[None, :])
         # metres per grid step for the gradient
         mpp_y = max(1.0, (lat1 - lat0) / gh * 111120.0)
         mpp_x = max(1.0, (lon1 - lon0) / gw * 111120.0 *
@@ -247,7 +248,7 @@ class Terrain:
                 dtype=np.float32)[oy:oy + h, ox:ox + w]
         shade = np.clip(up(shade), 0.30, 1.45)
         high = np.clip(up(high), 0.0, 1.0)
-        e_out = np.maximum(up(e), 0.0)
+        e_out = np.maximum(up(e_play), 0.0)
         return (shade.astype(np.float32), high.astype(np.float32),
                 e_out.astype(np.float32))
 

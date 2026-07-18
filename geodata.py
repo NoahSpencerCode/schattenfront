@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 28  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 29  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -1072,20 +1072,27 @@ class WorldData:
             hi3 = (0.55 * high)[:, :, None]
             fa = fa * (1.0 - hi3) + STONE[None, None, :] * hi3
             fa *= shade[:, :, None]
-            # CONTOUR LINES, the cartographer's voice: a faded ink line
-            # every 400 m, a firmer one at each 2000 m index
+            # CONTOUR LINES, the cartographer's voice -- drawn from the
+            # GAMEPLAY elevation field, so the warp of every vision
+            # field is predictable straight off the printed lines.
+            # Band arithmetic inks EVERY level in two passes: a faded
+            # line each 100 m, a firmer index each 500 m.
             CONTOUR = np.array((74, 64, 50), dtype=np.float32)
-            for lv in range(200, 4401, 200):
-                m = e_hi >= lv
-                edge = (m != np.roll(m, 1, axis=0)) | \
-                       (m != np.roll(m, -1, axis=0)) | \
-                       (m != np.roll(m, 1, axis=1)) | \
-                       (m != np.roll(m, -1, axis=1))
-                edge[0, :] = edge[-1, :] = False
-                edge[:, 0] = edge[:, -1] = False
-                edge &= land_px
-                a = 0.55 if lv % 1000 == 0 else 0.30
-                fa[edge] = fa[edge] * (1.0 - a) + CONTOUR[None, :] * a
+
+            def _band_edges(interval):
+                band = np.floor_divide(e_hi, interval).astype(np.int32)
+                ed = (band != np.roll(band, 1, axis=0)) | \
+                     (band != np.roll(band, -1, axis=0)) | \
+                     (band != np.roll(band, 1, axis=1)) | \
+                     (band != np.roll(band, -1, axis=1))
+                ed[0, :] = ed[-1, :] = False
+                ed[:, 0] = ed[:, -1] = False
+                return ed & land_px
+
+            edge_ix = _band_edges(500.0)
+            edge_mn = _band_edges(100.0) & ~edge_ix
+            fa[edge_mn] = fa[edge_mn] * 0.70 + CONTOUR[None, :] * 0.30
+            fa[edge_ix] = fa[edge_ix] * 0.45 + CONTOUR[None, :] * 0.55
             fa = np.clip(fa, 0, 255)
             keep = ~land_px
             fa[keep] = arr[keep]        # water keeps its exact inks
