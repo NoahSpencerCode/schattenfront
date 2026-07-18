@@ -29,7 +29,7 @@ import numpy as np
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
 DEM_NPY = os.path.join(CACHE_DIR, "etopo1_60s_i2.npy")
-DEM_NPY_5M = os.path.join(CACHE_DIR, "etopo1_5m_i2.npy")
+DEM_NPY_5M = os.path.join(CACHE_DIR, "etopo1_5ms_i2.npy")
 DEM_ZIP = os.path.join(CACHE_DIR, "etopo1_ice_g_i2.zip")
 DEM_URL = ("https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO1/data/"
            "ice_surface/grid_registered/binary/etopo1_ice_g_i2.zip")
@@ -44,8 +44,11 @@ OBSERVER_M = 110.0              # default observer height: every unit
                                 # so a dip underfoot cannot blind it
 TARGET_M = 25.0                 # a division shows this much above its
                                 # ground: dust, vehicles, smoke
-GRADE_BLOCK = 0.13              # mean grade beyond which land cannot pass
-GRADE_SLOW = 6.0                # speed = 1 / (1 + GRADE_SLOW * climb)
+GRADE_BLOCK = 0.075             # calibrated to the GENERALIZED grid:
+                                # the Brenner (0.064) stays open, the
+                                # Mont Blanc massif (0.099), Gotthard,
+                                # Caucasus and Himalaya crossings block
+GRADE_SLOW = 14.0               # speed = 1 / (1 + GRADE_SLOW * climb)
 SPEED_FLOOR = 0.35              # never slower than this on a legal slope
 LOS_AZIMUTHS = 64               # rays per vision field
 LOS_STEPS = 20                  # samples per ray
@@ -81,7 +84,17 @@ def ensure_dem(log=_log):
             pass
     log("smoothing the relief to five arc-minutes...")
     fine = np.load(DEM_NPY, mmap_mode="r")
-    coarse = fine.reshape(2160, 5, 4320, 5).mean(axis=(1, 3))
+    coarse = fine.reshape(2160, 5, 4320, 5).mean(axis=(1, 3)) \
+        .astype(np.float32)
+    # GENERALIZE: a Gaussian pass (~18 km) melts survey noise off the
+    # plains and turns jagged crests into the broad shapes a 1940s
+    # situation map would print. Movement, vision and the drawn art
+    # all read this same generalized ground truth.
+    k = np.exp(-0.5 * (np.arange(-6, 7) / 2.0) ** 2).astype(np.float32)
+    k /= k.sum()
+    for axis in (1, 0):
+        coarse = sum(w * np.roll(coarse, s, axis=axis)
+                     for s, w in zip(range(-6, 7), k))
     np.save(DEM_NPY_5M, np.round(coarse).astype(np.int16))
     log("relief ready: %s" % DEM_NPY_5M)
     return DEM_NPY_5M
@@ -205,23 +218,28 @@ class Terrain:
               np.cos(alt) * np.sin(slope) * np.cos(az - aspect))
         shade = 1.0 + strength * (hs - np.sin(alt)) / max(0.2, np.sin(alt))
         shade = np.clip(shade, 0.30, 1.45)
+        # flatness gate: the plains stay clean paper -- shading only
+        # ramps in where the ground actually rolls
+        sl = np.hypot(gx, gy)
+        wgt = np.clip((sl - 0.0015) / 0.0035, 0.0, 1.0)
+        shade = 1.0 + (shade - 1.0) * wgt
         high = np.clip((e - 400.0) / 1600.0, 0.0, 1.0)
         # resize WITH the margin still attached, then crop in output
         # pixels: the interpolation kernel never sees an array edge
         # inside the window, so adjoining tiles match exactly
         ox = max(1, int(round(pad * w / gw)))
         oy = max(1, int(round(pad * h / gh)))
-        shade = np.asarray(_Image.fromarray(
-            shade.astype(np.float32), mode='F').resize(
-                (w + 2 * ox, h + 2 * oy), _Image.BICUBIC),
-            dtype=np.float32)[oy:oy + h, ox:ox + w]
-        high = np.asarray(_Image.fromarray(
-            high.astype(np.float32), mode='F').resize(
-                (w + 2 * ox, h + 2 * oy), _Image.BICUBIC),
-            dtype=np.float32)[oy:oy + h, ox:ox + w]
-        shade = np.clip(shade, 0.30, 1.45)
-        high = np.clip(high, 0.0, 1.0)
-        return shade.astype(np.float32), high.astype(np.float32)
+
+        def up(a):
+            return np.asarray(_Image.fromarray(
+                a.astype(np.float32), mode='F').resize(
+                    (w + 2 * ox, h + 2 * oy), _Image.BICUBIC),
+                dtype=np.float32)[oy:oy + h, ox:ox + w]
+        shade = np.clip(up(shade), 0.30, 1.45)
+        high = np.clip(up(high), 0.0, 1.0)
+        e_out = np.maximum(up(e), 0.0)
+        return (shade.astype(np.float32), high.astype(np.float32),
+                e_out.astype(np.float32))
 
     # ---------------------------------------------------- line of sight
     def los_profile(self, lat, lon, range_rad,

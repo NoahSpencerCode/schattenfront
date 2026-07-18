@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 25  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 27  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -1065,13 +1065,27 @@ class WorldData:
                 ch[land_px] = np.clip(ch[land_px] + nz[land_px], 0, 255)
             # topographic relief: hillshade plus a stone tint easing in
             # over the high country, in the same paper palette
-            shade, high = self.terrain.shade_window(lon0, lat0,
-                                                    lon1, lat1, w, h)
+            shade, high, e_hi = self.terrain.shade_window(lon0, lat0,
+                                                          lon1, lat1, w, h)
             STONE = np.array((151, 140, 120), dtype=np.float32)
             fa = arr.astype(np.float32)
             hi3 = (0.55 * high)[:, :, None]
             fa = fa * (1.0 - hi3) + STONE[None, None, :] * hi3
             fa *= shade[:, :, None]
+            # CONTOUR LINES, the cartographer's voice: a faded ink line
+            # every 400 m, a firmer one at each 2000 m index
+            CONTOUR = np.array((74, 64, 50), dtype=np.float32)
+            for lv in range(400, 4401, 400):
+                m = e_hi >= lv
+                edge = (m != np.roll(m, 1, axis=0)) | \
+                       (m != np.roll(m, -1, axis=0)) | \
+                       (m != np.roll(m, 1, axis=1)) | \
+                       (m != np.roll(m, -1, axis=1))
+                edge[0, :] = edge[-1, :] = False
+                edge[:, 0] = edge[:, -1] = False
+                edge &= land_px
+                a = 0.60 if lv % 2000 == 0 else 0.35
+                fa[edge] = fa[edge] * (1.0 - a) + CONTOUR[None, :] * a
             fa = np.clip(fa, 0, 255)
             keep = ~land_px
             fa[keep] = arr[keep]        # water keeps its exact inks
