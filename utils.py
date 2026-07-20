@@ -35,7 +35,21 @@ def vec_to_latlon(v):
 
 
 def angle_between(a, b):
-    """Angle in radians between two unit vectors."""
+    """Angle in radians between two unit vectors.
+
+    Computed from the CHORD, not the dot product: float32 dots
+    quantize to 1.0 below ~5e-4 rad, which made every angle smaller
+    than half a millirad read as zero -- units teleported across dense
+    path points. The chord keeps full precision at small angles."""
+    dx = b.x - a.x
+    dy = b.y - a.y
+    dz = b.z - a.z
+    half = 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz)
+    if half >= 1.0:
+        return math.pi
+    if half < 0.3:
+        # asin is ill-conditioned only near 1; here it is exact
+        return 2.0 * math.asin(half)
     d = max(-1.0, min(1.0, a.dot(b)))
     return math.acos(d)
 
@@ -46,10 +60,16 @@ def surface_distance(a, b, radius):
 
 
 def slerp(a, b, t):
-    """Spherical interpolation between unit vectors a and b."""
+    """Spherical interpolation between unit vectors a and b. Small
+    arcs use normalized linear interpolation, which is exact where
+    float32 trigonometry runs out of digits."""
     omega = angle_between(a, b)
-    if omega < 1e-6:
+    if omega < 1e-9:
         return Vec3(b)
+    if omega < 1e-2:
+        out = Vec3(a) * (1.0 - t) + Vec3(b) * t
+        out.normalize()
+        return out
     so = math.sin(omega)
     va = Vec3(a) * (math.sin((1.0 - t) * omega) / so)
     vb = Vec3(b) * (math.sin(t * omega) / so)

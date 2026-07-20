@@ -14,6 +14,7 @@ OUT OF CONTACT: invisible and beyond command until the net reaches them.
 
 import math
 import random
+import time
 import threading
 import zlib
 
@@ -383,6 +384,7 @@ class WW2RTSGame(ShowBase):
         self._vision_units = []
         self._vision_cities = []
         self._los_cache = {}            # (lat,lon,rng) -> radii profile
+        self._los_budget = 12
         self._last_click = (0.0, None)  # double-click bookkeeping
         self.unload_mode = False        # armed: next RMB sites the drop
         self._vision_timer = 0.0
@@ -555,6 +557,7 @@ class WW2RTSGame(ShowBase):
         self._vision_units = []
         self._vision_cities = []
         self._los_cache = {}            # (lat,lon,rng) -> radii profile
+        self._los_budget = 12
         self._last_click = (0.0, None)
         self._preplans = {}
         self._ind_tokens = set()
@@ -617,6 +620,12 @@ class WW2RTSGame(ShowBase):
         self.bridges = [Bridge(self, info, i)
                         for i, info in enumerate(self.world.bridges)]
         self.planner = MovementPlanner(self.world, self.bridges)
+        # warm the land graph and its caches during the loading screen,
+        # so the first mass order never pays the build inside a frame
+        threading.Thread(
+            target=lambda: self.planner.plan_land(
+                latlon_to_vec(52.5, 13.4), latlon_to_vec(48.8, 2.3)),
+            daemon=True).start()
         # build the route graphs now, behind the loading screen, instead
         # of hitching on the first movement order
         progress("PLOTTING ROADS AND SEA LANES...")
@@ -1830,6 +1839,7 @@ class WW2RTSGame(ShowBase):
             except Exception:
                 path = None
             self._plan_results.append((unit, token, path))
+            time.sleep(0.002)
 
     def _enqueue_plan(self, unit, goal, silent=False, indicate=False):
         self._plan_seq += 1
@@ -2910,7 +2920,8 @@ class WW2RTSGame(ShowBase):
         # aircraft overfly it (los = None).
         friendly = [(u.pos, u.vision_range(), u.is_air(),
                      self.is_day(u.pos),
-                     self._los_for(u.pos, u.vision_range(), u.is_air()))
+                     self._los_obs(u, u.pos, u.vision_range(),
+                                   u.is_air()))
                     for u in self.units
                     if u.alive and u.country == player and not u.carried_by
                     and u.in_contact and not self.is_embarked(u)]
@@ -2920,7 +2931,7 @@ class WW2RTSGame(ShowBase):
                 rng = CITY_VISION_RANGE * (1.0 if day
                                            else NIGHT_VISION_FACTOR)
                 friendly.append((c.pos, rng, False, day,
-                                 self._los_for(c.pos, rng, False)))
+                                 self._los_obs(c, c.pos, rng, False)))
         # remember the live sources: the fog shader is refreshed every
         # frame from them so circles glide with their units (the slow
         # membership pass stays on this tick)
@@ -2961,22 +2972,30 @@ class WW2RTSGame(ShowBase):
                         self._deselect_unit(u)
                         self._refresh_selection_ui()
 
-    def _los_for(self, pos, rng_world, airborne):
-        """Cached terrain line-of-sight profile (angular radii by
-        azimuth) for a ground/sea observer; aircraft see full circles.
-        Cache keys quantize to ~1 km so a marching column reuses its
-        profile between recomputes."""
+    def _los_obs(self, obs, pos, rng_world, airborne):
+        """Terrain line-of-sight for one observer (unit or city).
+        Fresh profiles are computed under a PER-FRAME BUDGET; an
+        observer past the budget keeps marching with its previous
+        profile (a slightly stale field beats a frozen frame) and
+        refreshes within a few frames. Aircraft see full circles."""
         if airborne or rng_world <= 0:
             return None
         la, lo = vec_to_latlon(pos)
         key = (round(la, 2), round(lo, 2), round(rng_world, 3))
+        if getattr(obs, '_los_key', None) == key:
+            return obs._los_prof
         prof = self._los_cache.get(key)
         if prof is None:
+            if self._los_budget <= 0:
+                return getattr(obs, '_los_prof', None)
+            self._los_budget -= 1
             if len(self._los_cache) > 6000:
                 self._los_cache.clear()
             prof = self.world.terrain.los_profile(la, lo,
                                                   rng_world / GLOBE_RADIUS)
             self._los_cache[key] = prof
+        obs._los_key = key
+        obs._los_prof = prof
         return prof
 
     @staticmethod
@@ -2997,13 +3016,16 @@ class WW2RTSGame(ShowBase):
         units; each land/sea source carries its terrain LOS profile."""
         if not self.globe:
             return
+        self._los_budget = 12       # fresh profiles allowed this frame
         entries = [(u.pos, u.vision_range(),
-                    self._los_for(u.pos, u.vision_range(), u.is_air()))
+                    self._los_obs(u, u.pos, u.vision_range(),
+                                  u.is_air()))
                    for u in self._vision_units if u.alive]
         for c in self._vision_cities:
             day = self.is_day(c.pos)
             rng = CITY_VISION_RANGE * (1.0 if day else NIGHT_VISION_FACTOR)
-            entries.append((c.pos, rng, self._los_for(c.pos, rng, False)))
+            entries.append((c.pos, rng,
+                            self._los_obs(c, c.pos, rng, False)))
         self.globe.set_vision(entries)
 
     # ====================================================== AI

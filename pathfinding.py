@@ -10,6 +10,7 @@ Movement planning on the globe.
 
 import heapq
 import math
+import time
 
 import numpy as np
 from panda3d.core import Vec3
@@ -43,6 +44,8 @@ class MovementPlanner:
         self._static_edges = None      # lazy: [(i, j, cost, is_road, bridges)]
         self._nodes = None             # [(vec, lat, lon)]
         self._sea_grid = None
+        self._nodes_np = None          # numpy mirror for fast queries
+        self._adj_cache = None         # static adjacency, built once
         # fleets ordered together share one route computation
         self._sea_route_cache = {}
         # river-crossing verdicts for static node pairs; valid until the
@@ -51,6 +54,7 @@ class MovementPlanner:
 
     def notify_bridge_change(self):
         self._river_ok_cache.clear()
+        self._adj_cache = None
 
     def add_custom_road(self, poly):
         """Engineer-built road: the DRAWN centre-line polyline becomes a
@@ -82,6 +86,7 @@ class MovementPlanner:
                           True, [], geom))
             prev, prev_i = nn, idx
             k += 1
+        self._adj_cache = None
 
     # ------------------------------------------------------------ helpers
     def _alive_bridges(self):
@@ -307,27 +312,52 @@ class MovementPlanner:
         nodes.append((Vec3(start_vec), *vec_to_latlon(start_vec)))
         nodes.append((Vec3(goal_vec), *vec_to_latlon(goal_vec)))
 
-        # adjacency
-        adj = {}
+        # adjacency: the static half is built ONCE and reused by every
+        # plan (rebuilt only when a bridge changes or a road is laid);
+        # each query adds just its start/goal links in a tiny overlay
+        if self._adj_cache is None:
+            cache = {}
+            for k, e in enumerate(self._static_edges):
+                if k % 4096 == 0:
+                    time.sleep(0.0005)  # one-time build; frames first
+                if self._land_edges_usable(e):
+                    cache.setdefault(e[0], []).append(
+                        (e[1], e[2], e[3], e[5], True))
+                    cache.setdefault(e[1], []).append(
+                        (e[0], e[2], e[3], e[5], False))
+            self._adj_cache = cache
+        static_adj = self._adj_cache
+        extra = {}
 
         def add(i, j, cost, is_road, geom=None):
-            adj.setdefault(i, []).append((j, cost, is_road, geom, True))
-            adj.setdefault(j, []).append((i, cost, is_road, geom, False))
-
-        for e in self._static_edges:
-            if self._land_edges_usable(e):
-                add(e[0], e[1], e[2], e[3], e[5])
-        # dynamic edges: start/goal to their nearest nodes (and each other)
+            extra.setdefault(i, []).append((j, cost, is_road, geom, True))
+            extra.setdefault(j, []).append((i, cost, is_road, geom,
+                                            False))
+        # dynamic edges: start/goal to their nearest nodes (and each
+        # other). The candidate search is VECTORIZED: the old per-node
+        # Python loop held the GIL for tens of ms per plan and froze
+        # the game when a mass order queued dozens of plans.
         n_static = len(self._nodes)
+        if (self._nodes_np is None
+                or len(self._nodes_np) != n_static):
+            self._nodes_np = np.array(
+                [[v.x, v.y, v.z] for (v, _la, _lo) in self._nodes])
+        cos_arc = math.cos(math.radians(OFFROAD_MAX_ARC_DEG))
         for dyn in (start_i, goal_i):
-            cands = []
-            for j in range(len(nodes)):
-                if j == dyn:
-                    continue
-                ang = math.degrees(angle_between(nodes[dyn][0], nodes[j][0]))
-                if ang > OFFROAD_MAX_ARC_DEG or ang < 1e-6:
-                    continue
-                cands.append((ang, j))
+            dv = nodes[dyn][0]
+            with np.errstate(all='ignore'):
+                dots = self._nodes_np @ np.array([dv.x, dv.y, dv.z])
+            near = np.nonzero(dots > cos_arc)[0]
+            order_ = near[np.argsort(-dots[near])][:40]
+            cands = [(math.degrees(math.acos(
+                          max(-1.0, min(1.0, float(dots[j]))))), int(j))
+                     for j in order_
+                     if float(dots[j]) < 1.0 - 1e-12]
+            other = goal_i if dyn == start_i else start_i
+            ango = math.degrees(angle_between(nodes[dyn][0],
+                                              nodes[other][0]))
+            if 1e-6 < ango <= OFFROAD_MAX_ARC_DEG:
+                cands.append((ango, other))
             cands.sort()
             linked = 0
             for ang, j in cands:
@@ -366,14 +396,21 @@ class MovementPlanner:
         prev_geom = {}
         pq = [(h(start_i), start_i)]
         seen = set()
+        pops = 0
         while pq:
             _, cur = heapq.heappop(pq)
             if cur in seen:
                 continue
             seen.add(cur)
+            pops += 1
+            if pops % 256 == 0:
+                time.sleep(0.0005)  # breathe: the frame goes first
             if cur == goal_i:
                 break
-            for (nxt, cost, is_road, geom, fwd) in adj.get(cur, ()):
+            neigh = static_adj.get(cur, [])
+            if cur in extra:
+                neigh = neigh + extra[cur]
+            for (nxt, cost, is_road, geom, fwd) in neigh:
                 if nxt in seen:
                     continue
                 if not is_road and not river_ok(cur, nxt):
