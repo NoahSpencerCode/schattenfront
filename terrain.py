@@ -191,38 +191,63 @@ class Terrain:
         return max(SPEED_FLOOR, 1.0 / (1.0 + GRADE_SLOW * mean_up))
 
     # ---------------------------------------------------- hillshade art
+    def _cubic_window(self, field, lon0, lat0, lon1, lat1, w, h):
+        """The field reconstructed at every output pixel by Catmull-Rom
+        interpolation over a GLOBALLY ANCHORED half-cell lattice. Every
+        value is a pure function of absolute lat/lon, so two adjoining
+        tiles reconstruct EXACTLY the same numbers along their shared
+        edge -- no seams, ever."""
+        q = 0.5 / CELLS_PER_DEG          # lattice step, degrees (global)
+        k0 = int(math.floor(lat0 / q)) - 2
+        k1 = int(math.ceil(lat1 / q)) + 2
+        m0 = int(math.floor(lon0 / q)) - 2
+        m1 = int(math.ceil(lon1 / q)) + 2
+        glat = np.arange(k0, k1 + 1, dtype=np.float64) * q
+        glon = np.arange(m0, m1 + 1, dtype=np.float64) * q
+        G = self.sample_bilinear(np.clip(glat, -89.99, 89.99)[:, None],
+                                 glon[None, :], field=field)
+
+        def cr_weights(f):
+            f2 = f * f
+            f3 = f2 * f
+            return (-0.5 * f3 + f2 - 0.5 * f,
+                    1.5 * f3 - 2.5 * f2 + 1.0,
+                    -1.5 * f3 + 2.0 * f2 + 0.5 * f,
+                    0.5 * f3 - 0.5 * f2)
+
+        # rows: absolute pixel latitudes -> lattice-space cubic blend
+        plat = lat1 - (lat1 - lat0) * ((np.arange(h) + 0.5) / h)
+        ur = plat / q - k0
+        ir = np.clip(ur.astype(np.int64), 1, len(glat) - 3)
+        fr = (ur - ir).astype(np.float32)
+        wr = cr_weights(fr)
+        rows = sum(wr[m][:, None] * G[ir + (m - 1), :] for m in range(4))
+        # columns: same blend along longitude
+        plon = lon0 + (lon1 - lon0) * ((np.arange(w) + 0.5) / w)
+        uc = plon / q - m0
+        ic = np.clip(uc.astype(np.int64), 1, len(glon) - 3)
+        fc = (uc - ic).astype(np.float32)
+        wc = cr_weights(fc)
+        out = sum(wc[m][None, :] * rows[:, ic + (m - 1)] for m in range(4))
+        return np.maximum(out, 0.0).astype(np.float32)
+
     def shade_window(self, lon0, lat0, lon1, lat1, w, h,
                      strength=0.90, azimuth=315.0, altitude=45.0):
-        """(shade, high) for a lon/lat window at w x h: 'shade' is a
-        multiplicative hillshade around 1.0, 'high' a 0..1 mask easing
-        in over the high country for the hypsometric stone tint.
-
-        The shading is computed at the DEM's OWN cell resolution and
-        then smoothly upsampled -- shading a magnified grid per output
-        pixel leaves a blocky quilt of cells at close zoom."""
-        from PIL import Image as _Image
-        gh = int(min(h, max(8, (lat1 - lat0) * CELLS_PER_DEG * 2)))
-        gw = int(min(w, max(8, (lon1 - lon0) * CELLS_PER_DEG * 2)))
-        # a margin of grid cells beyond the window keeps the gradient
-        # two-sided at the edges: adjoining tiles shade seamlessly
-        pad = 3
-        py = pad * (lat1 - lat0) / gh
-        px = pad * (lon1 - lon0) / gw
-        lats = (lat1 + py) - (lat1 - lat0 + 2 * py) * \
-            ((np.arange(gh + 2 * pad) + 0.5) / (gh + 2 * pad))
-        lons = (lon0 - px) + (lon1 - lon0 + 2 * px) * \
-            ((np.arange(gw + 2 * pad) + 0.5) / (gw + 2 * pad))
-        e = self.sample_bilinear(lats[:, None], lons[None, :],
-                                 field=self.elev_art)
-        e_play = self.sample_bilinear(lats[:, None], lons[None, :])
-        # metres per grid step for the gradient
-        mpp_y = max(1.0, (lat1 - lat0) / gh * 111120.0)
-        mpp_x = max(1.0, (lon1 - lon0) / gw * 111120.0 *
+        """(shade, high, e_play) for a lon/lat window at w x h: the
+        hillshade and stone-tint mask from the generalized ART grid,
+        and the GAMEPLAY elevation for the contour pass. All three are
+        pure functions of absolute position (see _cubic_window), so
+        tile mosaics are seamless by construction."""
+        e = self._cubic_window(self.elev_art, lon0, lat0, lon1, lat1,
+                               w, h)
+        e_play = self._cubic_window(self.elev, lon0, lat0, lon1, lat1,
+                                    w, h)
+        mpp_y = max(1.0, (lat1 - lat0) / h * 111120.0)
+        mpp_x = max(1.0, (lon1 - lon0) / w * 111120.0 *
                     max(0.15, math.cos(math.radians(0.5 * (lat0 + lat1)))))
         gy, gx = np.gradient(e, mpp_y, mpp_x)
         az = math.radians(azimuth)
         alt = math.radians(altitude)
-        # standard Lambertian hillshade
         slope = np.arctan(np.hypot(gx, gy))
         aspect = np.arctan2(-gx, gy)
         hs = (np.sin(alt) * np.cos(slope) +
@@ -235,22 +260,8 @@ class Terrain:
         wgt = np.clip((sl - 0.0015) / 0.0035, 0.0, 1.0)
         shade = 1.0 + (shade - 1.0) * wgt
         high = np.clip((e - 400.0) / 1600.0, 0.0, 1.0)
-        # resize WITH the margin still attached, then crop in output
-        # pixels: the interpolation kernel never sees an array edge
-        # inside the window, so adjoining tiles match exactly
-        ox = max(1, int(round(pad * w / gw)))
-        oy = max(1, int(round(pad * h / gh)))
-
-        def up(a):
-            return np.asarray(_Image.fromarray(
-                a.astype(np.float32), mode='F').resize(
-                    (w + 2 * ox, h + 2 * oy), _Image.BICUBIC),
-                dtype=np.float32)[oy:oy + h, ox:ox + w]
-        shade = np.clip(up(shade), 0.30, 1.45)
-        high = np.clip(up(high), 0.0, 1.0)
-        e_out = np.maximum(up(e_play), 0.0)
         return (shade.astype(np.float32), high.astype(np.float32),
-                e_out.astype(np.float32))
+                e_play)
 
     # ---------------------------------------------------- line of sight
     def los_profile(self, lat, lon, range_rad,

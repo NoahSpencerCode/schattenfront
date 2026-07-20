@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 30  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 31  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -1140,15 +1140,22 @@ class WorldData:
 
     def _apply_relief(self, img, lon0, lat0, lon1, lat1):
         """Hillshade, high-country stone tint and contour lines,
-        applied to the FINISHED sheet at output resolution: a quarter
-        of the supersampled pixel count, and the smooth fields need no
-        anti-aliasing pass of their own. Contours come from the
-        GAMEPLAY elevation field, so a vision field's warp is
-        predictable straight off the printed lines."""
+        applied to the FINISHED sheet at output resolution. The fields
+        are pure functions of absolute position (seamless across the
+        tile mosaic), and the elevation is sampled ONE PIXEL beyond
+        every edge so a contour crossing the tile border is inked
+        right up to it -- lines continue across tiles without a gap.
+        Contours come from the GAMEPLAY elevation field, so a vision
+        field's warp is predictable straight off the printed lines."""
         w, h = img.size
+        pxx = (lon1 - lon0) / w
+        pxy = (lat1 - lat0) / h
+        shade, high, e_pad = self.terrain.shade_window(
+            lon0 - pxx, lat0 - pxy, lon1 + pxx, lat1 + pxy,
+            w + 2, h + 2)
+        shade = shade[1:-1, 1:-1]
+        high = high[1:-1, 1:-1]
         b = np.asarray(img)
-        shade, high, e_hi = self.terrain.shade_window(lon0, lat0,
-                                                      lon1, lat1, w, h)
         bi = b.astype(np.int16)
         land = ((np.abs(bi - np.array(OCEAN, np.int16)).sum(2) > 20)
                 & (np.abs(bi - np.array(RIVER, np.int16)).sum(2) > 20))
@@ -1158,15 +1165,13 @@ class WorldData:
         fa = fa * (1.0 - hi3) + STONE[None, None, :] * hi3
         fa *= shade[:, :, None]
         CONTOUR = np.array((74, 64, 50), dtype=np.float32)
-        band = np.floor_divide(e_hi, 100.0).astype(np.int32)
+        band = np.floor_divide(e_pad, 100.0).astype(np.int32)
 
         def _edges(bnd):
             ed = np.zeros(bnd.shape, dtype=bool)
             ed[1:, :] |= bnd[1:, :] != bnd[:-1, :]
             ed[:, 1:] |= bnd[:, 1:] != bnd[:, :-1]
-            ed[0, :] = ed[-1, :] = False
-            ed[:, 0] = ed[:, -1] = False
-            return ed & land
+            return ed[1:-1, 1:-1] & land
 
         edge_ix = _edges(band // 5)         # every 500 m, firmer
         edge_mn = _edges(band) & ~edge_ix   # every 100 m, faded
