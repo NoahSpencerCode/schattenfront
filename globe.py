@@ -857,8 +857,9 @@ class DetailOverlay:
         self.window = None          # (lon0, lat0, lon1, lat1) on display
         self._want = None           # window we should be showing
         self._tier = None           # current render tier (0 = closest)
-        self._worker = None
-        self._render_window = None  # window the worker is delivering
+        self._cam_frame = None      # active window frame for priorities
+        self._cam_ij = (0.0, 0.0)   # camera position in tile coords
+        self._render_window = None  # window the workers are delivering
         self._incoming = []         # tile NodePaths delivered so far
         self._queue = []            # finished renders [(win, bytes, w, h)]
         self._qlock = threading.Lock()
@@ -921,9 +922,14 @@ class DetailOverlay:
         if (self._render_window is not None
                 and self._render_window != self._want):
             self._abort_render()
-        # deliver AT MOST ONE finished tile per frame: the main-thread
-        # cost per frame never exceeds one small texture upload, so a
-        # tier switch cannot stall the game
+        # keep the bakers aimed at what the player is LOOKING at
+        if self._cam_frame is not None:
+            lon0, lat0, dlon, dlat = self._cam_frame
+            self._cam_ij = ((cam_lon - lon0) / max(1e-9, dlon),
+                            (cam_lat - lat0) / max(1e-9, dlat))
+        # deliver up to TWO finished tiles per frame: cached windows
+        # snap in fast, and two small uploads still cannot stall a frame
+        self._deliver_one()
         self._deliver_one()
         self._promote_if_complete()
         # kick off a mosaic render if the wanted window changed
@@ -943,6 +949,8 @@ class DetailOverlay:
         self._render_window = None
         self._done = False
 
+    N_BAKERS = 2                    # concurrent tile painters
+
     def _launch(self, window, tier):
         n = self.TIER_TILES[tier]
         self._render_window = window
@@ -953,18 +961,24 @@ class DetailOverlay:
         lon0, lat0, lon1, lat1 = window
         dlon = (lon1 - lon0) / n
         dlat = (lat1 - lat0) / n
-        # render the CENTRE of the view first, then spiral outward, so
-        # the part the player is looking at refreshes soonest
-        order = sorted(((i, j) for i in range(n) for j in range(n)),
-                       key=lambda ij: ((ij[0] + 0.5 - n / 2.0) ** 2 +
-                                       (ij[1] + 0.5 - n / 2.0) ** 2))
-
+        self._cam_frame = (lon0, lat0, dlon, dlat)
         nbytes = DETAIL_TEX_SIZE * DETAIL_TEX_SIZE * 3
+        pending = [(i, j) for i in range(n) for j in range(n)]
+        active = [self.N_BAKERS]
 
-        def work():
-            for (i, j) in order:
-                if self._gen != gen:
-                    return              # superseded by a newer window
+        def bake_loop():
+            while True:
+                with self._qlock:
+                    if self._gen != gen or not pending:
+                        break
+                    # the tile NEAREST THE CAMERA paints first -- and
+                    # the priority is re-read at every pull, so panning
+                    # or zooming re-aims the whole queue instantly
+                    ci, cj = self._cam_ij
+                    best = min(range(len(pending)),
+                               key=lambda k: (pending[k][0] + 0.5 - ci)
+                               ** 2 + (pending[k][1] + 0.5 - cj) ** 2)
+                    i, j = pending.pop(best)
                 sw = (lon0 + i * dlon, lat0 + j * dlat,
                       lon0 + (i + 1) * dlon, lat0 + (j + 1) * dlat)
                 key = os.path.join(TILE_CACHE_DIR,
@@ -987,7 +1001,7 @@ class DetailOverlay:
                         border_w=3, road_w=4, mottle=True,
                         ss=2 if tier < 2 else 1)
                     if self._gen != gen:
-                        return
+                        break
                     arr = np.asarray(img, dtype=np.uint8)
                     data = np.flipud(arr)[:, :, ::-1].tobytes()
                     try:
@@ -999,16 +1013,18 @@ class DetailOverlay:
                     except OSError:
                         pass
                 if self._gen != gen:
-                    return
+                    break
                 with self._qlock:
                     self._queue.append((sw, data,
                                         DETAIL_TEX_SIZE, DETAIL_TEX_SIZE))
-            if self._gen == gen:
-                self._done = True
-                self._worker = None
+            with self._qlock:
+                active[0] -= 1
+                if (active[0] == 0 and self._gen == gen
+                        and not pending):
+                    self._done = True
 
-        self._worker = threading.Thread(target=work, daemon=True)
-        self._worker.start()
+        for _ in range(self.N_BAKERS):
+            threading.Thread(target=bake_loop, daemon=True).start()
 
     def _deliver_one(self):
         with self._qlock:
@@ -1037,7 +1053,7 @@ class DetailOverlay:
 
     def _promote_if_complete(self):
         if (self._render_window is None or not self._done
-                or self._queue or self._worker is not None):
+                or self._queue):
             return
         for t in self.tiles:
             t.removeNode()
