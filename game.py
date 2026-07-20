@@ -382,6 +382,7 @@ class WW2RTSGame(ShowBase):
         self.hover_glow = None          # built lazily (needs no loader)
         self._vision_units = []
         self._vision_cities = []
+        self._los_cache = {}            # (lat,lon,rng) -> radii profile
         self._last_click = (0.0, None)  # double-click bookkeeping
         self.unload_mode = False        # armed: next RMB sites the drop
         self._vision_timer = 0.0
@@ -553,6 +554,7 @@ class WW2RTSGame(ShowBase):
         self.unload_mode = False
         self._vision_units = []
         self._vision_cities = []
+        self._los_cache = {}            # (lat,lon,rng) -> radii profile
         self._last_click = (0.0, None)
         self._preplans = {}
         self._ind_tokens = set()
@@ -2902,10 +2904,13 @@ class WW2RTSGame(ShowBase):
 
         # enemy visibility: only in-contact eyes can report sightings
         # (embarked aircraft see nothing from below deck).  Each source
-        # carries (pos, range, is_air, is_day): at night, air and
-        # surface cannot spot each other.
+        # carries (pos, range, is_air, is_day, los): at night, air and
+        # surface cannot spot each other; land and sea observers see
+        # only what the RELIEF lets them see (los = radii by azimuth),
+        # aircraft overfly it (los = None).
         friendly = [(u.pos, u.vision_range(), u.is_air(),
-                     self.is_day(u.pos))
+                     self.is_day(u.pos),
+                     self._los_for(u.pos, u.vision_range(), u.is_air()))
                     for u in self.units
                     if u.alive and u.country == player and not u.carried_by
                     and u.in_contact and not self.is_embarked(u)]
@@ -2914,7 +2919,8 @@ class WW2RTSGame(ShowBase):
                 day = self.is_day(c.pos)
                 rng = CITY_VISION_RANGE * (1.0 if day
                                            else NIGHT_VISION_FACTOR)
-                friendly.append((c.pos, rng, False, day))
+                friendly.append((c.pos, rng, False, day,
+                                 self._los_for(c.pos, rng, False)))
         # remember the live sources: the fog shader is refreshed every
         # frame from them so circles glide with their units (the slow
         # membership pass stays on this tick)
@@ -2933,13 +2939,18 @@ class WW2RTSGame(ShowBase):
                 continue
             target_air = u.is_air()
             visible = False
-            for (pos, rng, src_air, src_day) in friendly:
+            for (pos, rng, src_air, src_day, los) in friendly:
                 if not src_day and src_air != target_air:
                     continue        # night: air and surface see nothing
                                     # of each other
-                if angle_between(u.pos, pos) * GLOBE_RADIUS <= rng:
-                    visible = True
-                    break
+                ang = angle_between(u.pos, pos)
+                if ang * GLOBE_RADIUS > rng:
+                    continue
+                if (los is not None and not target_air
+                        and ang > los[self._az_index(pos, u.pos)]):
+                    continue        # the ridge hides them
+                visible = True
+                break
             if visible != u.visible_to_player:
                 u.visible_to_player = visible
                 if visible:
@@ -2950,16 +2961,49 @@ class WW2RTSGame(ShowBase):
                         self._deselect_unit(u)
                         self._refresh_selection_ui()
 
+    def _los_for(self, pos, rng_world, airborne):
+        """Cached terrain line-of-sight profile (angular radii by
+        azimuth) for a ground/sea observer; aircraft see full circles.
+        Cache keys quantize to ~1 km so a marching column reuses its
+        profile between recomputes."""
+        if airborne or rng_world <= 0:
+            return None
+        la, lo = vec_to_latlon(pos)
+        key = (round(la, 2), round(lo, 2), round(rng_world, 3))
+        prof = self._los_cache.get(key)
+        if prof is None:
+            if len(self._los_cache) > 6000:
+                self._los_cache.clear()
+            prof = self.world.terrain.los_profile(la, lo,
+                                                  rng_world / GLOBE_RADIUS)
+            self._los_cache[key] = prof
+        return prof
+
+    @staticmethod
+    def _az_index(src_pos, tgt_pos, n_az=64):
+        """Azimuth texel of tgt as seen from src -- the same east-
+        based convention the fog shader and the LOS profiles use."""
+        e = Vec3(-src_pos.y, src_pos.x, 0.0)
+        if e.lengthSquared() < 1e-9:
+            e = Vec3(1.0, 0.0, 0.0)
+        e.normalize()
+        nn = src_pos.cross(e)
+        d = tgt_pos - src_pos * tgt_pos.dot(src_pos)
+        az = math.atan2(d.dot(nn), d.dot(e))
+        return int((az + math.pi) / (2.0 * math.pi) * n_az) % n_az
+
     def _update_vision_shader(self):
-        """Per-frame fog-circle refresh so vision moves with the units."""
+        """Per-frame fog refresh so the fields glide with their
+        units; each land/sea source carries its terrain LOS profile."""
         if not self.globe:
             return
-        entries = [(u.pos, u.vision_range()) for u in self._vision_units
-                   if u.alive]
+        entries = [(u.pos, u.vision_range(),
+                    self._los_for(u.pos, u.vision_range(), u.is_air()))
+                   for u in self._vision_units if u.alive]
         for c in self._vision_cities:
             day = self.is_day(c.pos)
-            entries.append((c.pos, CITY_VISION_RANGE *
-                            (1.0 if day else NIGHT_VISION_FACTOR)))
+            rng = CITY_VISION_RANGE * (1.0 if day else NIGHT_VISION_FACTOR)
+            entries.append((c.pos, rng, self._los_for(c.pos, rng, False)))
         self.globe.set_vision(entries)
 
     # ====================================================== AI

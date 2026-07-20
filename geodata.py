@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 18  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 29  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -420,6 +420,8 @@ class WorldData:
         self._build_gameplay_rivers()
         self._build_land_mask()          # coarse: routing grids
         self._build_fine_mask()          # fine: coastline-true legality
+        from terrain import Terrain
+        self.terrain = Terrain(self.log)     # real ETOPO1 relief
         self._build_roads_and_bridges()
         self._build_city_plans()         # one fixed layout per city
         self._build_sites()              # airfield/harbor sites + spurs
@@ -707,17 +709,32 @@ class WorldData:
                 nrm = seglen or 1e-6
                 pla = -dlo / nrm         # unit perpendicular in lat/lon
                 plo = dla / nrm
-                d = seglen * amp * float(rng.uniform(-1.0, 1.0))
-                cla = mla + pla * d
-                clo = mlo + plo * d
-                tries = 0
-                while not self.is_land(cla, clo) and tries < 4:
-                    d *= 0.4
+                # the road SEEKS THE VALLEY: several candidate bends are
+                # drawn and the one with the least height and climb wins
+                # (deterministic: the rng draw count is fixed)
+                cands = [seglen * amp * float(rng.uniform(-1.0, 1.0))
+                         for _ in range(4)] + [0.0]
+                run_m = max(1.0, 0.5 * seglen * 111120.0)
+                e_ends = 0.5 * (self.terrain.elev_at(la1, lo1)
+                                + self.terrain.elev_at(la2, lo2))
+                best, best_cost = (mla, mlo), None
+                for d in cands:
                     cla = mla + pla * d
                     clo = mlo + plo * d
-                    tries += 1
-                if not self.is_land(cla, clo):
-                    cla, clo = mla, mlo
+                    tries = 0
+                    while not self.is_land(cla, clo) and tries < 4:
+                        d *= 0.4
+                        cla = mla + pla * d
+                        clo = mlo + plo * d
+                        tries += 1
+                    if not self.is_land(cla, clo):
+                        continue
+                    ec = self.terrain.elev_at(cla, clo)
+                    grade = abs(ec - e_ends) / run_m
+                    cost = ec + 120000.0 * grade
+                    if best_cost is None or cost < best_cost:
+                        best, best_cost = (cla, clo), cost
+                cla, clo = best
                 out.append((cla, clo))
                 out.append((la2, lo2))
             pts = out
@@ -1046,7 +1063,40 @@ class WorldData:
             for c in range(3):
                 ch = arr[:, :, c]
                 ch[land_px] = np.clip(ch[land_px] + nz[land_px], 0, 255)
-            img = Image.fromarray(arr.astype(np.uint8))
+            # topographic relief: hillshade plus a stone tint easing in
+            # over the high country, in the same paper palette
+            shade, high, e_hi = self.terrain.shade_window(lon0, lat0,
+                                                          lon1, lat1, w, h)
+            STONE = np.array((151, 140, 120), dtype=np.float32)
+            fa = arr.astype(np.float32)
+            hi3 = (0.55 * high)[:, :, None]
+            fa = fa * (1.0 - hi3) + STONE[None, None, :] * hi3
+            fa *= shade[:, :, None]
+            # CONTOUR LINES, the cartographer's voice -- drawn from the
+            # GAMEPLAY elevation field, so the warp of every vision
+            # field is predictable straight off the printed lines.
+            # Band arithmetic inks EVERY level in two passes: a faded
+            # line each 100 m, a firmer index each 500 m.
+            CONTOUR = np.array((74, 64, 50), dtype=np.float32)
+
+            def _band_edges(interval):
+                band = np.floor_divide(e_hi, interval).astype(np.int32)
+                ed = (band != np.roll(band, 1, axis=0)) | \
+                     (band != np.roll(band, -1, axis=0)) | \
+                     (band != np.roll(band, 1, axis=1)) | \
+                     (band != np.roll(band, -1, axis=1))
+                ed[0, :] = ed[-1, :] = False
+                ed[:, 0] = ed[:, -1] = False
+                return ed & land_px
+
+            edge_ix = _band_edges(500.0)
+            edge_mn = _band_edges(100.0) & ~edge_ix
+            fa[edge_mn] = fa[edge_mn] * 0.70 + CONTOUR[None, :] * 0.30
+            fa[edge_ix] = fa[edge_ix] * 0.45 + CONTOUR[None, :] * 0.55
+            fa = np.clip(fa, 0, 255)
+            keep = ~land_px
+            fa[keep] = arr[keep]        # water keeps its exact inks
+            img = Image.fromarray(fa.astype(np.uint8))
             draw = ImageDraw.Draw(img)
 
         # rivers

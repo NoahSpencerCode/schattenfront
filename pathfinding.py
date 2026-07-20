@@ -258,8 +258,12 @@ class MovementPlanner:
                 seen.add(key)
                 if not self.segment_land_ok(nodes[i][0], nodes[j][0]):
                     continue
+                fac = self.world.terrain.offroad_cost_factor(
+                    nodes[i][1], nodes[i][2], nodes[j][1], nodes[j][2])
+                if fac is None:
+                    continue        # too steep for any column
                 ang = math.acos(max(-1.0, min(1.0, float(dots[j]))))
-                edges.append((key[0], key[1], ang * GLOBE_RADIUS,
+                edges.append((key[0], key[1], ang * GLOBE_RADIUS * fac,
                               False, None))
                 linked += 1
 
@@ -321,7 +325,12 @@ class MovementPlanner:
                     break
                 if not self.segment_land_ok(nodes[dyn][0], nodes[j][0]):
                     continue
-                add(dyn, j, math.radians(ang) * GLOBE_RADIUS, False)
+                fac = self.world.terrain.offroad_cost_factor(
+                    nodes[dyn][1], nodes[dyn][2],
+                    nodes[j][1], nodes[j][2])
+                if fac is None:
+                    continue        # a wall of rock between them
+                add(dyn, j, math.radians(ang) * GLOBE_RADIUS * fac, False)
                 linked += 1
 
         # river checks: persistent cache for static pairs, per-call
