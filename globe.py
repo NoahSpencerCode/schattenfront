@@ -863,7 +863,7 @@ class DetailOverlay:
         self._queue = []            # finished renders [(win, bytes, w, h)]
         self._qlock = threading.Lock()
         self._done = False          # worker finished the current mosaic
-        self._lift_b = False        # alternate lift per generation
+        self._lift_cycle = 0        # per-launch lift level (never fights)
         self._gen = 0               # bumping this aborts the worker
 
     # ------------------------------------------------------------- window
@@ -890,11 +890,15 @@ class DetailOverlay:
 
     def _window_for(self, cam_lat, cam_lon, tier):
         half_lat = self.TIER_HALF_LAT[tier]
-        step = half_lat / 2.0
+        n = self.TIER_TILES[tier]
+        # quantize the window centre by ONE TILE: a pan re-renders only
+        # the fresh row/column while every surviving tile's coordinates
+        # repeat exactly -- straight disk-cache hits
+        step = 2.0 * half_lat / n
         clat = max(-88.0, min(88.0, self._quantize(cam_lat, step)))
-        clon = self._quantize(cam_lon, step)
         coslat = max(0.15, math.cos(math.radians(clat)))
         half_lon = min(45.0, half_lat / coslat)
+        clon = self._quantize(cam_lon, 2.0 * half_lon / n)
         lat0 = max(-90.0, clat - half_lat)
         lat1 = min(90.0, clat + half_lat)
         return (clon - half_lon, lat0, clon + half_lon, lat1)
@@ -931,8 +935,10 @@ class DetailOverlay:
         self._gen += 1                  # worker exits at its next check
         with self._qlock:
             self._queue = []
-        for t in self._incoming:
-            t.removeNode()
+        # KEEP the tiles already delivered: stale-but-sharp beats a
+        # visible snap back to the old sheet (the next promotion sweeps
+        # them away with the rest)
+        self.tiles.extend(self._incoming)
         self._incoming = []
         self._render_window = None
         self._done = False
@@ -943,6 +949,7 @@ class DetailOverlay:
         self._done = False
         self._gen += 1
         gen = self._gen
+        self._lift_cycle = (self._lift_cycle + 1) % 4
         lon0, lat0, lon1, lat1 = window
         dlon = (lon1 - lon0) / n
         dlat = (lat1 - lat0) / n
@@ -1016,15 +1023,16 @@ class DetailOverlay:
         tex.setMagfilter(SamplerState.FTLinear)
         tex.setWrapU(SamplerState.WMClamp)
         tex.setWrapV(SamplerState.WMClamp)
-        # incoming generation sits at the alternate lift so it draws
-        # over the tiles it is replacing without z-fighting
-        lift = self.LIFT * (1.0003 if self._lift_b else 1.0)
+        # each launch sits a hair above the previous ones, so incoming
+        # tiles always draw over whatever they replace (kept aborted
+        # tiles included) without z-fighting; well under LIFT_GROUND
+        lift = self.LIFT * (1.0 + 0.0001 * self._lift_cycle)
         p = make_lonlat_patch(GLOBE_RADIUS * lift,
                               sw[0], sw[1], sw[2], sw[3], segs=20)
         p.reparentTo(self.parent)
         p.setTexture(tex)
         p.setShader(self.shader)    # inputs inherited from parent
-        p.setDepthOffset(2 if self._lift_b else 1)
+        p.setDepthOffset(1 + self._lift_cycle)
         self._incoming.append(p)
 
     def _promote_if_complete(self):
@@ -1038,7 +1046,6 @@ class DetailOverlay:
         self.window = self._render_window
         self._render_window = None
         self._done = False
-        self._lift_b = not self._lift_b
 
     def destroy(self):
         self._want = None

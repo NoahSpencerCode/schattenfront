@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 29  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 30  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -1063,40 +1063,7 @@ class WorldData:
             for c in range(3):
                 ch = arr[:, :, c]
                 ch[land_px] = np.clip(ch[land_px] + nz[land_px], 0, 255)
-            # topographic relief: hillshade plus a stone tint easing in
-            # over the high country, in the same paper palette
-            shade, high, e_hi = self.terrain.shade_window(lon0, lat0,
-                                                          lon1, lat1, w, h)
-            STONE = np.array((151, 140, 120), dtype=np.float32)
-            fa = arr.astype(np.float32)
-            hi3 = (0.55 * high)[:, :, None]
-            fa = fa * (1.0 - hi3) + STONE[None, None, :] * hi3
-            fa *= shade[:, :, None]
-            # CONTOUR LINES, the cartographer's voice -- drawn from the
-            # GAMEPLAY elevation field, so the warp of every vision
-            # field is predictable straight off the printed lines.
-            # Band arithmetic inks EVERY level in two passes: a faded
-            # line each 100 m, a firmer index each 500 m.
-            CONTOUR = np.array((74, 64, 50), dtype=np.float32)
-
-            def _band_edges(interval):
-                band = np.floor_divide(e_hi, interval).astype(np.int32)
-                ed = (band != np.roll(band, 1, axis=0)) | \
-                     (band != np.roll(band, -1, axis=0)) | \
-                     (band != np.roll(band, 1, axis=1)) | \
-                     (band != np.roll(band, -1, axis=1))
-                ed[0, :] = ed[-1, :] = False
-                ed[:, 0] = ed[:, -1] = False
-                return ed & land_px
-
-            edge_ix = _band_edges(500.0)
-            edge_mn = _band_edges(100.0) & ~edge_ix
-            fa[edge_mn] = fa[edge_mn] * 0.70 + CONTOUR[None, :] * 0.30
-            fa[edge_ix] = fa[edge_ix] * 0.45 + CONTOUR[None, :] * 0.55
-            fa = np.clip(fa, 0, 255)
-            keep = ~land_px
-            fa[keep] = arr[keep]        # water keeps its exact inks
-            img = Image.fromarray(fa.astype(np.uint8))
+            img = Image.fromarray(arr.astype(np.uint8))
             draw = ImageDraw.Draw(img)
 
         # rivers
@@ -1167,7 +1134,47 @@ class WorldData:
                                        (name, country) in capitals, pop_k)
         if ss > 1:
             img = img.resize((out_w, out_h), Image.LANCZOS)
+        if mottle:
+            img = self._apply_relief(img, lon0, lat0, lon1, lat1)
         return img
+
+    def _apply_relief(self, img, lon0, lat0, lon1, lat1):
+        """Hillshade, high-country stone tint and contour lines,
+        applied to the FINISHED sheet at output resolution: a quarter
+        of the supersampled pixel count, and the smooth fields need no
+        anti-aliasing pass of their own. Contours come from the
+        GAMEPLAY elevation field, so a vision field's warp is
+        predictable straight off the printed lines."""
+        w, h = img.size
+        b = np.asarray(img)
+        shade, high, e_hi = self.terrain.shade_window(lon0, lat0,
+                                                      lon1, lat1, w, h)
+        bi = b.astype(np.int16)
+        land = ((np.abs(bi - np.array(OCEAN, np.int16)).sum(2) > 20)
+                & (np.abs(bi - np.array(RIVER, np.int16)).sum(2) > 20))
+        fa = b.astype(np.float32)
+        STONE = np.array((151, 140, 120), dtype=np.float32)
+        hi3 = (0.55 * high)[:, :, None]
+        fa = fa * (1.0 - hi3) + STONE[None, None, :] * hi3
+        fa *= shade[:, :, None]
+        CONTOUR = np.array((74, 64, 50), dtype=np.float32)
+        band = np.floor_divide(e_hi, 100.0).astype(np.int32)
+
+        def _edges(bnd):
+            ed = np.zeros(bnd.shape, dtype=bool)
+            ed[1:, :] |= bnd[1:, :] != bnd[:-1, :]
+            ed[:, 1:] |= bnd[:, 1:] != bnd[:, :-1]
+            ed[0, :] = ed[-1, :] = False
+            ed[:, 0] = ed[:, -1] = False
+            return ed & land
+
+        edge_ix = _edges(band // 5)         # every 500 m, firmer
+        edge_mn = _edges(band) & ~edge_ix   # every 100 m, faded
+        fa[edge_mn] = fa[edge_mn] * 0.70 + CONTOUR[None, :] * 0.30
+        fa[edge_ix] = fa[edge_ix] * 0.45 + CONTOUR[None, :] * 0.55
+        np.clip(fa, 0, 255, out=fa)
+        fa[~land] = b[~land]            # water keeps its exact inks
+        return Image.fromarray(fa.astype(np.uint8))
 
     _noise_cache = None
 
