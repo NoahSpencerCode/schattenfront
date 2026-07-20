@@ -60,21 +60,28 @@ class MovementPlanner:
         if self._static_edges is None:
             self._build_land_graph()
         nodes, edges = self._nodes, self._static_edges
-        prev = None
-        for a_vec, b_vec in zip(poly[:-1], poly[1:]):
-            if prev is None:
-                prev = len(nodes)
-                nodes.append((Vec3(a_vec), *vec_to_latlon(a_vec)))
-            total = angle_between(a_vec, b_vec) * GLOBE_RADIUS
-            nseg = max(1, int(total / ROAD_NODE_SPACING))
-            for k in range(1, nseg + 1):
-                v = slerp(a_vec, b_vec, k / nseg)
-                idx = len(nodes)
-                nodes.append((Vec3(v), *vec_to_latlon(v)))
-                seg = angle_between(nodes[prev][0], v) * GLOBE_RADIUS
-                edges.append((prev, idx, seg / ROAD_SPEED_MULTIPLIER,
-                              True, []))
-                prev = idx
+        vecs = [Vec3(v) for v in poly]
+        arc = [0.0]
+        for va, vb in zip(vecs[:-1], vecs[1:]):
+            arc.append(arc[-1] + angle_between(va, vb) * GLOBE_RADIUS)
+        total = arc[-1]
+        nseg = max(1, int(total / ROAD_NODE_SPACING))
+        target = total / nseg
+        prev = len(nodes)
+        nodes.append((vecs[0], *vec_to_latlon(vecs[0])))
+        prev_i, k = 0, 1
+        for idx in range(1, len(vecs)):
+            last = idx == len(vecs) - 1
+            if not last and (arc[idx] < k * target or k >= nseg):
+                continue
+            nn = len(nodes)
+            nodes.append((vecs[idx], *vec_to_latlon(vecs[idx])))
+            seg_len = max(1e-6, arc[idx] - arc[prev_i])
+            geom = vecs[prev_i + 1:idx] or None
+            edges.append((prev, nn, seg_len / ROAD_SPEED_MULTIPLIER,
+                          True, [], geom))
+            prev, prev_i = nn, idx
+            k += 1
 
     # ------------------------------------------------------------ helpers
     def _alive_bridges(self):
@@ -171,27 +178,43 @@ class MovementPlanner:
         for bi, b in enumerate(self.bridges):
             bridges_by_road.setdefault(b.road, []).append(bi)
 
-        def road_chain(va, vb, node_a, node_b, bs):
-            """Chain of road sub-edges with intermediate nodes; each
-            sub-edge is gated only by the bridges that sit on it."""
-            total = angle_between(va, vb) * GLOBE_RADIUS
+        def road_chain(node_a, node_b, dense, bs):
+            """One chained road along its DENSE smooth centre-line:
+            graph nodes at coarse spacing, the exact curve between them
+            riding on each edge as geometry -- a column follows the
+            drawn ribbon precisely without bloating the node count."""
+            vecs = [latlon_to_vec(la, lo) for (la, lo) in dense]
+            arc = [0.0]
+            for va, vb in zip(vecs[:-1], vecs[1:]):
+                arc.append(arc[-1] + angle_between(va, vb) * GLOBE_RADIUS)
+            total = arc[-1]
             nseg = max(1, int(total / ROAD_NODE_SPACING))
-            chain = [node_a]
-            for k in range(1, nseg):
-                v = slerp(va, vb, k / nseg)
-                lat, lon = vec_to_latlon(v)
-                chain.append(len(nodes))
-                nodes.append((Vec3(v), lat, lon))
-            chain.append(node_b)
-            for a, bn in zip(chain[:-1], chain[1:]):
-                pa, pb = nodes[a][0], nodes[bn][0]
-                seg_len = angle_between(pa, pb) * GLOBE_RADIUS
-                mid = slerp(pa, pb, 0.5)
+            cuts = []
+            target = total / nseg
+            k = 1
+            for idx in range(1, len(vecs) - 1):
+                if arc[idx] >= k * target and k < nseg:
+                    cuts.append(idx)
+                    k += 1
+
+            def emit(a, bn, i0, i1):
+                seg_len = max(1e-6, arc[i1] - arc[i0])
+                mid = vecs[(i0 + i1) // 2]
                 gate = [bi for bi in bs
                         if angle_between(self.bridges[bi].pos, mid) *
                         GLOBE_RADIUS <= seg_len * 0.6 + 0.05]
+                geom = [Vec3(v) for v in vecs[i0 + 1:i1]] or None
                 edges.append((a, bn, seg_len / ROAD_SPEED_MULTIPLIER,
-                              True, gate))
+                              True, gate, geom))
+
+            prev, prev_i = node_a, 0
+            for idx in cuts:
+                la, lo = dense[idx]
+                nn = len(nodes)
+                nodes.append((Vec3(vecs[idx]), la, lo))
+                emit(prev, nn, prev_i, idx)
+                prev, prev_i = nn, idx
+            emit(prev, node_b, prev_i, len(vecs) - 1)
 
         # spur roads: city to its airfield. The graph is woven through
         # the DRAWN spur polyline vertex by vertex, so a column on the
@@ -201,31 +224,18 @@ class MovementPlanner:
             spur = af_spurs.get(name)
             if not spur or len(spur) < 2:
                 continue
-            prev = i
-            for (la, lo) in spur[1:]:
-                v = latlon_to_vec(la, lo)
-                nn = len(nodes)
-                nodes.append((Vec3(v), la, lo))
-                road_chain(nodes[prev][0], v, prev, nn, [])
-                prev = nn
+            end_la, end_lo = spur[-1]
+            end_n = len(nodes)
+            nodes.append((latlon_to_vec(end_la, end_lo), end_la, end_lo))
+            road_chain(i, end_n, list(spur), [])
 
         for (i, j) in w.roads:
             bs = bridges_by_road.get((i, j), [])
             path = getattr(w, 'road_paths', {}).get((i, j))
             if not path or len(path) < 2:
-                road_chain(nodes[i][0], nodes[j][0], i, j, bs)
-                continue
-            # weave the graph through the road's snaking centre-line so a
-            # column actually follows the drawn road
-            prev = i
-            for pk in range(1, len(path) - 1):
-                la, lo = path[pk]
-                v = latlon_to_vec(la, lo)
-                nn = len(nodes)
-                nodes.append((v, la, lo))
-                road_chain(nodes[prev][0], v, prev, nn, bs)
-                prev = nn
-            road_chain(nodes[prev][0], nodes[j][0], prev, j, bs)
+                a, b = w.cities[i], w.cities[j]
+                path = [(a[2], a[3]), (b[2], b[3])]
+            road_chain(i, j, list(path), bs)
 
         # Off-road: each node links to its nearest neighbours on land.
         # Candidate search is fully vectorized (the graph is thousands
@@ -264,7 +274,7 @@ class MovementPlanner:
                     continue        # too steep for any column
                 ang = math.acos(max(-1.0, min(1.0, float(dots[j]))))
                 edges.append((key[0], key[1], ang * GLOBE_RADIUS * fac,
-                              False, None))
+                              False, None, None))
                 linked += 1
 
         self._nodes = nodes
@@ -282,7 +292,7 @@ class MovementPlanner:
         return hit
 
     def _land_edges_usable(self, edge):
-        i, j, cost, is_road, bs = edge
+        i, j, cost, is_road, bs = edge[:5]
         if is_road:
             return all(self.bridges[bi].alive for bi in (bs or []))
         return True  # off-road rivers are re-checked lazily during A*
@@ -300,13 +310,13 @@ class MovementPlanner:
         # adjacency
         adj = {}
 
-        def add(i, j, cost, is_road):
-            adj.setdefault(i, []).append((j, cost, is_road))
-            adj.setdefault(j, []).append((i, cost, is_road))
+        def add(i, j, cost, is_road, geom=None):
+            adj.setdefault(i, []).append((j, cost, is_road, geom, True))
+            adj.setdefault(j, []).append((i, cost, is_road, geom, False))
 
         for e in self._static_edges:
             if self._land_edges_usable(e):
-                add(e[0], e[1], e[2], e[3])
+                add(e[0], e[1], e[2], e[3], e[5])
         # dynamic edges: start/goal to their nearest nodes (and each other)
         n_static = len(self._nodes)
         for dyn in (start_i, goal_i):
@@ -353,6 +363,7 @@ class MovementPlanner:
         dist = {start_i: 0.0}
         prev = {}
         prev_road = {}
+        prev_geom = {}
         pq = [(h(start_i), start_i)]
         seen = set()
         while pq:
@@ -362,7 +373,7 @@ class MovementPlanner:
             seen.add(cur)
             if cur == goal_i:
                 break
-            for (nxt, cost, is_road) in adj.get(cur, ()):
+            for (nxt, cost, is_road, geom, fwd) in adj.get(cur, ()):
                 if nxt in seen:
                     continue
                 if not is_road and not river_ok(cur, nxt):
@@ -372,17 +383,24 @@ class MovementPlanner:
                     dist[nxt] = nd
                     prev[nxt] = cur
                     prev_road[nxt] = is_road
+                    prev_geom[nxt] = (geom, fwd)
                     heapq.heappush(pq, (nd + h(nxt), nxt))
         if goal_i not in prev and start_i != goal_i:
             # graph couldn't connect them: try a fine mask-accurate A*
             # (coastal walks, lake shores — as accurate as the map)
             return self._refine_land(start_vec, goal_vec)
-        # reconstruct
+        # reconstruct -- splicing each road edge\'s dense curve back
+        # in, so the column marches the exact ribbon that is drawn
         path = []
         cur = goal_i
         while cur != start_i:
             mult = ROAD_SPEED_MULTIPLIER if prev_road.get(cur) else 1.0
             path.append((Vec3(nodes[cur][0]), mult))
+            geom, fwd = prev_geom.get(cur, (None, True))
+            if geom:
+                seq = reversed(geom) if fwd else geom
+                for v in seq:
+                    path.append((Vec3(v), mult))
             cur = prev[cur]
         path.reverse()
         return path

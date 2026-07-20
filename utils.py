@@ -7,6 +7,8 @@ Latitude/longitude are in degrees, lon in [-180, 180], lat in [-90, 90].
 """
 
 import math
+
+import numpy as np
 import os
 
 from panda3d.core import Vec3
@@ -162,3 +164,29 @@ def find_regular_font_path():
         if os.path.exists(path):
             return path
     return None
+
+
+def smooth_polyline(pts, max_seg_deg=0.008):
+    """Resample a polyline through a Catmull-Rom spline: the result
+    passes through every control point, bends with continuous tangents
+    (C1 -- no corners anywhere), and is dense enough that no segment
+    spans more than max_seg_deg. Coordinate-order agnostic: rows go in,
+    rows come out."""
+    P = np.asarray(pts, dtype=np.float64)
+    if len(P) < 3:
+        return P
+    ext = np.vstack([2.0 * P[0] - P[1], P, 2.0 * P[-1] - P[-2]])
+    out = []
+    for k in range(1, len(ext) - 2):
+        p0, p1, p2, p3 = ext[k - 1], ext[k], ext[k + 1], ext[k + 2]
+        seg = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+        n = max(1, int(math.ceil(seg / max_seg_deg)))
+        t = np.linspace(0.0, 1.0, n, endpoint=False)[:, None]
+        t2 = t * t
+        t3 = t2 * t
+        out.append(0.5 * ((2.0 * p1)
+                          + (p2 - p0) * t
+                          + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                          + (3.0 * p1 - p0 - 3.0 * p2 + p3) * t3))
+    out.append(P[-1][None, :])
+    return np.vstack(out)

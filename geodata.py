@@ -16,7 +16,7 @@ import zlib
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-from utils import segment_intersection_point, latlon_dist_deg
+from utils import smooth_polyline, segment_intersection_point, latlon_dist_deg
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 31  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 32  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -420,6 +420,7 @@ class WorldData:
         self._build_gameplay_rivers()
         self._build_land_mask()          # coarse: routing grids
         self._build_fine_mask()          # fine: coastline-true legality
+        self._smooth_rivers()            # one smooth curve everywhere
         from terrain import Terrain
         self.terrain = Terrain(self.log)     # real ETOPO1 relief
         self._build_roads_and_bridges()
@@ -550,6 +551,18 @@ class WorldData:
     def river_line(self, i):
         return self.river_pts[self.river_off[i]:self.river_off[i + 1]]
 
+    def _smooth_rivers(self):
+        """Every river becomes a Catmull-Rom ribbon: the drawn water,
+        the bridge siting and the crossing checks all share this ONE
+        smooth geometry, so what blocks a column is what is inked."""
+        pts, offs = [], [0]
+        for i in range(len(self.river_off) - 1):
+            sm = smooth_polyline(self.river_line(i), max_seg_deg=0.01)
+            pts.append(sm)
+            offs.append(offs[-1] + len(sm))
+        self.river_pts = np.vstack(pts).astype(np.float32)
+        self.river_off = np.array(offs, dtype=np.int64)
+
     # ================================================== gameplay rivers
     def _build_gameplay_rivers(self):
         self.rivers = []
@@ -652,17 +665,23 @@ class WorldData:
         # pin-straight great-circle. Deterministic per city pair; displaced
         # midpoints are nudged back onto land so a road never runs to sea.
         self.road_paths = {}
+        road_coarse = {}
         for (i, j) in self.roads:
             a, b = self.cities[i], self.cities[j]
-            self.road_paths[(i, j)] = self._curved_road_points(
+            coarse = self._curved_road_points(
                 a[2], a[3], b[2], b[3],
-                zlib.crc32(("road:%d-%d" % (i, j)).encode()))
+                zlib.crc32(("road:%d-%d" % (i, j)).encode()),
+                smooth=False)
+            road_coarse[(i, j)] = coarse
+            self.road_paths[(i, j)] = [
+                tuple(p) for p in smooth_polyline(np.array(coarse))]
 
         # Bridges sit wherever a road's centre-line actually crosses a
         # gameplay river -- scanned segment by segment along the curve.
         self.bridges = []
         for (i, j) in self.roads:
-            path = self.road_paths[(i, j)]
+            path = road_coarse[(i, j)]
+            dense = np.array(self.road_paths[(i, j)])
             lons = [p[1] for p in path]
             lats = [p[0] for p in path]
             rbb = (min(lons) - 0.5, min(lats) - 0.5,
@@ -680,16 +699,24 @@ class WorldData:
                         hit = segment_intersection_point(
                             pa, pb, pts[k], pts[k + 1])
                         if hit:
+                            # snap the bridge onto the smooth ribbon so
+                            # it sits exactly on the drawn road
+                            d2 = ((dense[:, 0] - hit[1]) ** 2
+                                  + (dense[:, 1] - hit[0]) ** 2)
+                            sk = min(int(np.argmin(d2)), len(dense) - 2)
                             self.bridges.append({
-                                'lon': hit[0], 'lat': hit[1],
+                                'lon': float(dense[sk][1]),
+                                'lat': float(dense[sk][0]),
                                 'road': (i, j),
-                                'seg': (path[si][0], path[si][1],
-                                        path[si + 1][0], path[si + 1][1]),
+                                'seg': (dense[sk][0], dense[sk][1],
+                                        dense[sk + 1][0],
+                                        dense[sk + 1][1]),
                             })
         self.log("Road network: %d roads, %d bridges" %
                  (len(self.roads), len(self.bridges)))
 
-    def _curved_road_points(self, lat1, lon1, lat2, lon2, seed, passes=5):
+    def _curved_road_points(self, lat1, lon1, lat2, lon2, seed, passes=5,
+                            smooth=True):
         """A gently snaking centre-line between two cities: recursive
         midpoint displacement, each displaced point pulled back onto land
         if it strays over water. Returns [(lat, lon), ...] incl. endpoints."""
@@ -739,6 +766,11 @@ class WorldData:
                 out.append((la2, lo2))
             pts = out
             amp *= 0.55
+        if smooth:
+            # the control points become a Catmull-Rom ribbon: perfectly
+            # smooth on screen, and the SAME dense curve feeds the route
+            # graph so movement matches rendering exactly
+            return [tuple(p) for p in smooth_polyline(np.array(pts))]
         return pts
 
     # ================================================== land mask
