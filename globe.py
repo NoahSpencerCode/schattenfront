@@ -859,6 +859,10 @@ class DetailOverlay:
         self._tier = None           # current render tier (0 = closest)
         self._cam_frame = None      # active window frame for priorities
         self._cam_ij = (0.0, 0.0)   # camera position in tile coords
+        self._last_cam = (0.0, 0.0)
+        self._ram_cache = {}        # sw -> detached, ready NodePath
+        self._ram_order = []
+        self._prefetched = set()
         self._render_window = None  # window the workers are delivering
         self._incoming = []         # tile NodePaths delivered so far
         self._queue = []            # finished renders [(win, bytes, w, h)]
@@ -906,6 +910,7 @@ class DetailOverlay:
 
     # ------------------------------------------------------------- update
     def update(self, cam_lat, cam_lon, cam_dist, sun_dir):
+        self._last_cam = (cam_lat, cam_lon)
         alt = cam_dist - GLOBE_RADIUS
         if alt > DETAIL_ACTIVATE_ALT:
             for t in self.tiles:
@@ -927,10 +932,8 @@ class DetailOverlay:
             lon0, lat0, dlon, dlat = self._cam_frame
             self._cam_ij = ((cam_lon - lon0) / max(1e-9, dlon),
                             (cam_lat - lat0) / max(1e-9, dlat))
-        # deliver up to TWO finished tiles per frame: cached windows
-        # snap in fast, and two small uploads still cannot stall a frame
-        self._deliver_one()
-        self._deliver_one()
+        # RAM reattaches are free and unlimited; uploads cap at two
+        self._deliver_batch()
         self._promote_if_complete()
         # kick off a mosaic render if the wanted window changed
         if (self._want != self.window
@@ -949,7 +952,10 @@ class DetailOverlay:
         self._render_window = None
         self._done = False
 
-    N_BAKERS = 2                    # concurrent tile painters
+    N_BAKERS = 3                    # concurrent tile painters
+    RAM_TILES = 16                  # finished tiles kept alive in RAM:
+                                    # re-entering a window reattaches
+                                    # them with no disk read, no upload
 
     def _launch(self, window, tier):
         n = self.TIER_TILES[tier]
@@ -962,6 +968,11 @@ class DetailOverlay:
         dlon = (lon1 - lon0) / n
         dlat = (lat1 - lat0) / n
         self._cam_frame = (lon0, lat0, dlon, dlat)
+        # aim the very first pulls correctly: the camera's tile coords
+        # are set NOW, not a frame later
+        cam_lat, cam_lon = self._last_cam
+        self._cam_ij = ((cam_lon - lon0) / max(1e-9, dlon),
+                        (cam_lat - lat0) / max(1e-9, dlat))
         nbytes = DETAIL_TEX_SIZE * DETAIL_TEX_SIZE * 3
         pending = [(i, j) for i in range(n) for j in range(n)]
         active = [self.N_BAKERS]
@@ -981,6 +992,13 @@ class DetailOverlay:
                     i, j = pending.pop(best)
                 sw = (lon0 + i * dlon, lat0 + j * dlat,
                       lon0 + (i + 1) * dlon, lat0 + (j + 1) * dlat)
+                # a tile still alive in RAM reattaches for free
+                with self._qlock:
+                    if sw in self._ram_cache:
+                        self._queue.append((sw, None,
+                                            DETAIL_TEX_SIZE,
+                                            DETAIL_TEX_SIZE))
+                        continue
                 key = os.path.join(TILE_CACHE_DIR,
                                    "%.4f_%.4f_%.4f_%.4f.bgr" % sw)
                 data = None
@@ -1026,46 +1044,151 @@ class DetailOverlay:
         for _ in range(self.N_BAKERS):
             threading.Thread(target=bake_loop, daemon=True).start()
 
-    def _deliver_one(self):
+    def _deliver_batch(self):
+        """RAM-cached tiles reattach for free (no cap needed); fresh
+        tiles cost one texture upload each, at most two per frame."""
+        uploads = 0
+        while uploads < 2:
+            with self._qlock:
+                item = self._queue.pop(0) if self._queue else None
+            if item is None:
+                return
+            sw, data, w, h = item
+            lift = self.LIFT * (1.0 + 0.0001 * self._lift_cycle)
+            if data is None:            # alive in the RAM cache
+                p = self._ram_take(sw)
+                if p is None:
+                    continue            # evicted meanwhile: rare; the
+                                        # disk cache still has it and a
+                                        # later window will re-request
+                p.reparentTo(self.parent)
+                p.setScale(lift / p.getPythonTag('lift0'))
+                p.setDepthOffset(1 + self._lift_cycle)
+                self._incoming.append(p)
+                continue
+            tex = Texture('detail')
+            tex.setup2dTexture(w, h, Texture.TUnsignedByte, Texture.FRgb8)
+            tex.setRamImage(data)
+            tex.setMinfilter(SamplerState.FTLinear)
+            tex.setMagfilter(SamplerState.FTLinear)
+            tex.setWrapU(SamplerState.WMClamp)
+            tex.setWrapV(SamplerState.WMClamp)
+            # each launch sits a hair above the previous ones, so
+            # incoming tiles always draw over whatever they replace
+            # (kept aborted tiles included); well under LIFT_GROUND
+            p = make_lonlat_patch(GLOBE_RADIUS * lift,
+                                  sw[0], sw[1], sw[2], sw[3], segs=20)
+            p.reparentTo(self.parent)
+            p.setTexture(tex)
+            p.setShader(self.shader)    # inputs inherited from parent
+            p.setDepthOffset(1 + self._lift_cycle)
+            p.setPythonTag('sw', sw)
+            p.setPythonTag('lift0', lift)
+            self._incoming.append(p)
+            uploads += 1
+
+    # ------------------------------------------------- RAM tile cache
+    def _ram_take(self, sw):
         with self._qlock:
-            item = self._queue.pop(0) if self._queue else None
-        if item is None:
+            p = self._ram_cache.pop(sw, None)
+            if p is not None:
+                self._ram_order.remove(sw)
+        return p
+
+    def _ram_stash(self, p):
+        """Retire a tile into the RAM cache instead of destroying it."""
+        sw = p.getPythonTag('sw')
+        if sw is None:
+            p.removeNode()
             return
-        sw, data, w, h = item
-        tex = Texture('detail')
-        tex.setup2dTexture(w, h, Texture.TUnsignedByte, Texture.FRgb8)
-        tex.setRamImage(data)
-        tex.setMinfilter(SamplerState.FTLinear)
-        tex.setMagfilter(SamplerState.FTLinear)
-        tex.setWrapU(SamplerState.WMClamp)
-        tex.setWrapV(SamplerState.WMClamp)
-        # each launch sits a hair above the previous ones, so incoming
-        # tiles always draw over whatever they replace (kept aborted
-        # tiles included) without z-fighting; well under LIFT_GROUND
-        lift = self.LIFT * (1.0 + 0.0001 * self._lift_cycle)
-        p = make_lonlat_patch(GLOBE_RADIUS * lift,
-                              sw[0], sw[1], sw[2], sw[3], segs=20)
-        p.reparentTo(self.parent)
-        p.setTexture(tex)
-        p.setShader(self.shader)    # inputs inherited from parent
-        p.setDepthOffset(1 + self._lift_cycle)
-        self._incoming.append(p)
+        p.detachNode()
+        with self._qlock:
+            old = self._ram_cache.pop(sw, None)
+            if sw in self._ram_order:
+                self._ram_order.remove(sw)
+            self._ram_cache[sw] = p
+            self._ram_order.append(sw)
+            evict = []
+            while len(self._ram_order) > self.RAM_TILES:
+                evict.append(self._ram_cache.pop(self._ram_order.pop(0)))
+        if old is not None:
+            old.removeNode()
+        for e in evict:
+            e.removeNode()
 
     def _promote_if_complete(self):
         if (self._render_window is None or not self._done
                 or self._queue):
             return
         for t in self.tiles:
-            t.removeNode()
+            self._ram_stash(t)
         self.tiles = self._incoming
         self._incoming = []
         self.window = self._render_window
         self._render_window = None
         self._done = False
+        self._maybe_prefetch()
+
+    # ---------------------------------------------------- prefetching
+    def _maybe_prefetch(self):
+        """The map is quiet: warm the DISK cache for the window the
+        player would get by zooming IN one tier here. Runs on its own
+        thread and steps aside the moment real work starts."""
+        if self._tier is None or self._tier == 0:
+            return
+        tier_in = self._tier - 1
+        cam_lat, cam_lon = self._last_cam
+        window = self._window_for(cam_lat, cam_lon, tier_in)
+        pkey = (window, tier_in)
+        if pkey in self._prefetched:
+            return
+        self._prefetched.add(pkey)
+        if len(self._prefetched) > 64:
+            self._prefetched.clear()
+        gen = self._gen
+        n = self.TIER_TILES[tier_in]
+        lon0, lat0, lon1, lat1 = window
+        dlon = (lon1 - lon0) / n
+        dlat = (lat1 - lat0) / n
+        order = sorted(((i, j) for i in range(n) for j in range(n)),
+                       key=lambda ij: ((ij[0] + 0.5 - n / 2.0) ** 2 +
+                                       (ij[1] + 0.5 - n / 2.0) ** 2))
+
+        def prefetch():
+            for (i, j) in order:
+                if self._gen != gen or self._render_window is not None:
+                    return              # real work took the stage
+                sw = (lon0 + i * dlon, lat0 + j * dlat,
+                      lon0 + (i + 1) * dlon, lat0 + (j + 1) * dlat)
+                key = os.path.join(TILE_CACHE_DIR,
+                                   "%.4f_%.4f_%.4f_%.4f.bgr" % sw)
+                if os.path.exists(key):
+                    continue
+                img = self.world.render_region(
+                    sw[0], sw[1], sw[2], sw[3],
+                    DETAIL_TEX_SIZE, DETAIL_TEX_SIZE,
+                    border_w=3, road_w=4, mottle=True,
+                    ss=2 if tier_in < 2 else 1)
+                arr = np.asarray(img, dtype=np.uint8)
+                data = np.flipud(arr)[:, :, ::-1].tobytes()
+                try:
+                    os.makedirs(TILE_CACHE_DIR, exist_ok=True)
+                    tmp = key + '.pf'
+                    with open(tmp, 'wb') as f:
+                        f.write(data)
+                    os.replace(tmp, key)
+                except OSError:
+                    pass
+
+        threading.Thread(target=prefetch, daemon=True).start()
 
     def destroy(self):
         self._want = None
-        self._abort_render()            # stops the worker between tiles
+        self._abort_render()            # stops the workers between tiles
+        with self._qlock:
+            for sw in list(self._ram_order):
+                self._ram_cache.pop(sw).removeNode()
+            self._ram_order = []
         for t in self.tiles:
             t.removeNode()
         self.tiles = []
