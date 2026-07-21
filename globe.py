@@ -244,25 +244,34 @@ void main() {
         vec4 fB = texture2D(border_dB, buv);
         bool land_px = distance(tex.rgb, vec3(0.173, 0.227, 0.310)) > 0.12
                     && distance(tex.rgb, vec3(0.243, 0.329, 0.431)) > 0.07;
-        float d1 = fA.r; int owner = 0;
-        if (fA.g < d1) { d1 = fA.g; owner = 1; }
-        if (fA.b < d1) { d1 = fA.b; owner = 2; }
-        if (fA.a < d1) { d1 = fA.a; owner = 3; }
-        if (fB.r < d1) { d1 = fB.r; owner = 4; }
-        if (fB.g < d1) { d1 = fB.g; owner = 5; }
-        if (fB.b < d1) { d1 = fB.b; owner = 6; }
+        float d1 = fA.r; float d2 = 1e9; int owner = 0;
+        if (fA.g < d1) { d2 = d1; d1 = fA.g; owner = 1; }
+        else if (fA.g < d2) d2 = fA.g;
+        if (fA.b < d1) { d2 = d1; d1 = fA.b; owner = 2; }
+        else if (fA.b < d2) d2 = fA.b;
+        if (fA.a < d1) { d2 = d1; d1 = fA.a; owner = 3; }
+        else if (fA.a < d2) d2 = fA.a;
+        if (fB.r < d1) { d2 = d1; d1 = fB.r; owner = 4; }
+        else if (fB.r < d2) d2 = fB.r;
+        if (fB.g < d1) { d2 = d1; d1 = fB.g; owner = 5; }
+        else if (fB.g < d2) d2 = fB.g;
+        if (fB.b < d1) { d2 = d1; d1 = fB.b; owner = 6; }
+        else if (fB.b < d2) d2 = fB.b;
         // the empire's writ runs only so far; the cap undulates on
         // smooth sines so empty country gets an organic frontier
         float wob = 0.004 * (sin(nrm.x * 21.0) + sin(nrm.y * 17.0)
                              + sin(nrm.z * 25.0));
         float reach = 0.11 + wob;
         if (land_px && d1 < reach && owner != 5) {
-            // territory wash: reads at a glance zoomed out, fades away
-            // up close so it never recolours the streets. A city under
-            // annexation wears BLACK until it is absorbed.
+            // territory wash as a FRONTIER GRADIENT: strongest along
+            // the border (against a rival OR the open frontier) and
+            // fading to a whisper deep inside the realm. Annexation
+            // wears BLACK until absorbed.
             vec3 tint = vec3(0.05, 0.05, 0.05);
             if (owner < 5) tint = nat_tint[owner];
-            c = mix(c, tint, 0.40 * border_fade);
+            float edge = min(d2 - d1, reach - d1);
+            float w = 1.0 - smoothstep(0.0, 0.05, edge);
+            c = mix(c, tint, (0.08 + 0.92 * w) * 0.42 * border_fade);
         }
     }
     gl_FragColor = vec4(c, 1.0);

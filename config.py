@@ -59,6 +59,9 @@ SUPPLY_TRANSFER_RANGE = 0.3   # trucks/ships hand over within this floor
 # outside friendly vision the map is darker and drained of colour
 FOG_BRIGHTNESS = 0.8          # 20% darker
 FOG_SATURATION = 0.5          # 50% less saturated
+TERRAIN_LOS = False           # relief-warped vision fields (heavy);
+                              # False = clean circles, flag kept for later
+MILES_PER_WU = 132            # one world unit is ~212 km = 132 statute mi
 MAX_VISION_SOURCES = 320      # shader uniform budget (a big fleet
                               # must never lose its vision circles)
 
@@ -98,7 +101,7 @@ LIFT_PATH = 1.0025            # movement path lines
 
 # Country colors (RGB 0-1)
 COUNTRY_COLORS = {
-    'britain': (0.75, 0.28, 0.24),   # imperial red
+    'britain': (0.22, 0.35, 0.62),   # royal navy blue
     'germany': (0.35, 0.37, 0.40),   # feldgrau
     'usa':     (0.30, 0.45, 0.28),   # olive drab
     'japan':   (0.85, 0.62, 0.20),   # rising-sun gold

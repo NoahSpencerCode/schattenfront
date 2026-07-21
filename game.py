@@ -39,7 +39,8 @@ from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     CITY_GROSS_FORTNIGHT, CITY_VISION_RANGE, COUNTRIES,
                     DAY_CYCLE_LENGTH, FORMATION_SPACING, GLOBE_RADIUS,
                     INDUSTRY_DRIFT, LIFT_FX, LIFT_GROUND, LIFT_PATH,
-                    MAX_VISION_SOURCES, MINUTES_PER_SECOND,
+                    MAX_VISION_SOURCES, MILES_PER_WU,
+                    MINUTES_PER_SECOND, TERRAIN_LOS,
                     NIGHT_VISION_FACTOR, PRODUCTION_TIME_FACTOR,
                     STARTING_FUNDS, SUPPLY_TRANSFER_RANGE, TAX_DEFAULT,
                     TAX_EQUILIBRIUM, UNIT_SPRITE_SCALE)
@@ -760,9 +761,24 @@ class WW2RTSGame(ShowBase):
         harbor = next((c for c in cities if c.harbor), None)
         if harbor:
             wl, wo = self.world.harbor_sites[harbor.name]
-            for i, ut in enumerate(STARTING_NAVY):
-                self.spawn_unit(ut, faction, wl, wo, jitter=0.04,
-                                seed=30 + i, water=True)
+            if faction == self.player_country:
+                # the fleet begins ON THE WAYS: the player launches
+                # each hull deliberately, nothing floats unbidden
+                h = next((x for x in self.harbors
+                          if x.city is not None
+                          and x.city.name == harbor.name), None)
+                if h is not None:
+                    h.ready.extend(STARTING_NAVY)
+                    h.set_count(len(h.ready))
+                else:
+                    for i, ut in enumerate(STARTING_NAVY):
+                        self.spawn_unit(ut, faction, wl, wo,
+                                        jitter=0.04, seed=30 + i,
+                                        water=True)
+            else:
+                for i, ut in enumerate(STARTING_NAVY):
+                    self.spawn_unit(ut, faction, wl, wo, jitter=0.04,
+                                    seed=30 + i, water=True)
 
     def spawn_unit(self, unit_type, faction, lat, lon, jitter=0.0, seed=0,
                    water=False, base=None):
@@ -1272,8 +1288,8 @@ class WW2RTSGame(ShowBase):
         hit.normalize()
         return hit
 
-    def _pick_object(self, mpos, candidates):
-        best, best_d = None, CLICK_RADIUS
+    def _pick_object(self, mpos, candidates, radius=None):
+        best, best_d = None, (radius or CLICK_RADIUS)
         for obj, world_pos in candidates:
             sp = self.screen_pos(world_pos)
             if sp is None:
@@ -1362,7 +1378,7 @@ class WW2RTSGame(ShowBase):
         own_fields = [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
                       if a.country == self.player_country
                       and self._facing_camera(a.pos)]
-        field = self._pick_object(mpos, own_fields)
+        field = self._pick_object(mpos, own_fields, radius=CLICK_RADIUS * 1.9)
         if field:
             self.clear_selection()
             self._select_airfield(field)
@@ -1370,7 +1386,7 @@ class WW2RTSGame(ShowBase):
         own_harbors = [(h, h.pos * GLOBE_RADIUS) for h in self.harbors
                        if h.country == self.player_country
                        and self._facing_camera(h.pos)]
-        harbor = self._pick_object(mpos, own_harbors)
+        harbor = self._pick_object(mpos, own_harbors, radius=CLICK_RADIUS * 1.9)
         if harbor:
             self.clear_selection()
             self._select_harbor(harbor)
@@ -1378,7 +1394,7 @@ class WW2RTSGame(ShowBase):
         own_depots = [(d, d.pos * GLOBE_RADIUS) for d in self.depots
                       if d.country == self.player_country
                       and self._facing_camera(d.pos)]
-        depot = self._pick_object(mpos, own_depots)
+        depot = self._pick_object(mpos, own_depots, radius=CLICK_RADIUS * 1.9)
         if depot:
             self.clear_selection()
             self._select_depot(depot)
@@ -1387,7 +1403,7 @@ class WW2RTSGame(ShowBase):
                       for c in self.cities
                       if c.country == self.player_country
                       and self._facing_camera(c.pos)]
-        city = self._pick_object(mpos, own_cities)
+        city = self._pick_object(mpos, own_cities, radius=CLICK_RADIUS * 1.9)
         if city:
             self.clear_selection()
             self._select_city(city)
@@ -1410,7 +1426,7 @@ class WW2RTSGame(ShowBase):
                         for c in self.cities
                         if c.country != self.player_country
                         and self._facing_camera(c.pos)]
-        ocity = self._pick_object(mpos, other_cities)
+        ocity = self._pick_object(mpos, other_cities, radius=CLICK_RADIUS * 1.9)
         if ocity:
             self.clear_selection()
             self._select_city(ocity)
@@ -1441,6 +1457,9 @@ class WW2RTSGame(ShowBase):
             unit.set_selected(False)
 
     def clear_selection(self):
+        if self.build_mode is not None:
+            self.build_mode = None      # disarm the works ghost
+            self._clear_road_plan()
         for u in self.selected:
             u.set_selected(False)
         self.selected = []
@@ -1727,6 +1746,7 @@ class WW2RTSGame(ShowBase):
             base.set_wing_count(n)
         else:
             base.set_count(n)
+            base.set_garrison_count(len(base.garrison))
 
     def _base_stock(self, base):
         return base.av_stock if isinstance(base, Unit) else base.stock
@@ -1785,8 +1805,9 @@ class WW2RTSGame(ShowBase):
                     "SORTIE REFUSED",
                     "Objective %s: flight plan %d mi, endurance "
                     "%d mi. Stage closer." %
-                    (B("BEYOND FUEL RADIUS"), (d_out + d_home) * 60,
-                     unit.stats['fuel'] * 60),
+                    (B("BEYOND FUEL RADIUS"),
+                     (d_out + d_home) * MILES_PER_WU,
+                     unit.stats['fuel'] * MILES_PER_WU),
                     sender="AIR MINISTRY")
             unit.current_order = None
             return
@@ -1913,14 +1934,15 @@ class WW2RTSGame(ShowBase):
                 "WAYPOINT REFUSED",
                 "%s: plan would run %d mi against an endurance of "
                 "%d mi. Strike a leg or stage closer." %
-                (B("BEYOND FUEL RADIUS"), d * 60,
-                 unit.stats['fuel'] * 60),
+                (B("BEYOND FUEL RADIUS"), d * MILES_PER_WU,
+                 unit.stats['fuel'] * MILES_PER_WU),
                 sender="AIR MINISTRY")
             return
         unit.sortie_plan.append(order)
         self.fax_short(
             "SORTIE PLAN: %d LEG(S), %d/%d MI -- SCRAMBLE TO LAUNCH" %
-            (len(unit.sortie_plan), d * 60, unit.stats['fuel'] * 60))
+            (len(unit.sortie_plan), d * MILES_PER_WU,
+             unit.stats['fuel'] * MILES_PER_WU))
         if unit in self.selected:
             self._refresh_selection_ui()
 
@@ -2004,7 +2026,8 @@ class WW2RTSGame(ShowBase):
                 "RETASK REFUSED",
                 "%s: the amended plan asks %d mi of tanks holding "
                 "%d mi. The flight turns for home." %
-                (B("BEYOND REMAINING FUEL"), d * 60, max(0, left) * 60),
+                (B("BEYOND REMAINING FUEL"), d * MILES_PER_WU,
+                 max(0, left) * MILES_PER_WU),
                 sender="AIR MINISTRY")
             if not unit.path:            # a plain order wiped the plan
                 rtb = min(fields, key=lambda f: unit.dist_to(f.pos))
@@ -2027,7 +2050,7 @@ class WW2RTSGame(ShowBase):
         unit.current_order = {'kind': 'sortie'}
         unit.order_queue = []
         self.fax_short("FLIGHT RETASKED -- %d MI OF %d REMAIN" %
-                       (d * 60, max(0, left) * 60))
+                       (d * MILES_PER_WU, max(0, left) * MILES_PER_WU))
 
     def set_submerged(self, unit, flag, forced=False):
         """Dive or surface a submarine; dry batteries force her up."""
@@ -2066,6 +2089,15 @@ class WW2RTSGame(ShowBase):
         unit.deployed = up
         if up:
             unit.clear_orders()
+        # the pictogram tells the state: lorry down, envelope up
+        from icons import get_icon_path as _gp
+        tex = self.loader.loadTexture(
+            _gp('blimp_up' if up else 'blimp', 'unit',
+                nation=unit.country))
+        from panda3d.core import SamplerState as _SS
+        tex.setMinfilter(_SS.FTLinearMipmapLinear)
+        tex.setMagfilter(_SS.FTLinear)
+        unit.counter.setTexture(tex, 1)
         if unit.country == self.player_country:
             self.fax_short("BLIMP %s" %
                            ("ALOFT -- ON STATION, EYES AT ALTITUDE"
@@ -2412,6 +2444,7 @@ class WW2RTSGame(ShowBase):
             self.selected.remove(unit)
         unit.root.hide()
         field.garrison.append(unit)
+        self._refresh_air_base(field)
         if unit.country == self.player_country:
             self.fax_short("%s STORED AT %s (%d/%d)" %
                            (unit.stats['label'].upper(), field.name,
@@ -2436,6 +2469,7 @@ class WW2RTSGame(ShowBase):
             u.update_visual()
             out += 1
         self.garrison_sel = []
+        self._refresh_air_base(field)
         if out:
             self.fax_short("%d UNIT(S) ON THE APRON AT %s" %
                            (out, field.name))
@@ -2517,6 +2551,7 @@ class WW2RTSGame(ShowBase):
                              'auto': True})
             verb = "PARACHUTE DROP"
         self.garrison_sel = []
+        self._refresh_air_base(field)
         msg = "%s -- %d UNIT(S) AWAY" % (verb, len(taken))
         if held:
             msg += " (%d HELD: HOLDS FULL)" % held
@@ -3911,7 +3946,7 @@ class WW2RTSGame(ShowBase):
         observer past the budget keeps marching with its previous
         profile (a slightly stale field beats a frozen frame) and
         refreshes within a few frames. Aircraft see full circles."""
-        if airborne or rng_world <= 0:
+        if not TERRAIN_LOS or airborne or rng_world <= 0:
             return None
         la, lo = vec_to_latlon(pos)
         # ~2.5 km quantum: a marching column re-surveys every couple of
@@ -4425,6 +4460,7 @@ class WW2RTSGame(ShowBase):
         # unit, keyed to that unit's type
         bar.hide_info()
         bar.hide_capture()
+        bar.hide_exit()
         self._sync_scramble()
         primary = next((u for u in self.selected
                         if u.country == self.player_country), None)
@@ -4526,7 +4562,7 @@ class WW2RTSGame(ShowBase):
                     bar.set_info(
                         "STRENGTH %d/%d   ENDURANCE %.0f MI   "
                         "BASE STOCK %d LBS" %
-                        (int(u.hp), u.max_hp, u.stats['fuel'] * 60,
+                        (int(u.hp), u.max_hp, u.stats['fuel'] * MILES_PER_WU,
                          int(self._base_stock(base))))
                     entries = []
                     if u.cargo:
@@ -4545,14 +4581,14 @@ class WW2RTSGame(ShowBase):
                               (u.stats['label'].upper(), base_name))
                 info = ("STRENGTH %d/%d   ENDURANCE %.0f MI   "
                         "BASE STOCK %d LBS" %
-                        (int(u.hp), u.max_hp, u.stats['fuel'] * 60,
+                        (int(u.hp), u.max_hp, u.stats['fuel'] * MILES_PER_WU,
                          int(self._base_stock(base))))
                 if u.sortie_plan:
                     d, _ = self._sortie_length(
                         u, self._sortie_objectives(u, u.sortie_plan))
                     if d is not None:
                         info += "   PLAN %d LEG(S) %.0f MI" % (
-                            len(u.sortie_plan), d * 60)
+                            len(u.sortie_plan), d * MILES_PER_WU)
                 bar.set_info(info)
                 bar.set_hint("RMB PLOTS WAYPOINTS AND TARGETS -- "
                              "SHIFT-RMB ADDS LEGS -- SCRAMBLE LAUNCHES")
@@ -4564,7 +4600,8 @@ class WW2RTSGame(ShowBase):
                 extra = "  CARGO %d/%d" % (len(u.cargo),
                                            u.stats['capacity'])
             if u.stats.get('comm'):
-                extra += "  COMM NET RADIUS %.0f MI" % (u.comm_range() * 60)
+                extra += "  COMM NET RADIUS %.0f MI" % (
+                    u.comm_range() * MILES_PER_WU)
             if u.stats['domain'] == 'air':
                 if u.based_at is not None:
                     name = getattr(u.based_at, 'name', None) or \
@@ -4572,7 +4609,7 @@ class WW2RTSGame(ShowBase):
                     extra += "  BASED AT %s" % name.upper()
                 else:
                     extra += "  ALOFT -- SORTIE IN PROGRESS"
-                extra += "  ENDURANCE %.0f MI" % (u.stats['fuel'] * 60)
+                extra += "  ENDURANCE %.0f MI" % (u.stats['fuel'] * MILES_PER_WU)
             if u.stats['supply_cap'] > 0:
                 extra += "  SUPPLY %d LBS" % int(u.supply)
             if u.unit_type == 'submarine':
@@ -4703,6 +4740,10 @@ class WW2RTSGame(ShowBase):
             empty_hint = "NO AIRCRAFT ON THE FIELD"
         garrison = [] if is_carrier else [u for u in base.garrison
                                           if u.alive]
+        if self.garrison_sel and not is_carrier:
+            bar.show_exit(self._release_garrison, [base])
+        else:
+            bar.hide_exit()
         if wing or garrison:
             entries = [("%d/%d" % (int(p.hp), p.max_hp),
                         self._select_embarked, [p],
@@ -4715,9 +4756,6 @@ class WW2RTSGame(ShowBase):
                          get_icon_path(u.unit_type, 'dark'),
                          u in self.garrison_sel)
                         for u in garrison]
-            if self.garrison_sel and not is_carrier:
-                entries.append(("++ TO THE APRON ++",
-                                self._release_garrison, [base]))
             planned = [p for p in wing
                        if p in self.selected and p.sortie_plan]
             bar.add_buttons(entries)
@@ -4731,7 +4769,8 @@ class WW2RTSGame(ShowBase):
                     "PLAN FILED: %d LEG(S), %.0f/%.0f MI -- SHIFT-RMB "
                     "ADDS LEGS -- SCRAMBLE (OR ENTER) LAUNCHES" %
                     (len(lead.sortie_plan),
-                     (d or 0) * 60, lead.stats['fuel'] * 60))
+                     (d or 0) * MILES_PER_WU,
+                     lead.stats['fuel'] * MILES_PER_WU))
             elif self.garrison_sel:
                 bar.set_hint("%d STORED UNIT(S) PICKED -- RMB ANOTHER "
                              "AIRFIELD TO FLY THEM THERE (ANY UNIT); "
@@ -4911,7 +4950,7 @@ class WW2RTSGame(ShowBase):
                  row("VISION", "%.0f MI OBSERVATION%s" %
                      (s['vision'] * VISION_SCALE *
                       (AIR_VISION_MULT if s['domain'] == 'air' else 1.0)
-                      * 60,
+                      * MILES_PER_WU,
                       " (AIRBORNE)" if s['domain'] == 'air' else ""))]
         if s['damage'] > 0:
             lines.append(row("ARMAMENT", "%d PER SALVO, RANGE %.0f MI" %
@@ -4925,10 +4964,11 @@ class WW2RTSGame(ShowBase):
                              s['capacity']))
         if s.get('fuel'):
             lines.append(row("COMBAT RADIUS", "%.0f MI (THERE AND BACK)" %
-                             (s['fuel'] / 2.0 * 60)))
+                             (s['fuel'] / 2.0 * MILES_PER_WU)))
         if s.get('comm'):
             lines.append(row("WIRELESS NET", "COMMAND RADIUS %.0f MI" %
-                             (s['vision'] * COMM_RADIUS_FACTOR * 60)))
+                             (s['vision'] * COMM_RADIUS_FACTOR
+                              * MILES_PER_WU)))
         if s['domain'] != 'air' and s.get('supply_cap', 0) > 0:
             lines.append(row("STORES", "%d LBS CARRIED" % s['supply_cap']))
         lines.append(row("COST", "$%d" % s['cost']))

@@ -199,6 +199,13 @@ class BottomBar:
         self.info_btn.hide()
         # red CAPTURE button: appears on an enemy city's menu when the
         # infantry garrison on it suffices to annex
+        # red EXIT key, right end of the bar: stored units walk out
+        self.exit_btn = pill_button(
+            self.frame, "EXIT AIRFIELD", None, pos=(0.95, 0, 0.243),
+            hw=0.17, hh=0.036, text_scale=0.032,
+            text_fg=(0.97, 0.90, 0.80, 1.0), font=base.hud_font,
+            kind='red')
+        self.exit_btn.hide()
         self.capture_btn = pill_button(
             self.frame, "++ CAPTURE ++", None, pos=(0.95, 0, 0.243),
             hw=0.20, hh=0.038, text_scale=0.038,
@@ -228,6 +235,14 @@ class BottomBar:
 
     def hide_info(self):
         self.info_btn.hide()
+
+    def show_exit(self, command, args=()):
+        self.exit_btn['command'] = command
+        self.exit_btn['extraArgs'] = list(args)
+        self.exit_btn.show()
+
+    def hide_exit(self):
+        self.exit_btn.hide()
 
     def show_capture(self, command, args):
         self.capture_btn['command'] = command

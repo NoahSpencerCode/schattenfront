@@ -130,6 +130,34 @@ class Airfield(Structure):
         set_marker_layer(self.badge, LAYER_STRUCT + 2)
         self.badge.hide()
 
+        # second pill: the LAND GARRISON stored on the field
+        self.gbadge = self.holder.attachNewNode('garrison_badge')
+        gp = make_flat_disc('gpill', 0.46, (c[0], c[1], c[2], 0.96),
+                            segments=20)
+        gp.setPos(0, -2.45, 0)
+        gp.reparentTo(self.gbadge)
+        grim = make_flat_ring('grim', 0.46, (0.13, 0.11, 0.09, 1.0),
+                              thickness=1.6, segments=20)
+        grim.setPos(0, -2.45, 0)
+        grim.reparentTo(self.gbadge)
+        foot = make_icon_quad(game.loader, 'infantry', 'dark',
+                              half=0.30, depth=8)
+        foot.setPos(-0.14, -2.45, 0)
+        foot.reparentTo(self.gbadge)
+        gtn = TextNode('gcount')
+        gtn.setAlign(TextNode.ALeft)
+        if game.hud_font:
+            gtn.setFont(game.hud_font)
+        gtn.setTextColor(0.13, 0.11, 0.09, 1)
+        self.gcount_tn = gtn
+        gnp = self.gbadge.attachNewNode(gtn)
+        gnp.setP(-90)
+        gnp.setScale(0.5)
+        gnp.setPos(0.10, -2.62, 0)
+        gnp.setDepthOffset(8)
+        set_marker_layer(self.gbadge, LAYER_STRUCT + 2)
+        self.gbadge.hide()
+
     def set_count(self, n):
         if n > 0:
             self.count_tn.setText("x%d" % n)
@@ -137,6 +165,14 @@ class Airfield(Structure):
                 self.badge.show()
         elif not self.badge.isHidden():
             self.badge.hide()
+
+    def set_garrison_count(self, n):
+        if n > 0:
+            self.gcount_tn.setText("x%d" % n)
+            if self.gbadge.isHidden():
+                self.gbadge.show()
+        elif not self.gbadge.isHidden():
+            self.gbadge.hide()
 
     def take_damage(self, amount, attacker=None):
         if not self.alive:

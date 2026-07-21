@@ -23,8 +23,8 @@ loadPrcFileData('', 'sync-video 1')
 loadPrcFileData('', 'text-flatten 1')
 # keep non-power-of-two textures at full resolution (detail overlay)
 loadPrcFileData('', 'textures-power-2 none')
-# no audio: the menu reel plays silent and the game has no sound yet
-loadPrcFileData('', 'audio-library-name null')
+# interface audio: console-key clicks and the FAX teletype
+loadPrcFileData('', 'audio-library-name p3openal_audio')
 
 # anti-aliasing must be requested before the window opens (the
 # settings menu can also rebuild the window at runtime)

@@ -264,13 +264,26 @@ def _draw_harbor(d, ink):
 
 
 def _draw_depot(d, ink):
-    """Stacked supply crates."""
-    for (x0, y0) in ((16, 52), (52, 52), (34, 20)):
-        d.rectangle([x0, y0, x0 + 30, y0 + 30], fill=_WHITE,
-                    outline=_BLACK, width=4)
-        d.line([(x0, y0), (x0 + 30, y0 + 30)], fill=_BLACK, width=3)
-        d.line([(x0 + 30, y0), (x0, y0 + 30)], fill=_BLACK, width=3)
-    d.rectangle([10, 84, 86, 90], fill=_BLACK)
+    """A supply dump from ABOVE: crate rows, a drum farm and the
+    guard tent, matching the top-down unit style."""
+    # crate rows (two neat lines of pallets)
+    for i in range(3):
+        d.rectangle([12 + i * 25, 14, 32 + i * 25, 34], fill=_WHITE,
+                    outline=_BLACK, width=3)
+        d.line([(12 + i * 25, 14), (32 + i * 25, 34)],
+               fill=_BLACK, width=2)
+    for i in range(3):
+        d.rectangle([12 + i * 25, 40, 32 + i * 25, 60], fill=_WHITE,
+                    outline=_BLACK, width=3)
+        d.line([(32 + i * 25, 40), (12 + i * 25, 60)],
+               fill=_BLACK, width=2)
+    # the drum farm
+    for i in range(4):
+        d.ellipse([13 + i * 19, 68, 27 + i * 19, 82], fill=_WHITE,
+                  outline=_BLACK, width=3)
+        d.ellipse([18 + i * 19, 73, 22 + i * 19, 77], fill=_BLACK)
+    # access track along the southern edge
+    d.rectangle([8, 88, 88, 92], fill=_BLACK)
 
 
 def _draw_bunker(d, ink):
@@ -1069,6 +1082,22 @@ def _tu_battleship(d, ink, nat=None):
         _orect(d, 44, 42, 52, 50, 2)
 
 
+def _tu_blimp_truck(d, ink, nat=None):
+    """The blimp station on the road: a lorry with the folded
+    envelope humped on its bed -- clearly NOT yet aloft."""
+    cx = 48
+    # cab and bed like the transport lorry
+    _orect(d, cx - 11, 12, cx + 11, 30)                       # cab
+    d.rectangle([cx - 7, 16, cx + 7, 26], fill=_BLACK)        # windscreen
+    _orect(d, cx - 13, 32, cx + 13, 86)                       # bed
+    # the folded envelope: a fat lozenge lashed across the bed
+    d.ellipse([cx - 9, 36, cx + 9, 80], fill=_WHITE,
+              outline=_BLACK, width=3)
+    for y in (46, 58, 70):                                    # lashings
+        d.line([(cx - 12, y), (cx + 12, y)], fill=_BLACK, width=2)
+    d.ellipse([cx - 3, 40, cx + 3, 48], fill=_BLACK)          # nose cone
+
+
 def _tu_blimp(d, ink, nat=None):
     """Patrol blimp from above: fat envelope, cruciform tail,
     gondola amidships."""
@@ -1107,11 +1136,12 @@ _TOP_DOWN = {
     'jet_fighter': _tu_jet,
     'submarine': _tu_submarine,
     'battleship': _tu_battleship,
-    'blimp': _tu_blimp,
+    'blimp': _tu_blimp_truck,
+    'blimp_up': _tu_blimp,
 }
 
 
-ICON_VERSION = 12   # bump when drawings change to invalidate the cache
+ICON_VERSION = 13   # bump when drawings change to invalidate the cache
 
 
 class _ScaledDraw:
