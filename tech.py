@@ -76,7 +76,8 @@ BASE_UNITS = ('infantry', 'tank', 'supply_truck', 'transport_truck',
               'naval_command', 'personnel_transport',
               'destroyer_sea_sea', 'destroyer_aa', 'destroyer_sea_land',
               'supply_ship', 'aircraft_carrier',
-              'fighter', 'bomber', 'airforce_command', 'transport_air')
+              'fighter', 'bomber', 'airforce_command', 'transport_air',
+              'blimp')
 
 
 def unlocked_units(country, researched):

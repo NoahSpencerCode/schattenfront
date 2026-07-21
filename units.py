@@ -125,6 +125,14 @@ UNIT_TYPES = {
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'ATR',
         'capacity': 4, 'paradrop': True, 'fuel': 16.0},
 
+    'blimp': {
+        # a blimp STATION on wheels: drives like a lorry, and once the
+        # envelope is raised it stands fast and out-sees any aircraft
+        'label': 'Blimp Station', 'domain': 'land', 'speed': 0.141,
+        'road_mult': 4.0, 'vision': 1.5, 'hp': 60, 'cost': 350,
+        'build_time': 8, 'damage': 0, 'range': 0, 'targets': (),
+        'icon': 'BLP', 'sprite_size': 0.62},
+
     # ----- RESEARCH ARSENAL (locked until the tech tree opens them) --
     'artillery': {
         'label': 'Field Artillery', 'domain': 'land', 'speed': 0.104,
@@ -227,6 +235,8 @@ NATION_UNITS = {
                  "The feared 88-armed heavy: unmatched, and priced like it."),
         'supply_truck': ('Opel Blitz Column', {},
                          "Standard lorry of the Wehrmacht trains."),
+        'blimp': ('Zeppelin Aufklärer', {'vision': 1.1, 'cost': 1.15},
+                  "The Graf's heirs: high, silent, all-seeing."),
         'transport_truck': ('Sd.Kfz. 251 Carrier',
                             {'hp': 1.15, 'cost': 1.1},
                             "Armoured halftracks shrug off small arms."),
@@ -285,6 +295,9 @@ NATION_UNITS = {
         'supply_truck': ('GMC Deuce-and-a-Half',
                          {'supply_cap': 1.4, 'cost': 0.8, 'speed': 1.1},
                          "The deuce hauls more, faster, for less."),
+        'blimp': ('K-Class Patrol Blimp',
+                  {'vision': 1.15, 'cost': 1.1},
+                  "The Navy's K-ships: no convoy under one was lost."),
         'transport_truck': ('M3 Half-track', {'cost': 0.8, 'hp': 1.1},
                             "Mass-built armoured taxi for the infantry."),
         'aa_artillery': ('M1 90mm AA Battery', {'cost': 0.85},
@@ -343,6 +356,8 @@ NATION_UNITS = {
                  "Ponderous, but shrugs off hits going uphill."),
         'supply_truck': ('Bedford QL Column', {},
                          "The Army's dependable workhorse lorry."),
+        'blimp': ('Balloon Command Section', {'hp': 1.2},
+                  "Winched veterans of the Blitz, eyes ever upward."),
         'transport_truck': ('Bren Carrier Section', {'speed': 1.1},
                             "Nippy tracked carriers rush the Bren forward."),
         'aa_artillery': ('QF 3.7-in AA Battery',
@@ -402,6 +417,8 @@ NATION_UNITS = {
                  "Thin-skinned but quick and cheap."),
         'supply_truck': ('Type 94 Column', {'cost': 0.9},
                          "Light trucks on long, thin supply lines."),
+        'blimp': ('Kansoku Balloon Corps', {'cost': 0.85, 'hp': 0.8},
+                  "Paper-light observation balloons, cheap and brave."),
         'transport_truck': ('Type 1 Ho-Ha', {'cost': 0.9},
                             "Spartan halftracks of the mobile brigades."),
         'aa_artillery': ('Type 88 AA Battery', {'cost': 0.9},
@@ -463,6 +480,8 @@ NATION_UNITS = {
                  "Sloped armour and sheer numbers -- the war-winner."),
         'supply_truck': ('ZIS-5 Column', {'hp': 1.1},
                          "Rugged three-tonners through rasputitsa mud."),
+        'blimp': ('Aerostat Observation Post', {'cost': 0.9},
+                  "The aerostats that ringed Moscow, gone mobile."),
         'transport_truck': ('Studebaker US6', {'cost': 0.9},
                             "Lend-Lease Studebakers carry the Guards."),
         'aa_artillery': ('85mm 52-K Battery', {'damage': 1.15},
@@ -758,6 +777,9 @@ class Unit:
         r = self.stats['vision'] * VISION_SCALE
         if self.is_air():
             r *= AIR_VISION_MULT
+        elif getattr(self, 'deployed', False):
+            # a blimp on station out-sees any aircraft by half again
+            r *= AIR_VISION_MULT * 1.5
         if not self.game.is_day(self.pos):
             r *= NIGHT_VISION_FACTOR
         return r
@@ -846,6 +868,8 @@ class Unit:
                 self._slope_fac = self.game.world.terrain.speed_factor(
                     la1, lo1, la2, lo2)
             speed *= self._slope_fac
+        if getattr(self, 'submerged', False):
+            speed *= 0.45               # on the batteries, creeping
         ang = angle_between(self.pos, target)
         step = speed * dt / GLOBE_RADIUS
         if ang <= step or ang < 1e-5:
@@ -853,14 +877,21 @@ class Unit:
             self.path.pop(0)
         else:
             self.pos = slerp(self.pos, target, step / ang)
+        moved_wu = min(step, ang) * GLOBE_RADIUS
         if self.stats['domain'] == 'air':
             # the fuel odometer: what a retasking mid-air may still ask
             # of the tanks is endurance minus this
-            self._flown = getattr(self, '_flown', 0.0) + \
-                min(step, ang) * GLOBE_RADIUS
+            self._flown = getattr(self, '_flown', 0.0) + moved_wu
         if self.stats['supply_cap'] > 0:
-            self.supply = max(0.0, self.supply - self.stats['use_move'] *
-                              dt * self.game.game_speed)
+            # stores burn with the MILES marched, not the clock -- a
+            # full infantry tank is ~3 world units of marching, so a
+            # strategic advance is possible but still needs its train
+            burn = self.stats['use_move'] * moved_wu * 10.0
+            if getattr(self, 'submerged', False):
+                burn *= 2.0             # running submerged drinks amps
+            self.supply = max(0.0, self.supply - burn)
+            if self.supply <= 0.0 and getattr(self, 'submerged', False):
+                self.game.set_submerged(self, False, forced=True)
         return True
 
     def _combat(self, dt):

@@ -1985,10 +1985,61 @@ class WW2RTSGame(ShowBase):
         self.fax_short("FLIGHT RETASKED -- %d MI OF %d REMAIN" %
                        (d * 60, max(0, left) * 60))
 
+    def set_submerged(self, unit, flag, forced=False):
+        """Dive or surface a submarine; dry batteries force her up."""
+        if unit.unit_type != 'submarine' or \
+                getattr(unit, 'submerged', False) == flag:
+            return
+        unit.submerged = flag
+        unit.holder.setAlphaScale(0.45 if flag else 1.0)
+        if unit.country == self.player_country:
+            if forced:
+                self.fax.post(
+                    "BOAT SURFACED",
+                    "%s: batteries and stores exhausted. She runs on "
+                    "the surface until replenished." %
+                    B(unit.stats['label'].upper()),
+                    sender="ADMIRALTY")
+            else:
+                self.fax_short("%s %s" %
+                               (unit.stats['label'].upper(),
+                                "RUNS SUBMERGED -- SLOW AND UNSEEN"
+                                if flag else "SURFACES -- FULL SPEED"))
+        if unit in self.selected:
+            self._refresh_selection_ui()
+
+    def toggle_submerge(self, unit):
+        if unit.alive:
+            self.set_submerged(unit, not getattr(unit, 'submerged',
+                                                 False))
+
+    def toggle_blimp(self, unit):
+        """Raise the envelope (fixed, far-seeing) or winch it down
+        into its lorry (mobile, ordinary eyes)."""
+        if not unit.alive or unit.unit_type != 'blimp':
+            return
+        up = not getattr(unit, 'deployed', False)
+        unit.deployed = up
+        if up:
+            unit.clear_orders()
+        if unit.country == self.player_country:
+            self.fax_short("BLIMP %s" %
+                           ("ALOFT -- ON STATION, EYES AT ALTITUDE"
+                            if up else "WINCHED DOWN -- READY TO MOVE"))
+        if unit in self.selected:
+            self._refresh_selection_ui()
+
     # order execution callbacks (called by Unit.update) ------------------
     def begin_order(self, unit, order):
         kind = order['kind']
         domain = unit.stats['domain']
+        if getattr(unit, 'deployed', False) and kind in (
+                'move', 'attack', 'board', 'unload'):
+            if unit.country == self.player_country:
+                self.fax_short("BLIMP ON STATION -- WINCH IT DOWN "
+                               "BEFORE MOVING")
+            unit.current_order = None
+            return
         if domain == 'air':
             self._begin_air_order(unit, order)
             return
@@ -3471,7 +3522,8 @@ class WW2RTSGame(ShowBase):
         friendly = [(u.pos, u.vision_range(), u.is_air(),
                      self.is_day(u.pos),
                      self._los_obs(u, u.pos, u.vision_range(),
-                                   u.is_air()))
+                                   u.is_air()
+                                   or getattr(u, 'deployed', False)))
                     for u in self.units
                     if u.alive and u.country == player and not u.carried_by
                     and u.in_contact and not self.is_embarked(u)]
@@ -3501,11 +3553,16 @@ class WW2RTSGame(ShowBase):
                     u.visible_to_player = u.in_contact
                 continue
             target_air = u.is_air()
+            # a submerged boat shows nothing but a periscope feather:
+            # spotted only nearly overhead
+            sub_cap = (0.05 if getattr(u, 'submerged', False) else None)
             visible = False
             for (pos, rng, src_air, src_day, los) in friendly:
                 if not src_day and src_air != target_air:
                     continue        # night: air and surface see nothing
                                     # of each other
+                if sub_cap is not None:
+                    rng = min(rng, sub_cap)
                 ang = angle_between(u.pos, pos)
                 if ang * GLOBE_RADIUS > rng:
                     continue
@@ -3574,7 +3631,8 @@ class WW2RTSGame(ShowBase):
         self._los_budget = 12       # fresh profiles allowed this frame
         entries = [(u.pos, u.vision_range(),
                     self._los_obs(u, u.pos, u.vision_range(),
-                                  u.is_air()))
+                                  u.is_air()
+                                  or getattr(u, 'deployed', False)))
                    for u in self._vision_units if u.alive]
         for c in self._vision_cities:
             day = self.is_day(c.pos)
@@ -4156,7 +4214,31 @@ class WW2RTSGame(ShowBase):
                 extra += "  ENDURANCE %.0f MI" % (u.stats['fuel'] * 60)
             if u.stats['supply_cap'] > 0:
                 extra += "  SUPPLY %d LBS" % int(u.supply)
+            if u.unit_type == 'submarine':
+                extra += ("  [SUBMERGED]"
+                          if getattr(u, 'submerged', False)
+                          else "  [SURFACED]")
+            if u.unit_type == 'blimp':
+                extra += ("  [ON STATION]"
+                          if getattr(u, 'deployed', False)
+                          else "  [MOBILE]")
             bar.set_info("STRENGTH %d/%d%s" % (int(u.hp), u.max_hp, extra))
+            if u.unit_type == 'submarine':
+                bar.add_buttons([
+                    ("++ SURFACE ++" if getattr(u, 'submerged', False)
+                     else "++ SUBMERGE ++", self.toggle_submerge, [u])])
+                bar.set_hint("SUBMERGED: NEAR-INVISIBLE BUT SLOW ON THE "
+                             "BATTERIES -- SHE SURFACES HERSELF WHEN "
+                             "STORES RUN OUT")
+                return
+            if u.unit_type == 'blimp':
+                bar.add_buttons([
+                    ("++ WINCH DOWN ++" if getattr(u, 'deployed', False)
+                     else "++ RAISE BLIMP ++", self.toggle_blimp, [u])])
+                bar.set_hint("ON STATION SHE STANDS FAST AND OUT-SEES "
+                             "ANY AIRCRAFT -- WINCH DOWN TO MOVE THE "
+                             "STATION")
+                return
             if u.cargo:
                 entries = [("%d/%d" % (int(p.hp), p.max_hp),
                             self._noop, [],
@@ -4334,6 +4416,18 @@ class WW2RTSGame(ShowBase):
             "call, and pushes stock up the depot chain. It takes no",
             "orders. Build DEPOTS with your engineers to stage the",
             "chain toward the fighting."],
+        'blimp': [
+            "A balloon station on wheels. Drive it where you need",
+            "eyes, RAISE the envelope, and its watch out-sees any",
+            "aircraft by half again -- over every ridge, day after",
+            "day. Fixed while aloft: winch it down to displace.",
+            "Unarmed and slow to replace; keep it behind the line."],
+        'submarine': [
+            "The commerce raider. Submerged she is all but invisible",
+            "-- spotted only nearly overhead -- but creeps on her",
+            "batteries and drinks stores doing it; dry bunkers force",
+            "her up. Surface to make passage, dive to hunt. Naval",
+            "supply vessels keep her at sea."],
         'transport_truck': [
             "Motor transport for infantry over friendly ground. An",
             "idle lorry runs a taxi service on its own: it drives out",
@@ -4592,9 +4686,11 @@ class WW2RTSGame(ShowBase):
             for _ in range(2):
                 if not self._pending_ai_orders:
                     break
-                u, order = self._pending_ai_orders.pop(0)
+                item = self._pending_ai_orders.pop(0)
+                u, order = item[0], item[1]
+                q = item[2] if len(item) > 2 else False
                 if u.alive and not u.carried_by:
-                    u.give_order(order)
+                    u.give_order(order, queue=q)
 
             # aircraft bound for a carrier keep tracking her movement
             self._chase_timer -= dt

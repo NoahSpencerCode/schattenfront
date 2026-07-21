@@ -148,6 +148,19 @@ def _draw_bomber(d, ink):
     d.ellipse([62, 40, 74, 58], fill=ink)
 
 
+def _draw_blimp(d, ink):
+    """Side-view patrol blimp: envelope, tail fin, hung gondola."""
+    d.ellipse([8, 26, 78, 58], outline=ink, width=5)           # envelope
+    d.polygon([(70, 34), (90, 22), (90, 46), (72, 46)],
+              outline=ink, fill=None)
+    d.line([(70, 34), (90, 22)], fill=ink, width=4)
+    d.line([(90, 22), (90, 46)], fill=ink, width=4)
+    d.line([(90, 46), (72, 46)], fill=ink, width=4)
+    d.line([(34, 57), (34, 66)], fill=ink, width=3)            # rigging
+    d.line([(52, 57), (52, 66)], fill=ink, width=3)
+    d.rectangle([28, 66, 58, 76], outline=ink, width=4)        # gondola
+
+
 def _draw_airforce_command(d, ink):
     _plane(d, ink, wing_span=66, wing_y=44, wing_chord=11, tail=80)
     _flag(d, ink, x=16, top=14, h=36)
@@ -517,6 +530,7 @@ _DRAWERS = {
     'bridge_map': _draw_bridge_map,
     'info_button': _draw_info_button,
     'scramble_button': _draw_scramble_button,
+    'blimp': _draw_blimp,
     'cursor_default': _draw_cursor_default,
     'cursor_attack': _draw_cursor_attack,
     'cursor_embark': _draw_cursor_embark,
@@ -894,6 +908,94 @@ def _tu_transport_air(d, ink, nat=None):
     _tailplane(d, 86, 16)
 
 
+def _tu_artillery(d, ink, nat=None):
+    """Towed field gun: split trails, shield, the long tube."""
+    cx = 48
+    d.line([(cx, 52), (cx - 17, 86)], fill=_BLACK, width=5)    # trails
+    d.line([(cx, 52), (cx + 17, 86)], fill=_BLACK, width=5)
+    _orect(d, cx - 21, 42, cx - 11, 62, 3)                     # wheels
+    _orect(d, cx + 11, 42, cx + 21, 62, 3)
+    _o(d, [(cx - 12, 38), (cx + 12, 38), (cx + 8, 58),
+           (cx - 8, 58)])                                      # shield
+    d.line([(cx, 46), (cx, 8)], fill=_BLACK, width=6)          # tube
+    d.rectangle([cx - 5, 8, cx + 5, 14], fill=_BLACK)          # brake
+
+
+def _tu_heavy_tank(d, ink, nat=None):
+    """The breakthrough tank: broader than the medium, bigger gun."""
+    _tracks(d, 13, 29, 67, 83, 10, 88)
+    _orect(d, 27, 14, 69, 84)
+    for y in (70, 77):
+        d.line([(31, y), (65, y)], fill=_BLACK, width=2)
+    _turret(d, 48, 42, 15, 38, bw=6, brake=True)
+
+
+def _tu_heavy_bomber(d, ink, nat=None):
+    """Four engines on a broad straight wing."""
+    cx = 48
+    _fuselage(d, 6, 12, 84, canopy_y=22)
+    _o(d, [(cx - 43, 34), (cx + 43, 34), (cx + 39, 50), (cx - 39, 50)])
+    for off in (-31, -17, 17, 31):
+        d.ellipse([cx + off - 4, 28, cx + off + 4, 44],
+                  fill=_WHITE, outline=_BLACK, width=3)
+        d.ellipse([cx + off - 2, 27, cx + off + 2, 33], fill=_BLACK)
+    if nat == 'britain':            # Lancaster: the twin fins
+        _orect(d, 36, 80, 42, 90, 2)
+        _orect(d, 54, 80, 60, 90, 2)
+    else:
+        _tailplane(d, 84, 16)
+
+
+def _tu_jet(d, ink, nat=None):
+    """Swept lines and podded turbines -- no propeller cowl."""
+    cx = 48
+    _o(d, [(cx, 6), (cx + 5, 20), (cx + 5, 84), (cx - 5, 84),
+           (cx - 5, 20)])                                      # needle nose
+    d.ellipse([cx - 4, 26, cx + 4, 38], fill=_BLACK)           # canopy
+    _o(d, [(cx - 40, 58), (cx - 5, 38), (cx + 5, 38), (cx + 40, 58),
+           (cx + 33, 64), (cx + 5, 50), (cx - 5, 50), (cx - 33, 64)])
+    _orect(d, cx - 27, 44, cx - 17, 68, 3)                     # turbine pods
+    _orect(d, cx + 17, 44, cx + 27, 68, 3)
+    _o(d, [(cx - 13, 90), (cx, 78), (cx + 13, 90), (cx, 85)])  # swept tail
+
+
+def _tu_submarine(d, ink, nat=None):
+    """Slim pressure hull, tower amidships, dive planes."""
+    cx = 48
+    _o(d, [(cx, 6), (cx + 7, 22), (cx + 7, 74), (cx, 90),
+           (cx - 7, 74), (cx - 7, 22)])
+    _orect(d, cx - 4, 40, cx + 4, 58, 3)                       # tower
+    d.ellipse([cx - 2, 43, cx + 2, 47], fill=_BLACK)           # periscope
+    d.line([(cx - 13, 28), (cx + 13, 28)], fill=_BLACK, width=3)
+    d.line([(cx - 13, 80), (cx + 13, 80)], fill=_BLACK, width=3)
+
+
+def _tu_battleship(d, ink, nat=None):
+    """The heavy line: three main turrets and a massive citadel."""
+    _hull_top(d, bow=4, stern=92, half=15)
+    _turret(d, 48, 22, 8, 12, bw=4)
+    _turret(d, 48, 36, 8, 12, bw=4)
+    _orect(d, 41, 46, 55, 66, 3)                               # citadel
+    _funnel(d, 48, 52, r=4)
+    _funnel(d, 48, 61, r=4)
+    _turret(d, 48, 78, 8, 10, bw=4)
+    if nat == 'japan':              # the pagoda mast
+        _orect(d, 44, 42, 52, 50, 2)
+
+
+def _tu_blimp(d, ink, nat=None):
+    """Patrol blimp from above: fat envelope, cruciform tail,
+    gondola amidships."""
+    cx = 48
+    d.ellipse([cx - 17, 6, cx + 17, 76], fill=_WHITE,
+              outline=_BLACK, width=3)
+    d.ellipse([cx - 3, 4, cx + 3, 11], fill=_BLACK)            # mooring nose
+    _o(d, [(cx - 27, 84), (cx - 8, 64), (cx - 8, 78)])         # port fin
+    _o(d, [(cx + 27, 84), (cx + 8, 64), (cx + 8, 78)])         # stbd fin
+    d.line([(cx, 68), (cx, 90)], fill=_BLACK, width=3)
+    _orect(d, cx - 4, 34, cx + 4, 52, 2)                       # gondola
+
+
 _TOP_DOWN = {
     'infantry': _tu_infantry,
     'tank': _tu_tank,
@@ -913,10 +1015,17 @@ _TOP_DOWN = {
     'airforce_command': _tu_air_command,
     'transport_air': _tu_transport_air,
     'supply_ship': _tu_supply_ship,
+    'artillery': _tu_artillery,
+    'heavy_tank': _tu_heavy_tank,
+    'heavy_bomber': _tu_heavy_bomber,
+    'jet_fighter': _tu_jet,
+    'submarine': _tu_submarine,
+    'battleship': _tu_battleship,
+    'blimp': _tu_blimp,
 }
 
 
-ICON_VERSION = 10   # bump when drawings change to invalidate the cache
+ICON_VERSION = 11   # bump when drawings change to invalidate the cache
 
 
 class _ScaledDraw:

@@ -75,6 +75,7 @@ class NationAI:
         self.staging = None         # own city the strike group masses at
         self.overseas = False       # objective needs an amphibious lift
         self.unreachable = set()    # names ruled out this ownership era
+        self._reach = {}            # capital->city walkability cache
         self._gen = -1              # ownership generation of the cache
 
     # ------------------------------------------------------------ events
@@ -82,6 +83,7 @@ class NationAI:
         """A city changed hands somewhere: yesterday's map is stale."""
         self._gen += 1
         self.unreachable.clear()
+        self._reach.clear()
         if self.objective is not None and \
                 self.objective.country == self.country:
             self.objective = None
@@ -237,19 +239,39 @@ class NationAI:
         # best of the map lies over water does the staff draw up an
         # amphibious operation (a few cached probes, never a flood)
         overseas_pick = None
+        cap = g.capital_of(self.country)
         for score, c in scored[:8]:
             staging = min(own, key=lambda o: angle_between(o.pos, c.pos))
-            if g.planner.plan_land(staging.pos, c.pos) is not None:
+            # a land pick needs BOTH legs on foot: army -> staging and
+            # staging -> objective (an island army cannot walk to a
+            # continental assembly area)
+            if (self._reachable(cap, staging)
+                    and g.planner.plan_land(staging.pos, c.pos)
+                    is not None):
                 self.objective, self.staging = c, staging
                 self.overseas = False
                 return
             self.unreachable.add(c.name)
             if overseas_pick is None and self._has_sealift():
-                overseas_pick = (c, staging)
+                # embark where the army can actually assemble
+                base = [o for o in own if self._reachable(cap, o)]
+                st = min(base or [cap],
+                         key=lambda o: angle_between(o.pos, c.pos))
+                overseas_pick = (c, st)
         if overseas_pick is not None:
             self.objective, self.staging = overseas_pick
             self.overseas = True
             self.unreachable.discard(self.objective.name)
+
+    def _reachable(self, cap, city):
+        """Cached: can the army walk from the capital to this city?"""
+        if city is cap:
+            return True
+        hit = self._reach.get(city.name)
+        if hit is None:
+            hit = self.g.planner.plan_land(cap.pos, city.pos) is not None
+            self._reach[city.name] = hit
+        return hit
 
     def _has_sealift(self):
         return any(u.alive and u.country == self.country
@@ -408,11 +430,14 @@ class NationAI:
                 if len(lift.cargo) >= need or (
                         lift.cargo
                         and g._board_capacity_left(lift) <= 0):
-                    # loaded: sail and put the force ashore
+                    # loaded: sail and put the force ashore (the
+                    # unload is QUEUED through the drain, or the move
+                    # order would wipe it)
                     g._pending_ai_orders.append(
                         (lift, {'kind': 'move', 'goal': Vec3(sea_goal)}))
-                    lift.order_queue.append(
-                        {'kind': 'unload', 'goal': Vec3(obj_pos)})
+                    g._pending_ai_orders.append(
+                        (lift, {'kind': 'unload', 'goal': Vec3(obj_pos)},
+                         True))
                 elif angle_between(lift.pos, self.staging.pos) > 0.035:
                     # bring the lift to the embarkation beach first: the
                     # infantry cannot wade out to a distant mooring
