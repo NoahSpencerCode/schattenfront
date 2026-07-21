@@ -1506,13 +1506,24 @@ class WW2RTSGame(ShowBase):
         if (self.game_state != 'playing' or self.pause_frame
                 or self.briefing_fax or self.tax_fax):
             return
-        if not self.selected or not self.mouseWatcherNode.hasMouse():
+        if not self.mouseWatcherNode.hasMouse():
             return
         mpos = Point2(self.mouseWatcherNode.getMouse())
         ground = self.mouse_ground_point()
         if ground is None:
             return
         shift = self.mouseWatcherNode.isButtonDown(self._key_shift)
+
+        # stored garrison picked in an airfield roster: this click is
+        # the LIFT order, and needs no map selection at all (another
+        # field = fly them there; open ground = infantry paradrop)
+        if (self.garrison_sel and self.roster_base is not None
+                and not isinstance(self.roster_base, Unit)):
+            if self._order_air_lift(ground, mpos):
+                return
+
+        if not self.selected:
+            return
 
         # an engineering works order is armed: this click sites it
         if self.build_mode:
@@ -1525,13 +1536,6 @@ class WW2RTSGame(ShowBase):
                         if u.country == self.player_country]
         if not own_selected:
             return
-
-        # stored garrison picked in an airfield roster: this click is
-        # the LIFT order (another field = fly there; ground = paradrop)
-        if (self.garrison_sel and self.roster_base is not None
-                and not isinstance(self.roster_base, Unit)):
-            if self._order_air_lift(ground, mpos):
-                return
 
         # an unload/paradrop order is armed: this click sites the drop
         if self.unload_mode:
@@ -2474,6 +2478,7 @@ class WW2RTSGame(ShowBase):
             return True
         room = lift.stats['capacity'] - len(lift.cargo)
         taken, held = sel[:room], len(sel) - min(len(sel), room)
+        grounded = []
         for u in taken:
             field.garrison.remove(u)
             u.carried_by = lift
@@ -2482,6 +2487,27 @@ class WW2RTSGame(ShowBase):
                  if a.country == self.player_country and a is not field
                  and self._facing_camera(a.pos)]
         dest = self._pick_object(mpos, dests)
+        if dest is None:
+            # open ground means a JUMP -- and only the infantry jump;
+            # wheels and guns need a runway at the far end
+            jumpers = [u for u in taken if u.unit_type == 'infantry']
+            grounded[:] = [u for u in taken
+                           if u.unit_type != 'infantry']
+            for u in grounded:      # back into the garrison
+                lift.cargo.remove(u)
+                u.carried_by = field
+                field.garrison.append(u)
+            if not jumpers:
+                self.garrison_sel = []
+                self.fax.post(
+                    "DROP REFUSED",
+                    "%s. Only infantry are jump-trained -- vehicles "
+                    "and guns must be FLOWN to an airfield." %
+                    B("NO PARACHUTISTS IN THE PARTY"),
+                    sender="AIR MINISTRY")
+                self._refresh_air_roster(field)
+                return True
+            taken = jumpers
         if dest is not None:
             lift.give_order({'kind': 'move', 'goal': Vec3(dest.pos),
                              'auto': True})
@@ -2494,6 +2520,8 @@ class WW2RTSGame(ShowBase):
         msg = "%s -- %d UNIT(S) AWAY" % (verb, len(taken))
         if held:
             msg += " (%d HELD: HOLDS FULL)" % held
+        if grounded:
+            msg += " (%d NON-INFANTRY KEPT IN STORES)" % len(grounded)
         self.fax_short(msg)
         self._refresh_air_roster(field)
         return True
@@ -2516,8 +2544,14 @@ class WW2RTSGame(ShowBase):
             return
         lat, lon = vec_to_latlon(transport.pos)
         para = transport.stats.get('paradrop')
+        airborne_jump = (para and transport.stats['domain'] == 'air'
+                         and transport.based_at is None)
+        kept = 0
         n_out = 0
         for unit in list(transport.cargo):
+            if airborne_jump and unit.unit_type != 'infantry':
+                kept += 1           # no parachute fits a lorry
+                continue
             la, lo = self.world.nearest_land(lat + random.uniform(-.4, .4),
                                              lon + random.uniform(-.4, .4))
             d = latlon_to_vec(la, lo)
@@ -2536,7 +2570,10 @@ class WW2RTSGame(ShowBase):
         if transport.country == self.player_country:
             if n_out:
                 verb = ("PARACHUTE ASSAULT" if para else "LANDING")
-                self.fax_short("%s: %d UNIT(S) PUT ASHORE" % (verb, n_out))
+                line = "%s: %d UNIT(S) PUT ASHORE" % (verb, n_out)
+                if kept:
+                    line += " -- %d NON-INFANTRY STAY ABOARD" % kept
+                self.fax_short(line)
             else:
                 self.fax_short("NO SUITABLE GROUND TO DISEMBARK -- "
                                "CLOSE WITH THE SHORE")
@@ -4157,6 +4194,15 @@ class WW2RTSGame(ShowBase):
                 mode = 'disembark'
             elif self.build_mode:
                 mode = 'default'
+            elif (self.garrison_sel and self.roster_base is not None
+                    and not isinstance(self.roster_base, Unit)):
+                mpos = Point2(mw.getMouse())
+                fields = [(a, a.pos * GLOBE_RADIUS)
+                          for a in self.airfields
+                          if a.country == self.player_country
+                          and self._facing_camera(a.pos)]
+                mode = ('embark' if self._pick_object(mpos, fields)
+                        is not None else 'disembark')
             elif self.selected:
                 mode = self._cursor_context(Point2(mw.getMouse()))
         self._set_cursor_mode(mode)
@@ -4687,10 +4733,10 @@ class WW2RTSGame(ShowBase):
                     (len(lead.sortie_plan),
                      (d or 0) * 60, lead.stats['fuel'] * 60))
             elif self.garrison_sel:
-                bar.set_hint("%d STORED UNIT(S) PICKED -- RMB GROUND "
-                             "TO PARADROP, RMB ANOTHER AIRFIELD TO FLY "
-                             "THEM THERE, OR SEND THEM TO THE APRON"
-                             % len(self.garrison_sel))
+                bar.set_hint("%d STORED UNIT(S) PICKED -- RMB ANOTHER "
+                             "AIRFIELD TO FLY THEM THERE (ANY UNIT); "
+                             "RMB OPEN GROUND TO PARADROP (INFANTRY "
+                             "ONLY)" % len(self.garrison_sel))
             elif n:
                 bar.set_hint("%d SELECTED -- RMB PLOTS THE SORTIE "
                              "(SHIFT-RMB ADDS LEGS), SCRAMBLE LAUNCHES"
