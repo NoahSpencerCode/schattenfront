@@ -815,10 +815,16 @@ def _tu_command(d, ink, nat=None):
 
 
 def _tu_engineer(d, ink, nat=None):
+    """Works lorry: a truck wearing a bold WRENCH badge, so the
+    engineers read at a glance."""
     _tu_truck(d, ink, canvas=False)
-    d.line([(48, 56), (76, 30)], fill=_BLACK, width=4)         # crane jib
-    d.line([(76, 30), (76, 42)], fill=_BLACK, width=3)
-    d.ellipse([73, 42, 79, 48], outline=_BLACK, width=2)       # hook
+    # open-end wrench laid diagonally across the bed
+    d.line([(38, 72), (58, 46)], fill=_BLACK, width=7)         # shaft
+    d.ellipse([54, 38, 68, 52], outline=_BLACK, width=5)       # jaw ring
+    d.rectangle([58, 36, 68, 46], fill=(0, 0, 0, 0))
+    d.pieslice([54, 38, 68, 52], 300, 120, fill=_WHITE,
+               outline=_WHITE)                                 # open jaw
+    d.ellipse([33, 67, 43, 77], fill=_BLACK)                   # heel
 
 
 # ---- NAVY ----------------------------------------------------------------
@@ -1141,7 +1147,7 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 13   # bump when drawings change to invalidate the cache
+ICON_VERSION = 14   # bump when drawings change to invalidate the cache
 
 
 class _ScaledDraw:

@@ -737,7 +737,9 @@ class WW2RTSGame(ShowBase):
             country, self.funds[country])
         self._apply_fortnight_budget()
 
-        loading.removeNode()
+        self._make_engineer_button()
+        self._loading_np = loading      # held up through the warm-up
+        self._warmup_t0 = globalClock.getFrameTime()
         self._bind_game_controls()
         self._tick_vision_comm()        # fog + contact valid on frame one
 
@@ -832,6 +834,61 @@ class WW2RTSGame(ShowBase):
             if h.city is city:
                 return h
         return None
+
+    def _make_engineer_button(self):
+        """Square key on the right edge: the WORKS CALL. Click picks
+        the idle engineer nearest the window centre; the corner tally
+        counts the idle hands."""
+        from ui import pill_button
+        from direct.gui.OnscreenImage import OnscreenImage
+        if getattr(self, 'eng_btn', None) is not None:
+            self.eng_btn.destroy()
+        b = pill_button(self.a2dRightCenter, '',
+                        self._select_idle_engineer,
+                        pos=(-0.085, 0, 0.34), hw=0.055, hh=0.055)
+        pic = OnscreenImage(image=get_icon_path('engineer', 'dark'),
+                            parent=b, scale=0.036, pos=(-0.004, 0, 0.002))
+        pic.setTransparency(True)
+        tn = TextNode('idle_eng')
+        tn.setAlign(TextNode.ACenter)
+        if self.hud_font:
+            tn.setFont(self.hud_font)
+        tn.setTextColor(0.13, 0.11, 0.09, 1)
+        self._eng_count_tn = tn
+        np_ = b.attachNewNode(tn)
+        np_.setScale(0.026)
+        np_.setPos(0.033, 0, -0.047)
+        self.eng_btn = b
+        b.hide()
+
+    def _idle_engineers(self):
+        return [u for u in self.units
+                if self._commandable(u) and u.stats.get('engineer')
+                and not u.current_order and not u.order_queue
+                and not getattr(u, 'plan_pending', None)]
+
+    def _tick_engineer_button(self):
+        if getattr(self, 'eng_btn', None) is None:
+            return
+        idle = self._idle_engineers()
+        if idle:
+            self._eng_count_tn.setText(str(len(idle)))
+            if self.eng_btn.isHidden():
+                self.eng_btn.show()
+        elif not self.eng_btn.isHidden():
+            self.eng_btn.hide()
+
+    def _select_idle_engineer(self):
+        idle = self._idle_engineers()
+        if not idle:
+            return
+        centre = latlon_to_vec(self.cam_lat, self.cam_lon)
+        eng = min(idle, key=lambda u: angle_between(u.pos, centre))
+        self.clear_selection()
+        self.selected = [eng]
+        eng.set_selected(True)
+        self._refresh_selection_ui()
+        self.fax_short("ENGINEER COMPANY ANSWERS THE WORKS CALL")
 
     # ==================================================== input binding
     def _bind_game_controls(self):
@@ -1341,6 +1398,8 @@ class WW2RTSGame(ShowBase):
             self._click_select(mpos, shift)
 
     def _click_select(self, mpos, shift):
+        if shift and self._strike_waypoint(mpos):
+            return
         own = [(u, self._unit_world_pos(u)) for u in self.units
                if self._commandable(u) and self._facing_camera(u.pos)]
         unit = self._pick_object(mpos, own)
@@ -1435,6 +1494,42 @@ class WW2RTSGame(ShowBase):
         if not shift:
             self.clear_selection()
             self._refresh_selection_ui()
+
+    def _strike_waypoint(self, mpos):
+        """Shift-click on a waypoint ring cancels that leg -- from an
+        order queue or a parked aircraft's sortie plan."""
+        best = None
+        for u in self.selected:
+            if not u.alive or u.country != self.player_country:
+                continue
+            for src, o in ([('q', o) for o in u.order_queue]
+                           + [('s', o) for o in u.sortie_plan]):
+                goal = o.get('goal')
+                if goal is None:
+                    goal = o.get('site')
+                if goal is None:
+                    goal = getattr(o.get('target'), 'pos', None)
+                if goal is None:
+                    continue
+                sp = self.screen_pos(Vec3(goal) * GLOBE_RADIUS)
+                if sp is None:
+                    continue
+                d = (sp - mpos).length()
+                if d < CLICK_RADIUS and (best is None or d < best[0]):
+                    best = (d, u, src, o)
+        if best is None:
+            return False
+        _, u, src, o = best
+        if src == 'q':
+            u.order_queue.remove(o)
+            if o.get('kind') == 'build':
+                u.supply += o.get('cost', 0)    # the works are refunded
+        else:
+            u.sortie_plan.remove(o)
+        self.fax_short("WAYPOINT STRUCK FROM THE PLAN")
+        if u in self.selected:
+            self._refresh_selection_ui()
+        return True
 
     def _box_select(self, a, b, shift):
         x0, x1 = min(a.x, b.x), max(a.x, b.x)
@@ -1652,17 +1747,13 @@ class WW2RTSGame(ShowBase):
 
         # plain ground order: move only — transports never disembark on
         # their own; arm UNLOAD from the selection panel instead
-        # supply columns run themselves: depots steer the chain
-        auto_only = [u for u in commandable
-                     if u.unit_type == 'supply_truck']
-        commandable = [u for u in commandable
-                       if u.unit_type != 'supply_truck']
-        if auto_only and not commandable:
-            self.fax_short("SUPPLY COLUMNS RUN THEMSELVES -- "
-                           "BUILD DEPOTS TO STEER THE CHAIN")
-            return
         goals = self._formation_goals(ground, commandable)
         for u, goal in zip(commandable, goals):
+            if u.stats.get('supply_carrier'):
+                # a repositioned carrier drops its errand and resumes
+                # automatic work where it arrives
+                u._supply_tgt = None
+                u._depot_haul = False
             u.give_order({'kind': 'move', 'goal': goal}, queue=shift)
 
     def _formation_goals(self, ground, units):
@@ -2294,13 +2385,18 @@ class WW2RTSGame(ShowBase):
         return True
 
     def _no_route_fax(self, unit):
-        if unit.country == self.player_country:
-            self.fax.post(
-                "ORDER REFUSED",
-                "%s: %s. Rivers need bridges; open water needs "
-                "transports." % (unit.stats['label'],
-                                 B("NO PRACTICABLE ROUTE")),
-                sender="MOVEMENT CONTROL")
+        if unit.country != self.player_country:
+            return
+        now = globalClock.getFrameTime()
+        if now - getattr(self, '_last_refuse_fax', -99.0) < 5.0:
+            return                  # one refusal slip per five seconds
+        self._last_refuse_fax = now
+        self.fax.post(
+            "ORDER REFUSED",
+            "%s: %s. Rivers need bridges; open water needs "
+            "transports." % (unit.stats['label'],
+                             B("NO PRACTICABLE ROUTE")),
+            sender="MOVEMENT CONTROL")
 
     def order_finished(self, unit, order):
         kind = order['kind']
@@ -2482,6 +2578,16 @@ class WW2RTSGame(ShowBase):
         base = self.roster_base
         mw = self.mouseWatcherNode
         shift = mw and mw.isButtonDown(self._key_shift)
+        now = globalClock.getFrameTime()
+        lt, lu = getattr(self, '_garrison_click', (0.0, None))
+        self._garrison_click = (now, unit)
+        if not shift and lu is unit and now - lt < 0.4 \
+                and base is not None:
+            self.garrison_sel = [g for g in base.garrison
+                                 if g.alive
+                                 and g.unit_type == unit.unit_type]
+            self._refresh_air_roster(base)
+            return
         if not shift:
             self.garrison_sel = [unit]
         elif unit in self.garrison_sel:
@@ -2849,7 +2955,7 @@ class WW2RTSGame(ShowBase):
                    'bunker': 'bunker', 'airfield': 'airfield',
                    'harbor': 'harbor', 'radar': 'radar'}
     _GHOST_SCALE = {'airfield': 0.034, 'harbor': 0.045, 'radar': 0.040,
-                    'bridge': 0.035}
+                    'bridge': 0.035, 'depot': 0.03}
 
     def _site_ok(self, kind, la, lo):
         """May these works stand HERE? Harbours want water within
@@ -3163,7 +3269,7 @@ class WW2RTSGame(ShowBase):
             for u in units:
                 if not u.alive or u.carried_by or u.country != d.country:
                     continue
-                if u.dist_to(d.pos) > 0.5:
+                if u.dist_to(d.pos) > self._cache_reach(d):
                     continue
                 cap = u.stats['supply_cap']
                 if cap <= 0:
@@ -3173,8 +3279,10 @@ class WW2RTSGame(ShowBase):
                     # a jobless one dumps its load -- that asymmetry is
                     # what makes a chain flow forward
                     has_job = getattr(u, '_supply_tgt', None) is not None
+                    drew = getattr(u, '_drew_from', None)
                     if (not has_job and u.supply > cap * 0.35
-                            and d.stock < d_cap):
+                            and d.stock < d_cap
+                            and (drew is None or drew[0] != id(d))):
                         keep = max(cap * 0.25, self._fuel_reserve(u))
                         move = max(0.0, min(u.supply - keep,
                                             d_cap - d.stock))
@@ -3280,6 +3388,12 @@ class WW2RTSGame(ShowBase):
         # 6) idle personnel trucks run a taxi service for the infantry
         self._tick_ferry()
 
+    @staticmethod
+    def _cache_reach(d):
+        """Exchange radius: a quay serves across the waterline, a
+        depot only its own yard."""
+        return 0.35 if isinstance(d, Harbor) else 0.2
+
     def _move_cost_lbs(self, u, d_wu):
         """Stores burnt driving d_wu world units (halfway between
         road and open-country pace for wheels)."""
@@ -3359,7 +3473,8 @@ class WW2RTSGame(ShowBase):
                 return False
             # it must be able to reach the cache (or already sit on it,
             # where the exchange can fill it in place)
-            return t.supply > 0 or t.dist_to(dep.pos) < 0.5
+            return (t.supply > 0
+                    or t.dist_to(dep.pos) < self._cache_reach(dep))
         free = [t for t in units
                 if t.alive and not t.carried_by
                 and t.stats.get('supply_carrier')
@@ -3452,7 +3567,8 @@ class WW2RTSGame(ShowBase):
                     d_tgt = truck.dist_to(tgt.pos)
                     reach = 6.0 if frac < 0.5 else d_tgt
                     cand = self._stocked_depot_near(truck, rng=reach)
-                    if cand is not None and truck.dist_to(cand.pos) > 0.5:
+                    if cand is not None and truck.dist_to(cand.pos) \
+                            > self._cache_reach(cand):
                         via = truck.dist_to(cand.pos) + \
                             angle_between(cand.pos, tgt.pos) * GLOBE_RADIUS
                         if frac < 0.5 or via < d_tgt * 1.35:
@@ -3481,28 +3597,65 @@ class WW2RTSGame(ShowBase):
                 sources += [d for d in self.depots + self.harbors
                             if d.country == truck.country
                             and d.stock > 2000]
+            drew = getattr(truck, '_drew_from', None)
+            if drew is not None and \
+                    angle_between(truck.pos, drew[1]) * GLOBE_RADIUS > 0.3:
+                truck._drew_from = None
             if sources:
                 src = min(sources, key=lambda s: truck.dist_to(s.pos))
-                if truck.dist_to(src.pos) > 0.4:
+                near = 0.3 if isinstance(src, Harbor) else 0.15
+                if truck.dist_to(src.pos) > near:
                     truck.give_order({'kind': 'move',
                                       'goal': Vec3(src.pos),
                                       'auto': True})
+                else:
+                    c0 = self._stocked_depot_near(truck, rng=0.35,
+                                                  floor=500.0)
+                    if (c0 is not None and truck.supply < cap * 0.6
+                            and truck.dist_to(c0.pos)
+                            <= self._cache_reach(c0)):
+                        hungry_out = any(
+                            x.stock < x.STOCK_CAP * 0.8
+                            and x.country == truck.country
+                            and x is not c0
+                            for x in self.depots + self.harbors)
+                        target = cap if hungry_out else cap * 0.6
+                        draw = max(0.0, min(target - truck.supply,
+                                            c0.stock))
+                        truck.supply += draw
+                        c0.stock -= draw
+                        truck._drew_from = (id(c0), Vec3(c0.pos))
         elif frac > 0.6:
             # nobody starving: haul the load up the chain -- lorries
             # feed hungry depots and harbours, supply SHIPS carry the
             # stores quay to quay across the sea
-            if truck.stats['domain'] == 'sea':
-                hungry = [h for h in self.harbors
-                          if h.country == truck.country
-                          and h.stock < h.STOCK_CAP * 0.8]
-            else:
-                hungry = [d for d in self.depots + self.harbors
-                          if d.country == truck.country
-                          and d.stock < d.STOCK_CAP * 0.8]
+            pool = (self.harbors if truck.stats['domain'] == 'sea'
+                    else self.depots + self.harbors)
+            # the cache underfoot doesn't count: a lorry that just
+            # drained it must CARRY the stores onward, not stand there
+            # calling its own footprint hungry
+            hungry = [d for d in pool
+                      if d.country == truck.country
+                      and d.stock < d.STOCK_CAP * 0.8
+                      and truck.dist_to(d.pos) > 0.5]
             if hungry:
                 d = min(hungry, key=lambda x: truck.dist_to(x.pos))
                 haul_cost = self._move_cost_lbs(
                     truck, truck.dist_to(d.pos))
+                need = haul_cost + cap * 0.35
+                if truck.supply < need:
+                    # standing on a stocked cache: draw the LEG's fuel
+                    # and cargo up front -- chains no longer starve
+                    # their own lorries
+                    c0 = self._stocked_depot_near(truck, rng=0.35,
+                                                  floor=1000.0)
+                    if (c0 is not None and c0 is not d
+                            and truck.dist_to(c0.pos)
+                            <= self._cache_reach(c0)):
+                        draw = min(cap - truck.supply,
+                                   need - truck.supply, c0.stock)
+                        truck.supply += draw
+                        c0.stock -= draw
                 if (truck.dist_to(d.pos) > 0.5
                         and truck.supply - haul_cost >= cap * 0.35):
                     truck._depot_haul = True
@@ -5090,6 +5243,19 @@ class WW2RTSGame(ShowBase):
             self.roster_base = base
             self._refresh_selection_ui()
             return
+        now = globalClock.getFrameTime()
+        lt, lu = getattr(self, '_roster_click', (0.0, None))
+        self._roster_click = (now, plane)
+        if lu is plane and now - lt < 0.4:
+            # double-click: the whole type joins the package
+            self.clear_selection()
+            self.selected = [p for p in self.base_wing(base)
+                             if p.unit_type == plane.unit_type]
+            for p in self.selected:
+                p.set_selected(True)
+            self.roster_base = base
+            self._refresh_selection_ui()
+            return
         self.clear_selection()
         self.selected = [plane]
         plane.set_selected(True)
@@ -5138,6 +5304,13 @@ class WW2RTSGame(ShowBase):
         if self.game_state != 'playing':
             return Task.cont
 
+        if getattr(self, '_loading_np', None) is not None:
+            el = globalClock.getFrameTime() - self._warmup_t0
+            ready = (self.globe._border_bake is None
+                     and self.globe._border_line_nodes)
+            if (el > 4.0 and ready) or el > 15.0:
+                self._loading_np.removeNode()
+                self._loading_np = None
         self._tick_camera(dt)
         self._tick_drag_box()
         self._drain_plans()
@@ -5151,6 +5324,7 @@ class WW2RTSGame(ShowBase):
             self._tick_cursor_mode()
             self._tick_hover_glow()
             self._tick_works_ghosts()
+            self._tick_engineer_button()
         if self.fax:
             self.fax.update(dt)
 
