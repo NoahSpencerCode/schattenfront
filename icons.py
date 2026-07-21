@@ -1197,6 +1197,87 @@ class _ScaledDraw:
         self._d.pieslice(self._xy(xy), start, end, **kw)
 
 
+BUTTON_VERSION = 1
+_BTN_EDGE = {'panel': (54, 44, 34, 255), 'red': (38, 12, 8, 255)}
+_BTN_STATES = {
+    'panel': {'ready': ((231, 219, 184), (186, 171, 134), None),
+              'press': ((172, 158, 124), (203, 190, 154), None),
+              'hover': ((243, 232, 197), (196, 182, 145),
+                        (255, 236, 160, 230))},
+    'red':   {'ready': ((176, 54, 36), (98, 18, 12), None),
+              'press': ((104, 22, 15), (150, 44, 28), None),
+              'hover': ((196, 66, 44), (112, 24, 16),
+                        (255, 170, 120, 230))},
+}
+
+
+def _paint_button(w, h, top, bot, edge, glow=None, ss=3):
+    """Paint one physical key AT ITS OWN ASPECT: fixed corner radius
+    relative to height, smooth vertical shade hugging the arcs, drop
+    shadow, bezel, optional hover glow. Supersampled for clean edges."""
+    import math as _m
+    W, H = w * ss, h * ss
+    img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    m = H * 0.15
+    x0, y0, x1, y1 = m, m, W - m, H - m
+    r = (y1 - y0) * 0.42
+    d.rounded_rectangle([x0 + H * 0.045, y0 + H * 0.06,
+                         x1 + H * 0.045, y1 + H * 0.06],
+                        radius=r, fill=(20, 16, 12, 95))
+    steps = 56
+    hh_ = y1 - y0
+    for i in range(steps):
+        ya = y0 + hh_ * i / steps
+        yb = y0 + hh_ * (i + 1) / steps
+        t = i / (steps - 1.0)
+        t = t * t * 0.5 + t * 0.5
+        col = tuple(int(a + (b - a) * t) for a, b in zip(top, bot))
+        ym = (ya + yb) * 0.5
+        e = min(ym - y0, y1 - ym)
+        inset = 0.0
+        if e < r:
+            inset = r - _m.sqrt(max(0.0, r * r - (r - e) ** 2))
+        d.rectangle([x0 + inset, ya, x1 - inset, yb], fill=col + (255,))
+    if glow is not None:
+        d.rounded_rectangle([x0 - H * 0.02, y0 - H * 0.02,
+                             x1 + H * 0.02, y1 + H * 0.02],
+                            radius=r + H * 0.02, outline=glow,
+                            width=max(2, int(H * 0.035)))
+    d.line([(x0 + r * 0.9, y0 + H * 0.02), (x1 - r * 0.9, y0 + H * 0.02)],
+           fill=(255, 252, 240, 90), width=max(1, int(H * 0.012)))
+    d.rounded_rectangle([x0, y0, x1, y1], radius=r, outline=edge,
+                        width=max(2, int(H * 0.032)))
+    return img.resize((w, h), Image.LANCZOS)
+
+
+def button_assets(kind, hw, hh):
+    """Per-ASPECT physical-key textures: (ready, press, hover,
+    disabled) paths plus the image_scale halves that lay the pill at
+    exactly (hw x hh). Curves are drawn for the button's own shape --
+    never stretched from a square master."""
+    os.makedirs(ICON_DIR, exist_ok=True)
+    pal = 'red' if kind == 'red' else 'panel'
+    aq = max(0.5, min(14.0, round((hw / max(1e-6, hh)) * 4) / 4.0))
+    H = 160
+    W = int(round(H * aq))
+    paths = {}
+    for state in ('ready', 'press', 'hover'):
+        fname = 'btn_%s_%s_a%s_v%d.png' % (
+            pal, state, ('%.2f' % aq).replace('.', '_'), BUTTON_VERSION)
+        path = os.path.join(ICON_DIR, fname)
+        if not os.path.exists(path):
+            top, bot, glow = _BTN_STATES[pal][state]
+            _paint_button(W, H, top, bot, _BTN_EDGE[pal],
+                          glow).save(path)
+        paths[state] = path
+    m = H * 0.15
+    fx = (W - 2.0 * m) / W
+    fz = (H - 2.0 * m) / H
+    return ((paths['ready'], paths['press'], paths['hover'],
+             paths['ready']), hw / fx, hh / fz)
+
+
 def get_icon_path(unit_type, variant='dark', nation=None):
     """Path to the icon PNG, generating it on first request. Top-down
     unit sprites vary by nation (each power fields its own marks).

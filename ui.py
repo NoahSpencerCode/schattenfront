@@ -46,29 +46,15 @@ def B(text):
     return "\1b\1%s\2" % text
 
 
-def _btn_images(kind):
-    base = {'panel': 'panel_button', 'red': 'red_button',
-            'key': 'panel_key'}[kind]
-    return (get_icon_path(base, 'dark'),
-            get_icon_path(base + '_press', 'dark'),
-            get_icon_path(base + '_hover', 'dark'),
-            get_icon_path(base, 'dark'))
-
-
-# art geometry: the pill fills 95.8% of the card width and 45.8% of
-# its height; the key square 62.5% both ways
-_BTN_FRAC = {'panel': (0.958, 0.458), 'red': (0.958, 0.458),
-             'key': (0.625, 0.625)}
-
-
 def pill_button(parent, text, command, extraArgs=(), pos=(0, 0, 0),
                 hw=0.14, hh=0.033, text_scale=0.030, text_fg=INK,
                 font=None, kind='panel', latched=False, **extra):
     """A physical WW2 console key: rounded, shaded, glows on hover
-    and sits down when pressed. latched=True keeps it pressed in
-    (an engaged toggle)."""
-    fw, fh = _BTN_FRAC[kind]
-    imgs = _btn_images(kind)
+    and sits down when pressed. The art is painted FOR this button's
+    aspect, so the corner curves are true at every size. latched=True
+    keeps it pressed in (an engaged toggle)."""
+    from icons import button_assets
+    imgs, sx, sz = button_assets(kind, hw, hh)
     if latched:
         imgs = (imgs[1],) * 4
     # long labels shrink to stay inside the key instead of spilling
@@ -79,7 +65,7 @@ def pill_button(parent, text, command, extraArgs=(), pos=(0, 0, 0),
                   text_fg=text_fg, text_font=font,
                   text_pos=(0, -text_scale * 0.36),
                   image=imgs,
-                  image_scale=(hw / fw, 1, hh / fh),
+                  image_scale=(sx, 1, sz),
                   relief=None, frameColor=(0, 0, 0, 0),
                   frameSize=(-hw, hw, -hh, hh),
                   command=command, extraArgs=list(extraArgs), pos=pos)
@@ -214,18 +200,11 @@ class BottomBar:
         self.capture_btn.hide()
         # red SCRAMBLE button floating ABOVE the bar: launches every
         # selected squadron whose sortie plan is on the plotting board
-        self.scramble_btn = DirectButton(
-            parent=self.frame,
-            image=get_icon_path('scramble_button', 'dark'),
-            image_scale=(0.30, 1, 0.30),
-            text="SCRAMBLE", text_scale=0.036,
-            text_fg=(0.97, 0.90, 0.80, 1.0),
-            text_pos=(0, -0.013),
-            text_font=base.hud_font,
-            relief=None, frameColor=(0, 0, 0, 0),
-            frameSize=(-0.28, 0.28, -0.056, 0.056),
-            pos=(0, 0, 0.415), command=None)
-        self.scramble_btn.setTransparency(True)
+        self.scramble_btn = pill_button(
+            self.frame, "SCRAMBLE", None, pos=(0, 0, 0.415),
+            hw=0.24, hh=0.052, text_scale=0.036,
+            text_fg=(0.97, 0.90, 0.80, 1.0), font=base.hud_font,
+            kind='red')
         self.scramble_btn.hide()
 
     def show_info(self, command, args):
