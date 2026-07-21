@@ -53,7 +53,7 @@ from tech import (TECH_TREES, TECH_BRANCHES, RESEARCH_DOLLARS_PER_POINT,
                   RESEARCH_PCT_CHOICES, unlocked_units, radar_unlocked,
                   next_tier)
 from icons import get_icon_path
-from models import (make_bridge_marker, make_flat_ring,
+from models import (make_bridge_marker, make_flat_ring, make_icon_quad,
                     make_hit_flash_template, set_marker_layer,
                     LAYER_BRIDGE, LAYER_FLASH, LAYER_HOVER, LAYER_STRUCT)
 from pathfinding import MovementPlanner
@@ -320,6 +320,10 @@ class WW2RTSGame(ShowBase):
         self.bunkers = []
         self.custom_roads = []          # engineer-built road nodepaths
         self.build_mode = None          # engineer works: kind awaiting site
+        self._build_ghost = None        # the mouse-following site ghost
+        self._build_ghost_kind = None
+        self._ghost_t = 0.0
+        self._works_ghosts = []         # planned works awaiting shovels
         self.road_plan = []             # surveyed road waypoints
         self.road_preview = None        # yellow survey line
         self.selected = []
@@ -383,6 +387,18 @@ class WW2RTSGame(ShowBase):
         self.cursor = None
         self.cursor_tex = {}
         self.cursor_mode = 'default'
+        # interface audio: every DirectButton clicks like a console
+        # key, and the FAX machine clatters on delivery
+        try:
+            from audio import get_sound_path
+            self.click_snd = self.loader.loadSfx(get_sound_path('click'))
+            self.fax_snd = self.loader.loadSfx(get_sound_path('fax'))
+            self.click_snd.setVolume(0.55)
+            self.fax_snd.setVolume(0.5)
+            import direct.gui.DirectGuiGlobals as _DGG
+            _DGG.setDefaultClickSound(self.click_snd)
+        except Exception:
+            self.click_snd = self.fax_snd = None
         self._build_cursor()
         self.hover_glow = None          # built lazily (needs no loader)
         self._vision_units = []
@@ -510,6 +526,12 @@ class WW2RTSGame(ShowBase):
             np_.removeNode()
         self.custom_roads = []
         self.build_mode = None
+        if self._build_ghost is not None:
+            self._build_ghost.removeNode()
+            self._build_ghost = None
+        for entry in self._works_ghosts:
+            entry[2].removeNode()
+        self._works_ghosts = []
         self._clear_road_plan()
         self.selected_airfield = None
         self.selected_depot = None
@@ -2602,6 +2624,91 @@ class WW2RTSGame(ShowBase):
         self.fax_short("SITE THE %s: RIGHT-CLICK THE MAP -- ESC CANCELS"
                        % label)
 
+    _GHOST_ICON = {'bridge': 'bridge_map', 'depot': 'depot',
+                   'bunker': 'bunker', 'airfield': 'airfield',
+                   'harbor': 'harbor', 'radar': 'radar'}
+    _GHOST_SCALE = {'airfield': 0.034, 'harbor': 0.045, 'radar': 0.040,
+                    'bridge': 0.035}
+
+    def _site_ok(self, kind, la, lo):
+        """May these works stand HERE? Harbours want water within
+        reach, bridges want a river, the rest want dry land."""
+        if kind == 'harbor':
+            if not self.world.is_land(la, lo):
+                return True
+            wl, wo = self.world.nearest_water(la, lo, max_deg=1.0)
+            return not self.world.is_land(wl, wo)
+        if kind == 'bridge':
+            return any(
+                min(latlon_dist_deg((lo, la), seg[0]),
+                    latlon_dist_deg((lo, la), seg[1])) < 1.2
+                for seg in self.world.river_segments_near(lo, la))
+        return self.world.is_land(la, lo)
+
+    def _make_ghost_np(self, kind, tint):
+        root = self.render.attachNewNode('works_ghost')
+        holder = root.attachNewNode('holder')
+        holder.setPos(0, 0, GLOBE_RADIUS * LIFT_GROUND * 1.0002)
+        holder.setScale(self._GHOST_SCALE.get(kind, 0.055))
+        icon = make_icon_quad(self.loader, self._GHOST_ICON[kind],
+                              'dark', half=1.05, depth=6, flat=True)
+        icon.reparentTo(holder)
+        icon.setLightOff()
+        set_marker_layer(icon, LAYER_STRUCT + 4)
+        root.setTransparency(True)
+        root.setColorScale(*tint)
+        return root
+
+    def _tick_build_ghost(self):
+        """The armed works follow the pointer as a translucent ghost:
+        GREEN where they may stand, RED over forbidden ground."""
+        kind = self.build_mode
+        ground = None
+        if (kind is not None and kind != 'road'
+                and self.game_state == 'playing'
+                and self.mouseWatcherNode
+                and self.mouseWatcherNode.hasMouse()):
+            ground = self.mouse_ground_point()
+        if ground is None:
+            if self._build_ghost is not None and \
+                    not self._build_ghost.isHidden():
+                self._build_ghost.hide()
+            return
+        if self._build_ghost is None or self._build_ghost_kind != kind:
+            if self._build_ghost is not None:
+                self._build_ghost.removeNode()
+            self._build_ghost = self._make_ghost_np(
+                kind, (0.30, 0.72, 0.30, 0.6))
+            self._build_ghost_kind = kind
+            self._ghost_t = 0.0
+        pos = Vec3(ground)
+        pos.normalize()
+        orient_to_surface(self._build_ghost, pos)
+        now = globalClock.getFrameTime()
+        if now - self._ghost_t > 0.12:      # validity at ~8 Hz
+            self._ghost_t = now
+            la, lo = vec_to_latlon(pos)
+            if self._site_ok(kind, la, lo):
+                self._build_ghost.setColorScale(0.30, 0.72, 0.30, 0.6)
+            else:
+                self._build_ghost.setColorScale(0.88, 0.20, 0.14, 0.65)
+        if self._build_ghost.isHidden():
+            self._build_ghost.show()
+
+    def _tick_works_ghosts(self):
+        """Planned works stand as amber ghosts on their sites until
+        the engineers finish (or the order dies with them)."""
+        alive = []
+        for entry in self._works_ghosts:
+            eng, order, np_ = entry
+            if (eng.alive
+                    and (eng.current_order is order
+                         or order in eng.order_queue)):
+                alive.append(entry)
+            else:
+                np_.removeNode()
+        self._works_ghosts = alive
+
     def _order_build(self, ground, shift=False):
         """RMB while a works order is armed: site it.  Roads collect
         shift-clicked waypoints first (yellow survey line), the plain
@@ -2674,9 +2781,16 @@ class WW2RTSGame(ShowBase):
         if eng.supply < cost:
             return
         eng.supply -= cost
-        eng.give_order({'kind': 'build', 'what': kind,
-                        'site': Vec3(ground), 'from': Vec3(eng.pos),
-                        't': build_time, 'cost': cost})
+        order = {'kind': 'build', 'what': kind,
+                 'site': Vec3(ground), 'from': Vec3(eng.pos),
+                 't': build_time, 'cost': cost}
+        eng.give_order(order, queue=shift)
+        # the ghost takes station on the site until the works stand
+        np_ = self._make_ghost_np(kind, (0.95, 0.82, 0.42, 0.55))
+        site_n = Vec3(ground)
+        site_n.normalize()
+        orient_to_surface(np_, site_n)
+        self._works_ghosts.append((eng, order, np_))
         self.fax_short("%s UNDER CONSTRUCTION -- ENGINEERS EN ROUTE"
                        % label)
 
@@ -4002,6 +4116,7 @@ class WW2RTSGame(ShowBase):
         segs.setThickness(2.0)
         BLUE = (0.25, 0.80, 1.0, 0.85)          # neon sky-blue
         RED = (0.95, 0.28, 0.20, 0.95)          # attack legs and rings
+        YELLOW = (0.95, 0.84, 0.25, 0.95)       # works parties en route
         segs.setColor(*BLUE)
         lift = GLOBE_RADIUS * LIFT_PATH  # above the map, never under it
         joins = []                       # (waypoint, ring colour)
@@ -4043,16 +4158,18 @@ class WW2RTSGame(ShowBase):
             drew = True
             # follow the great circle of each leg so long paths hug the
             # planet instead of chording through it
+            cur_kind = (u.current_order.get('kind')
+                        if u.current_order else None)
+            cur_col = (YELLOW if cur_kind == 'build'
+                       else RED if cur_kind == 'attack' else BLUE)
             prev = Vec3(u.pos)
-            segs.setColor(*BLUE)
+            segs.setColor(*cur_col)
             segs.moveTo(prev * lift)
             for (wp, _) in u.path:
                 draw_leg(prev, wp)
                 prev = Vec3(wp)
             if u.path:
-                hot = (u.current_order is not None
-                       and u.current_order.get('kind') == 'attack')
-                joins.append((Vec3(prev), RED if hot else BLUE))
+                joins.append((Vec3(prev), cur_col))
             if u.stats['domain'] == 'air' and u.based_at is None:
                 for t in [u.attack_target] + list(u.sortie_targets):
                     if t is not None and getattr(t, 'alive', False):
@@ -4062,10 +4179,16 @@ class WW2RTSGame(ShowBase):
             for order in u.order_queue:
                 goal = order.get('goal')
                 if goal is None:
+                    goal = order.get('site')    # a queued works order
+                if goal is None:
                     tgt = order.get('target')
                     goal = getattr(tgt, 'pos', None)
                 if goal is None:
                     continue
+                kind_q = order.get('kind')
+                col = (YELLOW if kind_q == 'build'
+                       else RED if kind_q == 'attack' else BLUE)
+                segs.setColor(*col)
                 pre = order.get('pre_path')
                 if pre:
                     for (wp, _) in pre:
@@ -4074,9 +4197,7 @@ class WW2RTSGame(ShowBase):
                 else:
                     draw_leg(prev, goal)
                     prev = Vec3(goal)
-                joins.append((Vec3(prev),
-                              RED if order.get('kind') == 'attack'
-                              else BLUE))
+                joins.append((Vec3(prev), col))
         # join rings: small fixed size (1/5 of the old ring)
         r = UNIT_SPRITE_SCALE * 0.16
         for jp, col in joins:
@@ -4440,7 +4561,9 @@ class WW2RTSGame(ShowBase):
                    for kind, (label, cost, _t) in self.BUILD_WORKS.items()]
         entries.append(("REPAIR: RMB BRIDGE", self._noop, []))
         bar.add_buttons(entries)
-        bar.set_hint("")
+        bar.set_hint("ARM A WORK, THEN CLICK ITS SITE (GHOST: GREEN "
+                     "GOOD, RED FORBIDDEN) -- SHIFT-CLICK QUEUES IT "
+                     "AFTER YOUR WAYPOINTS")
 
     def _noop(self):
         pass
@@ -4688,11 +4811,13 @@ class WW2RTSGame(ShowBase):
         self._update_vision_shader()    # fog circles glide with units
         self.globe.set_comm_width(self.cam_dist - GLOBE_RADIUS)
         self.globe.tick_border_bake()   # swap in a finished border bake
+        self._tick_build_ghost()
         self._hover_timer -= dt
         if self._hover_timer <= 0:
             self._hover_timer = 0.09
             self._tick_cursor_mode()
             self._tick_hover_glow()
+            self._tick_works_ghosts()
         if self.fax:
             self.fax.update(dt)
 

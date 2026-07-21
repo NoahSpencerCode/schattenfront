@@ -10,6 +10,7 @@ arrives as a FAX from HQ — including the fortnight budget manifest.
 
 import textwrap
 
+from direct.gui.OnscreenImage import OnscreenImage
 from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from panda3d.core import TextNode
 
@@ -45,6 +46,49 @@ def B(text):
     return "\1b\1%s\2" % text
 
 
+def _btn_images(kind):
+    base = {'panel': 'panel_button', 'red': 'red_button',
+            'key': 'panel_key'}[kind]
+    return (get_icon_path(base, 'dark'),
+            get_icon_path(base + '_press', 'dark'),
+            get_icon_path(base + '_hover', 'dark'),
+            get_icon_path(base, 'dark'))
+
+
+# art geometry: the pill fills 95.8% of the card width and 45.8% of
+# its height; the key square 62.5% both ways
+_BTN_FRAC = {'panel': (0.958, 0.458), 'red': (0.958, 0.458),
+             'key': (0.625, 0.625)}
+
+
+def pill_button(parent, text, command, extraArgs=(), pos=(0, 0, 0),
+                hw=0.14, hh=0.033, text_scale=0.030, text_fg=INK,
+                font=None, kind='panel', latched=False, **extra):
+    """A physical WW2 console key: rounded, shaded, glows on hover
+    and sits down when pressed. latched=True keeps it pressed in
+    (an engaged toggle)."""
+    fw, fh = _BTN_FRAC[kind]
+    imgs = _btn_images(kind)
+    if latched:
+        imgs = (imgs[1],) * 4
+    # long labels shrink to stay inside the key instead of spilling
+    if isinstance(text, str) and text:
+        fit = (2.0 * hw * 0.90) / (0.62 * len(text))
+        text_scale = min(text_scale, fit)
+    kwargs = dict(parent=parent, text=text, text_scale=text_scale,
+                  text_fg=text_fg, text_font=font,
+                  text_pos=(0, -text_scale * 0.36),
+                  image=imgs,
+                  image_scale=(hw / fw, 1, hh / fh),
+                  relief=None, frameColor=(0, 0, 0, 0),
+                  frameSize=(-hw, hw, -hh, hh),
+                  command=command, extraArgs=list(extraArgs), pos=pos)
+    kwargs.update(extra)
+    b = DirectButton(**kwargs)
+    b.setTransparency(True)
+    return b
+
+
 class TopBar:
     """Main stats strip: each stat is a titled column, value beneath."""
 
@@ -77,14 +121,9 @@ class TopBar:
             val, _ = _make_text(self.frame, base.hud_font,
                                 (x, -0.118), 0.040, color, align)
             self.values[title] = val
-        self.budget_btn = DirectButton(
-            parent=self.frame, text="BUDGET",
-            text_scale=0.036, text_fg=INK,
-            text_font=base.hud_font,
-            frameColor=BTN_PAPER,
-            frameSize=(-0.19, 0.19, -0.030, 0.044),
-            relief=DGG.FLAT, command=on_budget,
-            pos=(1.49, 0, -0.075))
+        self.budget_btn = pill_button(
+            self.frame, "BUDGET", on_budget, pos=(1.49, 0, -0.068),
+            hw=0.19, hh=0.037, text_scale=0.036, font=base.hud_font)
         # war-industries report, beside the budget
         self.factory_btn = DirectButton(
             parent=self.frame,
@@ -160,15 +199,11 @@ class BottomBar:
         self.info_btn.hide()
         # red CAPTURE button: appears on an enemy city's menu when the
         # infantry garrison on it suffices to annex
-        self.capture_btn = DirectButton(
-            parent=self.frame, text="++ CAPTURE ++",
-            text_scale=0.038, text_fg=(0.95, 0.88, 0.82, 1.0),
-            text_font=base.hud_font,
-            frameColor=((0.55, 0.10, 0.07, 0.96),
-                        (0.70, 0.16, 0.10, 1.0),
-                        (0.40, 0.07, 0.05, 0.96), (0.3, 0.3, 0.3, 0.5)),
-            frameSize=(-0.20, 0.20, -0.030, 0.046),
-            relief=DGG.FLAT, pos=(0.95, 0, 0.235), command=None)
+        self.capture_btn = pill_button(
+            self.frame, "++ CAPTURE ++", None, pos=(0.95, 0, 0.243),
+            hw=0.20, hh=0.038, text_scale=0.038,
+            text_fg=(0.97, 0.90, 0.80, 1.0), font=base.hud_font,
+            kind='red')
         self.capture_btn.hide()
         # red SCRAMBLE button floating ABOVE the bar: launches every
         # selected squadron whose sortie plan is on the plotting board
@@ -246,23 +281,20 @@ class BottomBar:
                                                 -0.036, 0.050),
                                      relief=DGG.FLAT, pos=(x, 0, y))
                 self.buttons.append(border)
-            kwargs = dict(parent=self.frame, text=label,
-                          text_scale=0.030, text_fg=INK,
-                          text_font=self.base.hud_font,
-                          frameColor=BTN_PAPER,
-                          frameSize=(-0.14, 0.14, -0.026, 0.040),
-                          relief=DGG.FLAT,
-                          command=command, extraArgs=args,
-                          pos=(x, 0, y))
+            if len(label) > 26:
+                label = label[:25] + '.'
+            btn = pill_button(self.frame, label, command,
+                              extraArgs=args, pos=(x, 0, y + 0.007),
+                              hw=0.145, hh=0.033,
+                              font=self.base.hud_font)
             if icon:
-                kwargs.update(image=icon, image_scale=0.024,
-                              image_pos=(-0.105, 0, 0.007),
-                              text_scale=0.026,
-                              text_pos=(-0.075, -0.002),
-                              text_align=TextNode.ALeft)
-            btn = DirectButton(**kwargs)
-            if icon:
-                btn.setTransparency(True)
+                # the pictogram rides the left end of the key
+                pic = OnscreenImage(image=icon, parent=btn,
+                                    scale=0.024, pos=(-0.108, 0, 0.0))
+                pic.setTransparency(True)
+                btn['text_scale'] = 0.026
+                btn['text_pos'] = (-0.082, -0.009)
+                btn['text_align'] = TextNode.ALeft
             self.buttons.append(btn)
 
     def destroy(self):
@@ -365,6 +397,9 @@ class FaxPanel:
         self.toasts = []
 
     def post(self, subject, body, sender="SUPREME HQ"):
+        snd = getattr(self.base, 'fax_snd', None)
+        if snd is not None:
+            snd.play()
         stamp = self.base.campaign_clock_text() \
             if hasattr(self.base, 'campaign_clock_text') else ''
         lines = []
@@ -469,44 +504,38 @@ class BudgetFax:
                 text(row[1], (x, y), 0.036, INK_FAINT)
                 continue
             ut, stats, available = row[1], row[2], row[3]
-            label = "%s %s" % (stats['icon'].ljust(4), stats['label'][:20])
+            label = "%s %s" % (stats['icon'].ljust(4), stats['label'][:24])
             text(label, (x, y), 0.030)
             text("$%d" % stats['cost'], (x + 0.62, y), 0.030, INK_FAINT)
             if not available:
                 text("NO HARBOR", (x + 0.80, y), 0.028, INK_FAINT)
                 continue
-            DirectButton(parent=self.frame, text="-", text_scale=0.040,
-                         text_fg=INK, text_font=f, frameColor=BTN_PAPER,
-                         frameSize=(-0.030, 0.030, -0.026, 0.040),
-                         relief=DGG.FLAT, command=self._adjust,
-                         extraArgs=[ut, -1], pos=(x + 0.815, 0, y))
+            pill_button(self.frame, "-", self._adjust,
+                        extraArgs=[ut, -1], pos=(x + 0.815, 0, y + 0.007),
+                        hw=0.030, hh=0.030, text_scale=0.040, font=f,
+                        kind='key')
             tn, _ = _make_text(self.frame, f, (x + 0.885, y), 0.032, INK,
                                TextNode.ACenter)
             tn.setText(str(self.counts.get(ut, 0)))
             self.qty_tns[ut] = tn
-            DirectButton(parent=self.frame, text="+", text_scale=0.040,
-                         text_fg=INK, text_font=f, frameColor=BTN_PAPER,
-                         frameSize=(-0.030, 0.030, -0.026, 0.040),
-                         relief=DGG.FLAT, command=self._adjust,
-                         extraArgs=[ut, +1], pos=(x + 0.955, 0, y))
+            pill_button(self.frame, "+", self._adjust,
+                        extraArgs=[ut, +1], pos=(x + 0.955, 0, y + 0.007),
+                        hw=0.030, hh=0.030, text_scale=0.040, font=f,
+                        kind='key')
 
         text("-" * 78, (0, -0.70), 0.034, INK, TextNode.ACenter)
         self.total_tn, _ = _make_text(self.frame, f, (0, -0.755), 0.036,
                                       INK, TextNode.ACenter)
         self._refresh_totals()
 
-        DirectButton(parent=self.frame, text="++ TRANSMIT ++",
-                     text_scale=0.042, text_fg=(0.1, 0.25, 0.1, 1),
-                     text_font=f, frameColor=BTN_PAPER,
-                     frameSize=(-0.30, 0.30, -0.038, 0.056),
-                     relief=DGG.FLAT, command=self._transmit,
-                     pos=(-0.40, 0, -0.85))
-        DirectButton(parent=self.frame, text="-- DISCARD --",
-                     text_scale=0.042, text_fg=(0.45, 0.12, 0.08, 1),
-                     text_font=f, frameColor=BTN_PAPER,
-                     frameSize=(-0.30, 0.30, -0.038, 0.056),
-                     relief=DGG.FLAT, command=self._discard,
-                     pos=(0.40, 0, -0.85))
+        pill_button(self.frame, "++ TRANSMIT ++", self._transmit,
+                    pos=(-0.40, 0, -0.842), hw=0.30, hh=0.047,
+                    text_scale=0.042, text_fg=(0.10, 0.25, 0.10, 1),
+                    font=f)
+        pill_button(self.frame, "-- DISCARD --", self._discard,
+                    pos=(0.40, 0, -0.842), hw=0.30, hh=0.047,
+                    text_scale=0.042, text_fg=(0.45, 0.12, 0.08, 1),
+                    font=f)
 
     def _build_rows(self):
         rows = [('header', '--- ARMY ---')]
@@ -615,12 +644,10 @@ class BriefingFax:
             tn.setText(ln)
             y -= leading if ln else leading * 0.55
 
-        DirectButton(parent=self.frame, text="++ FILE AND ACKNOWLEDGE ++",
-                     text_scale=0.038, text_fg=(0.1, 0.25, 0.1, 1),
-                     text_font=f, frameColor=BTN_PAPER,
-                     frameSize=(-W + 0.06, W - 0.06, -0.042, 0.060),
-                     relief=DGG.FLAT, command=self._close,
-                     pos=(0, 0, -H + 0.055))
+        pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
+                    self._close, pos=(0, 0, -H + 0.064),
+                    hw=W - 0.06, hh=0.049, text_scale=0.038,
+                    text_fg=(0.1, 0.25, 0.1, 1), font=f)
 
     def _close(self):
         self.on_close()
@@ -668,18 +695,14 @@ class TaxFax:
         text("AT %d%% THE INDUSTRY HOLDS; BELOW IT HEALS; ABOVE IT "
              "DECAYS." % TAX_EQUILIBRIUM, (-0.78, 0.10), 0.028, INK_FAINT)
 
-        DirectButton(parent=self.frame, text="-", text_scale=0.052,
-                     text_fg=INK, text_font=f, frameColor=BTN_PAPER,
-                     frameSize=(-0.045, 0.045, -0.034, 0.052),
-                     relief=DGG.FLAT, command=self._adjust, extraArgs=[-5],
-                     pos=(-0.30, 0, -0.05))
+        pill_button(self.frame, "-", self._adjust, extraArgs=[-5],
+                    pos=(-0.30, 0, -0.041), hw=0.045, hh=0.043,
+                    text_scale=0.052, font=f, kind='key')
         self.rate_tn, _ = _make_text(self.frame, f, (0, -0.055), 0.075,
                                      INK, TextNode.ACenter)
-        DirectButton(parent=self.frame, text="+", text_scale=0.052,
-                     text_fg=INK, text_font=f, frameColor=BTN_PAPER,
-                     frameSize=(-0.045, 0.045, -0.034, 0.052),
-                     relief=DGG.FLAT, command=self._adjust, extraArgs=[+5],
-                     pos=(0.30, 0, -0.05))
+        pill_button(self.frame, "+", self._adjust, extraArgs=[+5],
+                    pos=(0.30, 0, -0.041), hw=0.045, hh=0.043,
+                    text_scale=0.052, font=f, kind='key')
 
         self.proj_tn, _ = _make_text(self.frame, f, (0, -0.20), 0.034,
                                      INK, TextNode.ACenter)
@@ -689,18 +712,14 @@ class TaxFax:
              0.030, INK_FAINT, TextNode.ACenter)
         self._refresh()
 
-        DirectButton(parent=self.frame, text="++ TRANSMIT ++",
-                     text_scale=0.040, text_fg=(0.1, 0.25, 0.1, 1),
-                     text_font=f, frameColor=BTN_PAPER,
-                     frameSize=(-0.26, 0.26, -0.036, 0.052),
-                     relief=DGG.FLAT, command=self._transmit,
-                     pos=(-0.32, 0, -0.50))
-        DirectButton(parent=self.frame, text="-- DISCARD --",
-                     text_scale=0.040, text_fg=(0.45, 0.12, 0.08, 1),
-                     text_font=f, frameColor=BTN_PAPER,
-                     frameSize=(-0.26, 0.26, -0.036, 0.052),
-                     relief=DGG.FLAT, command=self._discard,
-                     pos=(0.32, 0, -0.50))
+        pill_button(self.frame, "++ TRANSMIT ++", self._transmit,
+                    pos=(-0.32, 0, -0.492), hw=0.26, hh=0.044,
+                    text_scale=0.040, text_fg=(0.1, 0.25, 0.1, 1),
+                    font=f)
+        pill_button(self.frame, "-- DISCARD --", self._discard,
+                    pos=(0.32, 0, -0.492), hw=0.26, hh=0.044,
+                    text_scale=0.040, text_fg=(0.45, 0.12, 0.08, 1),
+                    font=f)
 
     def _adjust(self, delta):
         self.rate = max(0, min(100, self.rate + delta))
@@ -752,12 +771,9 @@ class ProductionFax:
         tn, _ = _make_text(self.frame, self.f, (0, 0.655), 0.032, INK,
                            TextNode.ACenter)
         tn.setText("-" * 74)
-        DirectButton(parent=self.frame, text="++ FILE AND ACKNOWLEDGE ++",
-                     text_scale=0.040, text_fg=INK, text_font=self.f,
-                     frameColor=BTN_PAPER,
-                     frameSize=(-0.42, 0.42, -0.038, 0.054),
-                     relief=DGG.FLAT, command=self._close,
-                     pos=(0, 0, -0.78))
+        pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
+                    self._close, pos=(0, 0, -0.772), hw=0.42, hh=0.046,
+                    text_scale=0.040, font=self.f)
         self._grid = []             # destroyable widgets of the grid
         self._widgets = {}          # label -> (tally_tn, fill, pct_tn)
         self._keys = None
@@ -922,18 +938,11 @@ class TechFax:
         self._text("RESEARCH FUNDING:", (-1.10, 0.69), 0.032)
         for i, p in enumerate(RESEARCH_PCT_CHOICES):
             active = (p == pct)
-            btn = DirectButton(
-                parent=self.frame, text="%d%%" % p,
-                text_scale=0.032, text_fg=INK,
-                text_font=self.base.hud_font,
-                frameColor=((0.78, 0.72, 0.55, 1.0) if active else
-                            (0.86, 0.82, 0.68, 0.0),
-                            (0.80, 0.74, 0.55, 1.0),
-                            (0.70, 0.66, 0.54, 0.9),
-                            (0.5, 0.5, 0.5, 0.3)),
-                frameSize=(-0.075, 0.075, -0.032, 0.05),
-                relief=DGG.FLAT, command=self._set_pct, extraArgs=[p],
-                pos=(-0.55 + i * 0.19, 0, 0.70))
+            btn = pill_button(
+                self.frame, "%d%%" % p, self._set_pct, extraArgs=[p],
+                pos=(-0.55 + i * 0.19, 0, 0.709), hw=0.075, hh=0.038,
+                text_scale=0.032, font=self.base.hud_font,
+                latched=active)
             self._dyn.append(btn)
         self._text("(THE TITHE IS SKIMMED FROM EACH FORTNIGHT'S TAXES "
                    "BEFORE THE TREASURY -- $300 BUYS 1 RP)",
@@ -983,31 +992,24 @@ class TechFax:
                                TextNode.ACenter)
                 elif avail:
                     can = g.research_points[c] >= cost
-                    btn = DirectButton(
-                        parent=self.frame,
-                        text="RESEARCH  (%d RP)" % cost,
-                        text_scale=0.026,
-                        text_fg=(INK if can else (0.55, 0.5, 0.42, 1)),
-                        text_font=self.base.hud_font,
-                        frameColor=BTN_PAPER,
-                        frameSize=(-0.17, 0.17, -0.028, 0.045),
-                        relief=DGG.FLAT,
-                        command=self._research, extraArgs=[branch],
-                        pos=(x + 0.14, 0, y - 0.105))
+                    btn = pill_button(
+                        self.frame, "RESEARCH  (%d RP)" % cost,
+                        self._research, extraArgs=[branch],
+                        pos=(x + 0.14, 0, y - 0.097),
+                        hw=0.17, hh=0.036, text_scale=0.026,
+                        text_fg=(INK if can
+                                 else (0.55, 0.5, 0.42, 1)),
+                        font=self.base.hud_font)
                     self._dyn.append(btn)
                 else:
                     self._text("LOCKED -- %d RP" % cost,
                                (x + 0.17, y - 0.100), 0.024, INK_FAINT,
                                TextNode.ACenter)
                 y -= 0.27
-        btn = DirectButton(parent=self.frame,
-                           text="++ FILE AND ACKNOWLEDGE ++",
-                           text_scale=0.040, text_fg=INK,
-                           text_font=self.base.hud_font,
-                           frameColor=BTN_PAPER,
-                           frameSize=(-0.42, 0.42, -0.038, 0.054),
-                           relief=DGG.FLAT, command=self.on_close,
-                           pos=(0, 0, -0.84))
+        btn = pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
+                          self.on_close, pos=(0, 0, -0.832),
+                          hw=0.42, hh=0.046, text_scale=0.040,
+                          font=self.base.hud_font)
         self._dyn.append(btn)
 
     def _set_pct(self, p):

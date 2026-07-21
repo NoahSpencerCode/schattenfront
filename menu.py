@@ -149,14 +149,11 @@ class MenuScreen:
         return np_
 
     def _button(self, text, pos, command, args=(), width=0.42, scale=0.05):
-        btn = DirectButton(parent=self.root, text=text,
-                           text_scale=scale, text_fg=TITLE_COLOR,
-                           text_font=self.base.hud_font,
-                           frameColor=BTN_COLORS,
-                           frameSize=(-width, width, -0.045, 0.07),
-                           relief=DGG.FLAT,
-                           command=command, extraArgs=list(args),
-                           pos=(pos[0], 0, pos[1]))
+        from ui import pill_button
+        btn = pill_button(self.root, text, command, extraArgs=args,
+                          pos=(pos[0], 0, pos[1] + 0.012), hw=width,
+                          hh=0.058, text_scale=scale,
+                          font=self.base.hud_font)
         self.widgets.append(btn)
         return btn
 
@@ -305,19 +302,13 @@ class MenuScreen:
         xs = (-0.66, -0.22, 0.22, 0.66)
         for i, ((val, label), x) in enumerate(zip(choices, xs)):
             active = (val == current)
-            btn = DirectButton(
-                parent=frame,
-                text="[%d] %s" % (i + 1, label),
-                text_scale=0.04, text_fg=INK,
-                text_font=self.base.hud_font,
-                frameColor=((0.78, 0.72, 0.55, 1.0) if active else
-                            (0.86, 0.82, 0.68, 0.0),
-                            (0.80, 0.74, 0.55, 1.0),
-                            (0.70, 0.66, 0.54, 0.9),
-                            (0.5, 0.5, 0.5, 0.3)),
-                frameSize=(-0.20, 0.20, -0.05, 0.075), relief=DGG.FLAT,
-                command=self._set_antialias, extraArgs=[val],
-                pos=(x, 0, 0.16))
+            from ui import pill_button
+            btn = pill_button(
+                frame, "[%d] %s" % (i + 1, label),
+                self._set_antialias, extraArgs=[val],
+                pos=(x, 0, 0.173), hw=0.20, hh=0.055,
+                text_scale=0.04, font=self.base.hud_font,
+                latched=active)
             self.widgets.append(btn)
             self.base.accept(str(i + 1), self._set_antialias, [val])
         stamp = next(lbl for v, lbl in choices if v == current)

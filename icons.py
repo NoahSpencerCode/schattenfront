@@ -406,6 +406,83 @@ def _draw_info_button(d, ink):
     d.rectangle([35, 70, 61, 77], fill=col)                   # serif base
 
 
+def _pill_button(d, top, bot, edge=(54, 44, 34, 255), glow=None,
+                 y0=26.0, y1=70.0, r=11.0):
+    """Shared physical-button pill: smooth vertical shade hugging the
+    corner arcs, drop shadow, bezel, optional hover glow."""
+    import math as _m
+    x0, x1 = 2.0, 94.0
+    d.rounded_rectangle([x0 + 2, y0 + 3, x1 + 2, y1 + 3], radius=r,
+                        fill=(20, 16, 12, 90))
+    steps = 44
+    h = y1 - y0
+    for i in range(steps):
+        ya = y0 + h * i / steps
+        yb = y0 + h * (i + 1) / steps
+        t = i / (steps - 1.0)
+        t = t * t * 0.5 + t * 0.5
+        col = tuple(int(a + (b - a) * t) for a, b in zip(top, bot))
+        ym = (ya + yb) * 0.5
+        e = min(ym - y0, y1 - ym)
+        inset = 0.0
+        if e < r:
+            inset = r - _m.sqrt(max(0.0, r * r - (r - e) ** 2))
+        d.rectangle([x0 + inset, ya, x1 - inset, yb], fill=col + (255,))
+    if glow is not None:
+        d.rounded_rectangle([x0 - 1.5, y0 - 1.5, x1 + 1.5, y1 + 1.5],
+                            radius=r + 2, outline=glow, width=3)
+    d.line([(x0 + 11, y0 + 2.5), (x1 - 11, y0 + 2.5)],
+           fill=(255, 252, 240, 90), width=1)
+    d.rounded_rectangle([x0, y0, x1, y1], radius=r, outline=edge,
+                        width=3)
+
+
+def _key_button(d, top, bot, glow=None):
+    _pill_button(d, top, bot, glow=glow, y0=18.0, y1=78.0, r=14.0)
+
+
+def _draw_panel_key(d, ink):
+    _key_button(d, (231, 219, 184), (186, 171, 134))
+
+
+def _draw_panel_key_press(d, ink):
+    _key_button(d, (172, 158, 124), (203, 190, 154))
+
+
+def _draw_panel_key_hover(d, ink):
+    _key_button(d, (243, 232, 197), (196, 182, 145),
+                glow=(255, 236, 160, 230))
+
+
+def _draw_panel_button(d, ink):
+    _pill_button(d, (231, 219, 184), (186, 171, 134))
+
+
+def _draw_panel_button_press(d, ink):
+    # lighting inverted and a touch darker: the key sits pressed in
+    _pill_button(d, (172, 158, 124), (203, 190, 154))
+
+
+def _draw_panel_button_hover(d, ink):
+    _pill_button(d, (243, 232, 197), (196, 182, 145),
+                 glow=(255, 236, 160, 230))
+
+
+def _draw_red_button(d, ink):
+    _pill_button(d, (176, 54, 36), (98, 18, 12),
+                 edge=(38, 12, 8, 255))
+
+
+def _draw_red_button_press(d, ink):
+    _pill_button(d, (104, 22, 15), (150, 44, 28),
+                 edge=(38, 12, 8, 255))
+
+
+def _draw_red_button_hover(d, ink):
+    _pill_button(d, (196, 66, 44), (112, 24, 16),
+                 edge=(38, 12, 8, 255), glow=(255, 170, 120, 230))
+
+
 def _draw_scramble_button(d, ink):
     """The SCRAMBLE control: a dispatch-red rounded pill under a
     smooth top-lit shade (full-colour, ink ignored)."""
@@ -530,6 +607,15 @@ _DRAWERS = {
     'bridge_map': _draw_bridge_map,
     'info_button': _draw_info_button,
     'scramble_button': _draw_scramble_button,
+    'panel_button': _draw_panel_button,
+    'panel_key': _draw_panel_key,
+    'panel_key_press': _draw_panel_key_press,
+    'panel_key_hover': _draw_panel_key_hover,
+    'panel_button_press': _draw_panel_button_press,
+    'panel_button_hover': _draw_panel_button_hover,
+    'red_button': _draw_red_button,
+    'red_button_press': _draw_red_button_press,
+    'red_button_hover': _draw_red_button_hover,
     'blimp': _draw_blimp,
     'cursor_default': _draw_cursor_default,
     'cursor_attack': _draw_cursor_attack,
@@ -1025,7 +1111,7 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 11   # bump when drawings change to invalidate the cache
+ICON_VERSION = 12   # bump when drawings change to invalidate the cache
 
 
 class _ScaledDraw:
