@@ -843,3 +843,158 @@ class ProductionFax:
 
     def destroy(self):
         self.frame.destroy()
+
+
+class TechFax:
+    """The DIRECTORATE OF RESEARCH page: three programme columns
+    (LAND / AIR / SEA), each a chain of tiers researched in order.
+    The header shows points on hand and the fortnight tithe; a tier
+    with its price met shows a RESEARCH button. The funding row sets
+    what share of each tax fortnight the laboratories receive."""
+
+    def __init__(self, base, game, on_close):
+        from tech import (TECH_TREES, RESEARCH_PCT_CHOICES,
+                          RESEARCH_DOLLARS_PER_POINT)
+        self.base = base
+        self.game = game
+        self.on_close = on_close
+        f = base.hud_font
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+                                 frameSize=(-1.24, 1.24, -0.92, 0.92),
+                                 state=DGG.NORMAL)
+        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                    frameSize=(-1.24, 1.24, 0.895, 0.92))
+        self._dyn = []
+        self._build()
+
+    def _text(self, t, pos, scale=0.032, color=INK,
+              align=TextNode.ALeft, dyn=True):
+        tn, np_ = _make_text(self.frame, self.base.hud_font, pos, scale,
+                             color, align)
+        tn.setText(t)
+        if dyn:
+            self._dyn.append(np_)
+        return tn
+
+    def _build(self):
+        from tech import TECH_TREES, RESEARCH_PCT_CHOICES
+        from units import stats_for
+        from icons import get_icon_path
+        g = self.game
+        c = g.player_country
+        for w in self._dyn:
+            w.destroy() if hasattr(w, 'destroy') else w.removeNode()
+        self._dyn = []
+        rp = g.research_points[c]
+        pct = g.research_pct[c]
+        tithe = int(g.projected_revenue(c) * pct / 100.0)
+        self._text("*** DIRECTORATE OF RESEARCH -- PROGRAMMES ***",
+                   (0, 0.83), 0.045, INK, TextNode.ACenter)
+        self._text("POINTS ON HAND: %.0f RP      FORTNIGHT TITHE: %d%% "
+                   "OF TAXES (= $%d = %.1f RP)"
+                   % (rp, pct, tithe, tithe / 300.0),
+                   (0, 0.76), 0.032, (0.52, 0.10, 0.06, 1.0),
+                   TextNode.ACenter)
+        # funding row
+        self._text("RESEARCH FUNDING:", (-1.10, 0.69), 0.032)
+        for i, p in enumerate(RESEARCH_PCT_CHOICES):
+            active = (p == pct)
+            btn = DirectButton(
+                parent=self.frame, text="%d%%" % p,
+                text_scale=0.032, text_fg=INK,
+                text_font=self.base.hud_font,
+                frameColor=((0.78, 0.72, 0.55, 1.0) if active else
+                            (0.86, 0.82, 0.68, 0.0),
+                            (0.80, 0.74, 0.55, 1.0),
+                            (0.70, 0.66, 0.54, 0.9),
+                            (0.5, 0.5, 0.5, 0.3)),
+                frameSize=(-0.075, 0.075, -0.032, 0.05),
+                relief=DGG.FLAT, command=self._set_pct, extraArgs=[p],
+                pos=(-0.55 + i * 0.19, 0, 0.70))
+            self._dyn.append(btn)
+        self._text("(THE TITHE IS SKIMMED FROM EACH FORTNIGHT'S TAXES "
+                   "BEFORE THE TREASURY -- $300 BUYS 1 RP)",
+                   (-1.10, 0.63), 0.026, INK_FAINT)
+
+        cols = {'land': (-0.82, "ARMY PROGRAMMES"),
+                'air': (0.0, "AIR PROGRAMMES"),
+                'sea': (0.82, "NAVAL PROGRAMMES")}
+        for branch, (x, title) in cols.items():
+            self._text("++ %s ++" % title, (x, 0.54), 0.034,
+                       (0.52, 0.10, 0.06, 1.0), TextNode.ACenter)
+            tiers = TECH_TREES[c][branch]
+            y = 0.44
+            unlocked_prev = True
+            for i, (name, cost, unlocks) in enumerate(tiers):
+                done = (branch, i) in g.researched[c]
+                avail = unlocked_prev and not done
+                unlocked_prev = done
+                box = DirectFrame(
+                    parent=self.frame,
+                    frameColor=((0.80, 0.77, 0.64, 1.0) if done else
+                                (0.90, 0.87, 0.74, 1.0)),
+                    frameSize=(-0.36, 0.36, -0.155, 0.045),
+                    pos=(x, 0, y))
+                self._dyn.append(box)
+                self._text(name, (x, y + 0.005), 0.028, INK,
+                           TextNode.ACenter)
+                units_lbl = ", ".join(
+                    (stats_for(u, c)['label'] if u != 'radar_station'
+                     else 'Radar Station (works)') for u in unlocks)
+                self._text(units_lbl[:44], (x, y - 0.045), 0.023,
+                           INK_FAINT, TextNode.ACenter)
+                for k, u in enumerate([u for u in unlocks
+                                       if u != 'radar_station'][:3]):
+                    ic = DirectFrame(
+                        parent=self.frame, relief=None,
+                        frameColor=(0, 0, 0, 0),
+                        image=get_icon_path(u, 'dark'),
+                        image_scale=0.030,
+                        frameSize=(-0.03, 0.03, -0.03, 0.03),
+                        pos=(x - 0.30 + k * 0.075, 0, y - 0.095))
+                    ic.setTransparency(True)
+                    self._dyn.append(ic)
+                if done:
+                    self._text("RESEARCHED", (x + 0.20, y - 0.100),
+                               0.026, (0.25, 0.40, 0.22, 1.0),
+                               TextNode.ACenter)
+                elif avail:
+                    can = g.research_points[c] >= cost
+                    btn = DirectButton(
+                        parent=self.frame,
+                        text="RESEARCH  (%d RP)" % cost,
+                        text_scale=0.026,
+                        text_fg=(INK if can else (0.55, 0.5, 0.42, 1)),
+                        text_font=self.base.hud_font,
+                        frameColor=BTN_PAPER,
+                        frameSize=(-0.17, 0.17, -0.028, 0.045),
+                        relief=DGG.FLAT,
+                        command=self._research, extraArgs=[branch],
+                        pos=(x + 0.14, 0, y - 0.105))
+                    self._dyn.append(btn)
+                else:
+                    self._text("LOCKED -- %d RP" % cost,
+                               (x + 0.17, y - 0.100), 0.024, INK_FAINT,
+                               TextNode.ACenter)
+                y -= 0.27
+        btn = DirectButton(parent=self.frame,
+                           text="++ FILE AND ACKNOWLEDGE ++",
+                           text_scale=0.040, text_fg=INK,
+                           text_font=self.base.hud_font,
+                           frameColor=BTN_PAPER,
+                           frameSize=(-0.42, 0.42, -0.038, 0.054),
+                           relief=DGG.FLAT, command=self.on_close,
+                           pos=(0, 0, -0.84))
+        self._dyn.append(btn)
+
+    def _set_pct(self, p):
+        self.game.research_pct[self.game.player_country] = p
+        self._build()
+
+    def _research(self, branch):
+        g = self.game
+        if g.research_tier(g.player_country, branch):
+            self._build()
+
+    def destroy(self):
+        self.frame.destroy()

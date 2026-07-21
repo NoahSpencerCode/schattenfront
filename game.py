@@ -49,6 +49,9 @@ from globe import (Globe, NAT_ORDER, make_surface_ring,
                    orient_to_surface)
 from menu import MenuScreen
 from settings import load_settings, save_settings
+from tech import (TECH_TREES, TECH_BRANCHES, RESEARCH_DOLLARS_PER_POINT,
+                  RESEARCH_PCT_CHOICES, unlocked_units, radar_unlocked,
+                  next_tier)
 from icons import get_icon_path
 from models import (make_bridge_marker, make_flat_ring,
                     make_hit_flash_template, set_marker_layer,
@@ -383,6 +386,7 @@ class WW2RTSGame(ShowBase):
         self.hover_glow = None          # built lazily (needs no loader)
         self._vision_units = []
         self._vision_cities = []
+        self._vision_radars = []
         self._los_cache = {}            # (lat,lon,rng) -> radii profile
         self._los_budget = 12
         self._last_click = (0.0, None)  # double-click bookkeeping
@@ -556,6 +560,7 @@ class WW2RTSGame(ShowBase):
         self.unload_mode = False
         self._vision_units = []
         self._vision_cities = []
+        self._vision_radars = []
         self._los_cache = {}            # (lat,lon,rng) -> radii profile
         self._los_budget = 12
         self._last_click = (0.0, None)
@@ -655,10 +660,18 @@ class WW2RTSGame(ShowBase):
                                            city=c))
         self.depots = []
         self.bunkers = []
+        self.radars = []
         self._pending_ai_orders = []
 
         self.funds = {c: (STARTING_FUNDS if c == country else
                           AI_STARTING_FUNDS) for c in COUNTRIES}
+        # the laboratories: points on hand, completed tiers, and the
+        # share of each tax fortnight tithed to research
+        self.research_points = {c: 0.0 for c in COUNTRIES}
+        self.researched = {c: set() for c in COUNTRIES}
+        self.research_pct = {c: (0 if c == country else 15)
+                             for c in COUNTRIES}
+        self.tech_fax = None
         # every computer power gets a general staff playing by the
         # player's own rules (budget, production, orders, annexation)
         self._nation_ais = {c: NationAI(self, c) for c in COUNTRIES
@@ -783,6 +796,7 @@ class WW2RTSGame(ShowBase):
             self.ignore(key)
         self.accept('escape', self.on_escape)
         self.accept('space', self.toggle_pause)
+        self.accept('r', self.open_tech_tree)
         # note: Panda prefixes button-down events with held modifiers
         # ("shift-mouse3"), so every binding needs its shifted twin or
         # shift-queued orders never arrive
@@ -966,8 +980,12 @@ class WW2RTSGame(ShowBase):
                     self.fax_short("%s ANNEXED -- NOW ON THE TAX ROLLS"
                                    % city.name.upper())
         for country, amount in take.items():
-            if country not in self.eliminated:
-                self.funds[country] += amount
+            if country in self.eliminated:
+                continue
+            tithe = amount * self.research_pct.get(country, 0) / 100.0
+            self.funds[country] += amount - tithe
+            self.research_points[country] += \
+                tithe / RESEARCH_DOLLARS_PER_POINT
         self._update_borders()      # annexations completed above
         if take.get(self.player_country):
             self.fax.post(
@@ -998,10 +1016,12 @@ class WW2RTSGame(ShowBase):
         # it executes: the treasury plus the taxes the decreed rates will
         # bring in at the fortnight
         treasury = int(self.funds[self.player_country])
-        revenue = self.projected_revenue(self.player_country)
+        revenue = int(self.projected_revenue(self.player_country)
+                      * (1.0 - self.research_pct[self.player_country]
+                         / 100.0))
         self.budget_fax = BudgetFax(
             self, self, treasury + revenue,
-            NATION_UNIT_STATS[self.player_country],
+            self.buyable_units(self.player_country),
             has_harbor, self._budget_transmit, self._budget_discard,
             initial=self.budget_counts,
             subtitle="PROJECTED TAX REVENUE $%d + TREASURY $%d = $%d "
@@ -1102,6 +1122,44 @@ class WW2RTSGame(ShowBase):
                                    ('air', 'AIR FORCE'),
                                    ('sea', 'NAVY'))
                 if by_branch[dom]]
+
+    def buyable_units(self, country):
+        """The nation's roster as gated by its research."""
+        allowed = unlocked_units(country, self.researched[country])
+        return {ut: s for ut, s in NATION_UNIT_STATS[country].items()
+                if ut in allowed}
+
+    def research_tier(self, country, branch):
+        """Spend RP on the next tier of a branch (instant). Returns
+        True when the programme completes."""
+        idx = next_tier(country, branch, self.researched[country])
+        if idx is None:
+            return False
+        name, cost, unlocks = TECH_TREES[country][branch][idx]
+        if self.research_points[country] < cost:
+            return False
+        self.research_points[country] -= cost
+        self.researched[country].add((branch, idx))
+        if country == self.player_country:
+            self.fax.post(
+                "RESEARCH COMPLETE -- %s" % name,
+                "The laboratories deliver. %s now on the books." %
+                B(", ".join(stats_for(u, country)['label'].upper()
+                            for u in unlocks if u != 'radar_station')
+                  or "NEW WORKS"),
+                sender="DIRECTORATE OF RESEARCH")
+        return True
+
+    def open_tech_tree(self):
+        if self.game_state != 'playing' or self.tech_fax:
+            return
+        from ui import TechFax
+        self.tech_fax = TechFax(self, self, self._close_tech)
+
+    def _close_tech(self):
+        if self.tech_fax:
+            self.tech_fax.destroy()
+            self.tech_fax = None
 
     def open_factory_report(self):
         """The war-industries FAX: the fortnight order by branch, live
@@ -2248,6 +2306,7 @@ class WW2RTSGame(ShowBase):
         'bunker':   ('BUNKER', 50, 18.0),
         'airfield': ('AIRFIELD', 100, 45.0),
         'harbor':   ('HARBOUR', 100, 45.0),
+        'radar':    ('RADAR STATION', 90, 35.0),   # research-gated
     }
 
     def _build_engineer(self):
@@ -2256,6 +2315,12 @@ class WW2RTSGame(ShowBase):
 
     def begin_build_mode(self, kind):
         label, cost, _t = self.BUILD_WORKS[kind]
+        if kind == 'radar' and not radar_unlocked(
+                self.player_country,
+                self.researched[self.player_country]):
+            self.fax_short("RADAR AWAITS THE LABORATORIES -- "
+                           "SEE THE RESEARCH FAX [R]")
+            return
         eng = self._build_engineer()
         if eng is None:
             return
@@ -2395,6 +2460,10 @@ class WW2RTSGame(ShowBase):
             self.harbors.append(
                 Harbor(self, lat, lon, country,
                        "HARBOUR %d" % (len(self.harbors) + 1)))
+        elif kind == 'radar':
+            from structures import Radar
+            self.radars.append(Radar(self, lat, lon, country,
+                                     "RADAR %d" % (len(self.radars) + 1)))
         elif kind == 'bridge':
             self.bridges.append(Bridge(self, {'lat': lat, 'lon': lon,
                                               'road': (-1, -1)},
@@ -2599,20 +2668,38 @@ class WW2RTSGame(ShowBase):
                                       'goal': Vec3(truck.station),
                                       'auto': True})
             else:
+                # DISPATCHED, not stampeded: each starving unit calls
+                # exactly ONE responding carrier (the nearest without a
+                # customer); everyone else holds position
                 same_sea = truck.stats['domain'] == 'sea'
-                needy = [u for u in self.units
-                         if u.alive and u.country == truck.country
-                         and not u.carried_by
-                         and u.stats['supply_cap'] > 0
-                         and not u.stats.get('supply_carrier')
-                         and u.supply < u.stats['supply_cap'] * 0.5
-                         and (u.stats['domain'] == 'sea') == same_sea]
-                if needy:
-                    tgt = min(needy, key=lambda u: truck.dist_to(u.pos))
-                    if truck.dist_to(tgt.pos) > truck.vision_range():
-                        truck.give_order({'kind': 'move',
-                                          'goal': Vec3(tgt.pos),
-                                          'auto': True})
+                tgt = getattr(truck, '_supply_tgt', None)
+                if tgt is not None and (
+                        not tgt.alive
+                        or tgt.supply > tgt.stats['supply_cap'] * 0.8):
+                    truck._supply_tgt = tgt = None
+                if tgt is None:
+                    claimed = {id(getattr(t, '_supply_tgt', None))
+                               for t in self.units
+                               if t.alive and t is not truck
+                               and t.stats.get('supply_carrier')
+                               and t.country == truck.country}
+                    needy = [u for u in self.units
+                             if u.alive and u.country == truck.country
+                             and not u.carried_by
+                             and u.stats['supply_cap'] > 0
+                             and not u.stats.get('supply_carrier')
+                             and u.supply < u.stats['supply_cap'] * 0.5
+                             and (u.stats['domain'] == 'sea') == same_sea
+                             and id(u) not in claimed]
+                    if needy:
+                        tgt = min(needy,
+                                  key=lambda u: truck.dist_to(u.pos))
+                        truck._supply_tgt = tgt
+                if tgt is not None and \
+                        truck.dist_to(tgt.pos) > truck.vision_range():
+                    truck.give_order({'kind': 'move',
+                                      'goal': Vec3(tgt.pos),
+                                      'auto': True})
 
     # ====================================================== economy
     def _tick_production(self, dt):
@@ -2871,6 +2958,8 @@ class WW2RTSGame(ShowBase):
         # communication sources: command units' circles + city land lines
         comm_sources = [(c.pos, CITY_COMM_RADIUS) for c in self.cities
                         if c.country == player and not c.annexing]
+        comm_sources += [(r.pos, 2.0) for r in self.radars
+                         if r.country == player]
         for u in self.units:
             if (u.alive and u.country == player and not u.carried_by
                     and u.stats.get('comm')):
@@ -2941,6 +3030,8 @@ class WW2RTSGame(ShowBase):
                               and not self.is_parked(u)]
         self._vision_cities = [c for c in self.cities
                                if c.country == player]
+        self._vision_radars = [r for r in self.radars
+                               if r.country == player]
         self._update_vision_shader()
         for u in self.units:
             if not u.alive or u.carried_by or u.country == player \
@@ -3026,6 +3117,11 @@ class WW2RTSGame(ShowBase):
             rng = CITY_VISION_RANGE * (1.0 if day else NIGHT_VISION_FACTOR)
             entries.append((c.pos, rng,
                             self._los_obs(c, c.pos, rng, False)))
+        for r in getattr(self, '_vision_radars', ()):
+            # radar sweeps day and night, terrain-shadowed like any
+            # ground observer but with a far taller mast
+            entries.append((r.pos, 2.6, self._los_obs(r, r.pos, 2.6,
+                                                      False)))
         self.globe.set_vision(entries)
 
     # ====================================================== AI

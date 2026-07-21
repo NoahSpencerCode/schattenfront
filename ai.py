@@ -34,16 +34,29 @@ from utils import angle_between, latlon_to_vec
 # fortnight appropriation is drawn up (multiplies its budget share)
 DOCTRINE = {
     'germany': {'tank': 1.7, 'fighter': 1.3, 'infantry': 1.2,
-                'supply_truck': 1.2},
-    'soviet':  {'infantry': 1.9, 'tank': 1.4, 'aa_artillery': 1.2},
+                'supply_truck': 1.2, 'submarine': 1.8,
+                'heavy_tank': 1.5, 'jet_fighter': 1.4},
+    'soviet':  {'infantry': 1.9, 'tank': 1.4, 'aa_artillery': 1.2,
+                'artillery': 1.7, 'heavy_tank': 1.5},
     'usa':     {'infantry': 1.3, 'bomber': 1.4, 'personnel_transport': 1.3,
-                'supply_truck': 1.3},
+                'supply_truck': 1.3, 'heavy_bomber': 1.6,
+                'battleship': 1.3},
     'japan':   {'destroyer_sea_sea': 1.4, 'aircraft_carrier': 1.4,
-                'personnel_transport': 1.4, 'fighter': 1.2},
-    'britain': {'fighter': 1.5, 'destroyer_sea_sea': 1.3, 'bomber': 1.2},
+                'personnel_transport': 1.4, 'fighter': 1.2,
+                'battleship': 1.6, 'submarine': 1.3},
+    'britain': {'fighter': 1.5, 'destroyer_sea_sea': 1.3, 'bomber': 1.2,
+                'heavy_bomber': 1.5, 'battleship': 1.2},
 }
 
 MAX_ORDERS_PER_THINK = 12       # hard cap: thinking never floods a frame
+# which programme chain each staff pursues first
+RESEARCH_ORDER = {
+    'germany': ('sea', 'land', 'air'),
+    'usa': ('air', 'sea', 'land'),
+    'britain': ('air', 'sea', 'land'),
+    'japan': ('sea', 'air', 'land'),
+    'soviet': ('land', 'air', 'sea'),
+}
 FORCE_CAP = 48                  # a nation fields at most this many units:
                                 # WW2 armies were bounded by logistics, and
                                 # so is the frame budget
@@ -84,8 +97,23 @@ class NationAI:
         has_harbor = any(c.harbor and c.country == self.country
                          for c in g.cities)
         weights = {}
+        # the labs first: take any affordable tier, favourite branch
+        # first (research_pct is already tithed at the rollover)
+        from tech import next_tier, TECH_TREES
+        for branch in RESEARCH_ORDER.get(self.country,
+                                         ('land', 'air', 'sea')):
+            idx = next_tier(self.country, branch,
+                            g.researched[self.country])
+            if idx is not None and (g.research_points[self.country]
+                                    >= TECH_TREES[self.country]
+                                    [branch][idx][1]):
+                g.research_tier(self.country, branch)
+                break
+        buyable = set(g.buyable_units(self.country))
         doctrine = DOCTRINE.get(self.country, {})
         for ut in NATION_UNIT_STATS[self.country]:
+            if ut not in buyable:
+                continue
             if UNIT_TYPES[ut]['domain'] == 'sea' and not has_harbor:
                 continue
             w = doctrine.get(ut, 1.0)

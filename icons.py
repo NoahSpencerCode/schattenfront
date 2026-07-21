@@ -422,6 +422,55 @@ def _draw_factory_button(d, ink):
                   width=3)                                    # smoke
 
 
+
+def _draw_artillery(d, ink):
+    d.ellipse([30, 52, 58, 80], outline=ink, width=_W)
+    d.line([(44, 66), (82, 22)], fill=ink, width=7)
+    d.line([(70, 34), (86, 44)], fill=ink, width=4)
+
+
+def _draw_heavy_tank(d, ink):
+    d.rounded_rectangle([8, 40, 88, 72], radius=14, outline=ink, width=_W)
+    d.rectangle([30, 26, 66, 46], outline=ink, width=_W)
+    d.line([(66, 34), (94, 30)], fill=ink, width=6)
+    _wheels(d, ink, y=72, xs=(22, 38, 54, 70), r=6)
+
+
+def _draw_heavy_bomber(d, ink):
+    _plane(d, ink, wing_span=88, wing_y=42, wing_chord=16, nose=10,
+           tail=88, body_w=11, tail_span=38)
+    d.ellipse([24, 40, 34, 50], fill=ink)
+    d.ellipse([62, 40, 72, 50], fill=ink)
+
+
+def _draw_jet(d, ink):
+    _plane(d, ink, wing_span=60, wing_y=48, wing_chord=10, nose=12,
+           tail=84, body_w=8, tail_span=24)
+    d.polygon([(30, 58), (42, 50), (42, 62)], fill=ink)
+    d.polygon([(66, 58), (54, 50), (54, 62)], fill=ink)
+
+
+def _draw_submarine(d, ink):
+    d.rounded_rectangle([8, 48, 88, 66], radius=9, fill=ink)
+    d.rectangle([40, 34, 56, 50], fill=ink)
+    d.line([(48, 22), (48, 36)], fill=ink, width=4)
+
+
+def _draw_battleship(d, ink):
+    d.polygon([(6, 58), (90, 58), (80, 74), (14, 74)], fill=ink)
+    d.rectangle([34, 42, 62, 58], fill=ink)
+    d.rectangle([44, 30, 52, 44], fill=ink)
+    d.line([(20, 52), (34, 46)], fill=ink, width=5)
+    d.line([(76, 52), (62, 46)], fill=ink, width=5)
+
+
+def _draw_radar(d, ink):
+    d.line([(48, 88), (48, 44)], fill=ink, width=6)
+    d.line([(30, 88), (66, 88)], fill=ink, width=5)
+    d.arc([22, 14, 74, 66], 210, 330, fill=ink, width=6)
+    d.line([(48, 44), (60, 24)], fill=ink, width=4)
+
+
 _DRAWERS = {
     'city': _draw_city,
     'capital': _draw_capital,
@@ -456,6 +505,13 @@ _DRAWERS = {
     'bomber': _draw_bomber,
     'airforce_command': _draw_airforce_command,
     'transport_air': _draw_transport_air,
+    'artillery': _draw_artillery,
+    'heavy_tank': _draw_heavy_tank,
+    'heavy_bomber': _draw_heavy_bomber,
+    'jet_fighter': _draw_jet,
+    'submarine': _draw_submarine,
+    'battleship': _draw_battleship,
+    'radar': _draw_radar,
 }
 
 
@@ -826,7 +882,7 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 8   # bump when drawings change to invalidate the cache
+ICON_VERSION = 9   # bump when drawings change to invalidate the cache
 
 
 class _ScaledDraw:

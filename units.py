@@ -26,67 +26,74 @@ from utils import (north_tangent, slerp, angle_between,
 UNIT_TYPES = {
     # ----- ARMY -----
     'infantry': {
-        'label': 'Infantry Section', 'domain': 'land', 'speed': 0.12,
+        'label': 'Infantry Section', 'domain': 'land', 'speed': 0.038,
+        'road_mult': 1.5,   # 4 km/h cross-country, 6 in column
         'vision': 0.7, 'hp': 60, 'cost': 100, 'build_time': 4,
         'damage': 7, 'range': 0.5, 'targets': ('land',), 'icon': 'INF'},
     'tank': {
-        'label': 'Medium Tank', 'domain': 'land', 'speed': 0.17,
+        'label': 'Medium Tank', 'domain': 'land', 'speed': 0.188,
+        'road_mult': 2.0,   # 20 km/h cross-country, 40 on road
         'vision': 0.8, 'hp': 160, 'cost': 320, 'build_time': 8,
         'damage': 22, 'range': 0.65, 'targets': ('land', 'bridge'),
         'icon': 'TNK'},
     'supply_truck': {
-        'label': 'Supply Truck', 'domain': 'land', 'speed': 0.24,
+        'label': 'Supply Truck', 'domain': 'land', 'speed': 0.141,
+        'road_mult': 4.0,   # 15 km/h off, 60 on road
         'vision': 0.6, 'hp': 70, 'cost': 150, 'build_time': 5,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'SUP',
         'supply_cap': 1600.0, 'supply_carrier': True},
     'transport_truck': {
-        'label': 'Personnel Truck', 'domain': 'land', 'speed': 0.22,
+        'label': 'Personnel Truck', 'domain': 'land', 'speed': 0.141,
+        'road_mult': 4.0, 'capacity': 4,   # a motorized infantry lift
         'vision': 0.6, 'hp': 90, 'cost': 180, 'build_time': 5,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'TRK'},
     'aa_artillery': {
-        'label': 'AA Battery', 'domain': 'land', 'speed': 0.13,
+        'label': 'AA Battery', 'domain': 'land', 'speed': 0.104,
+        'road_mult': 3.5,
         'vision': 1.1, 'hp': 110, 'cost': 260, 'build_time': 7,
         'damage': 16, 'range': 1.2, 'targets': ('air',), 'icon': 'AAA'},
     'army_command': {
-        'label': 'Army Command Post', 'domain': 'land', 'speed': 0.12,
+        'label': 'Army Command Post', 'domain': 'land', 'speed': 0.132,
+        'road_mult': 3.5,
         'vision': 0.9, 'hp': 90, 'cost': 550, 'build_time': 12,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'CMD', 'comm': True},
     'engineer': {
-        'label': 'Engineer Company', 'domain': 'land', 'speed': 0.12,
+        'label': 'Engineer Company', 'domain': 'land', 'speed': 0.113,
+        'road_mult': 3.5,
         'vision': 0.7, 'hp': 50, 'cost': 200, 'build_time': 6,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'ENG',
         'engineer': True, 'supply_cap': 300.0},
 
     # ----- NAVY -----
     'naval_command': {
-        'label': 'Fleet Command Ship', 'domain': 'sea', 'speed': 0.30,
+        'label': 'Fleet Command Ship', 'domain': 'sea', 'speed': 0.414,
         'vision': 1.0, 'hp': 140, 'cost': 800, 'build_time': 16,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'FLT', 'comm': True},
     'personnel_transport': {
-        'label': 'Troop Transport', 'domain': 'sea', 'speed': 0.28,
+        'label': 'Troop Transport', 'domain': 'sea', 'speed': 0.348,
         'vision': 0.8, 'hp': 120, 'cost': 550, 'build_time': 12,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'TPT',
         'capacity': 6},
     'destroyer_sea_sea': {
-        'label': 'Destroyer (Surface)', 'domain': 'sea', 'speed': 0.42,
+        'label': 'Destroyer (Surface)', 'domain': 'sea', 'speed': 0.527,
         'vision': 1.1, 'hp': 150, 'cost': 700, 'build_time': 14,
         'damage': 26, 'range': 1.1, 'targets': ('sea',), 'icon': 'DDS'},
     'destroyer_aa': {
-        'label': 'Destroyer (AA Picket)', 'domain': 'sea', 'speed': 0.40,
+        'label': 'Destroyer (AA Picket)', 'domain': 'sea', 'speed': 0.527,
         'vision': 1.1, 'hp': 140, 'cost': 720, 'build_time': 14,
         'damage': 20, 'range': 1.3, 'targets': ('air',), 'icon': 'DDA'},
     'destroyer_sea_land': {
-        'label': 'Destroyer (Shore Gun)', 'domain': 'sea', 'speed': 0.38,
+        'label': 'Destroyer (Shore Gun)', 'domain': 'sea', 'speed': 0.490,
         'vision': 1.1, 'hp': 145, 'cost': 750, 'build_time': 14,
         'damage': 24, 'range': 1.25, 'targets': ('land', 'bridge'),
         'icon': 'DDL'},
     'supply_ship': {
-        'label': 'Naval Supply Vessel', 'domain': 'sea', 'speed': 0.30,
+        'label': 'Naval Supply Vessel', 'domain': 'sea', 'speed': 0.282,
         'vision': 0.8, 'hp': 130, 'cost': 650, 'build_time': 12,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'NSV',
         'supply_cap': 8000.0, 'supply_carrier': True},
     'aircraft_carrier': {
-        'label': 'Fleet Carrier', 'domain': 'sea', 'speed': 0.32,
+        'label': 'Fleet Carrier', 'domain': 'sea', 'speed': 0.527,
         'vision': 1.5, 'hp': 320, 'cost': 1500, 'build_time': 25,
         'damage': 10, 'range': 1.2, 'targets': ('air',), 'icon': 'CV'},
 
@@ -95,28 +102,60 @@ UNIT_TYPES = {
     # can be committed to. Aircraft always fly a full sortie: airfield ->
     # objective -> airfield.
     'fighter': {
-        'label': 'Fighter Squadron', 'domain': 'air', 'speed': 1.5,
+        'label': 'Fighter Squadron', 'domain': 'air', 'speed': 4.52,
         'vision': 1.5, 'hp': 90, 'cost': 400, 'build_time': 8,
         'damage': 14, 'range': 0.8, 'targets': ('air', 'land'),
         'icon': 'FTR', 'fuel': 12.0},
     'bomber': {
         # 30% slower than a fighter; bombs only what lies under the flight
         # path, so its "range" is a tenth of a fighter's reach.
-        'label': 'Bomber Wing', 'domain': 'air', 'speed': 1.05,
+        'label': 'Bomber Wing', 'domain': 'air', 'speed': 3.58,
         'vision': 1.2, 'hp': 130, 'cost': 620, 'build_time': 12,
         'damage': 32, 'range': 0.06, 'targets': ('land', 'sea', 'bridge'),
         'icon': 'BMB', 'fuel': 18.0},
     'airforce_command': {
         # 60% slower than a fighter
-        'label': 'Air Command Wing', 'domain': 'air', 'speed': 0.6,
+        'label': 'Air Command Wing', 'domain': 'air', 'speed': 2.82,
         'vision': 1.2, 'hp': 110, 'cost': 900, 'build_time': 16,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'ACW', 'comm': True,
         'fuel': 16.0},
     'transport_air': {
-        'label': 'Air Transport', 'domain': 'air', 'speed': 1.1,
+        'label': 'Air Transport', 'domain': 'air', 'speed': 3.11,
         'vision': 1.0, 'hp': 120, 'cost': 500, 'build_time': 10,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'ATR',
         'capacity': 4, 'paradrop': True, 'fuel': 16.0},
+
+    # ----- RESEARCH ARSENAL (locked until the tech tree opens them) --
+    'artillery': {
+        'label': 'Field Artillery', 'domain': 'land', 'speed': 0.104,
+        'road_mult': 3.5, 'vision': 0.9, 'hp': 90, 'cost': 380,
+        'build_time': 9, 'damage': 26, 'range': 1.5,
+        'targets': ('land', 'bridge'), 'icon': 'ART'},
+    'heavy_tank': {
+        'label': 'Heavy Tank', 'domain': 'land', 'speed': 0.160,
+        'road_mult': 2.0, 'vision': 0.8, 'hp': 260, 'cost': 520,
+        'build_time': 12, 'damage': 34, 'range': 0.7,
+        'targets': ('land', 'bridge'), 'icon': 'HTK'},
+    'heavy_bomber': {
+        'label': 'Heavy Bomber Wing', 'domain': 'air', 'speed': 3.91,
+        'vision': 1.2, 'hp': 180, 'cost': 950, 'build_time': 16,
+        'damage': 48, 'range': 0.06,
+        'targets': ('land', 'sea', 'bridge'), 'icon': 'HBM',
+        'fuel': 30.0},
+    'jet_fighter': {
+        'label': 'Jet Fighter Squadron', 'domain': 'air', 'speed': 7.53,
+        'vision': 1.5, 'hp': 100, 'cost': 1100, 'build_time': 14,
+        'damage': 20, 'range': 0.9, 'targets': ('air', 'land'),
+        'icon': 'JET', 'fuel': 10.0},
+    'submarine': {
+        'label': 'Submarine Flotilla', 'domain': 'sea', 'speed': 0.301,
+        'vision': 0.9, 'hp': 110, 'cost': 900, 'build_time': 16,
+        'damage': 30, 'range': 0.9, 'targets': ('sea',), 'icon': 'SUB'},
+    'battleship': {
+        'label': 'Battleship', 'domain': 'sea', 'speed': 0.480,
+        'vision': 1.3, 'hp': 420, 'cost': 2000, 'build_time': 30,
+        'damage': 40, 'range': 1.6,
+        'targets': ('sea', 'land', 'bridge'), 'icon': 'BB'},
 }
 
 BRANCH_OF = {'land': 'ARMY', 'sea': 'NAVY', 'air': 'AIR FORCE'}
@@ -162,6 +201,12 @@ _SPRITE_SIZE = {
     'tank': 0.24,
     'fighter': 0.21,
     'infantry': 0.10,
+    'battleship': 0.85,
+    'submarine': 0.50,
+    'heavy_bomber': 0.46,
+    'jet_fighter': 0.22,
+    'heavy_tank': 0.27,
+    'artillery': 0.26,
 }
 for _ut, _s in UNIT_TYPES.items():
     _s['sprite_size'] = _SPRITE_SIZE.get(_ut, 0.6)
@@ -217,6 +262,19 @@ NATION_UNITS = {
                              "Veteran staff flights direct the air battle."),
         'transport_air': ('Ju 52 Tante Ju', {'hp': 1.05},
                           "Corrugated, dependable Tante Ju."),
+        'artillery': ('10.5cm leFH Battalion', {'damage': 1.1},
+                      "The divisional workhorse howitzer."),
+        'heavy_tank': ('Tiger I', {'damage': 1.15, 'hp': 1.1,
+                                   'cost': 1.15},
+                       "88mm gun; nearly unanswerable when it arrives."),
+        'heavy_bomber': ('He 177 Greif', {'cost': 0.95},
+                         "The Reich's troubled strategic reach."),
+        'jet_fighter': ('Me 262 Schwalbe', {'speed': 1.1, 'cost': 1.1},
+                        "The first operational jet fighter."),
+        'submarine': ('Type VII U-boat', {'cost': 0.8, 'damage': 1.15},
+                      "The wolfpack tonnage war, perfected."),
+        'battleship': ('Bismarck-class', {'hp': 1.1},
+                       "The Atlantic's most hunted ship."),
     },
     'usa': {
         'infantry': ('G.I. Rifle Division',
@@ -265,6 +323,18 @@ NATION_UNITS = {
         'transport_air': ('C-47 Skytrain',
                           {'cost': 0.85, 'capacity': 1.26},
                           "The immortal Gooney Bird lifts more for less."),
+        'artillery': ('105mm M2A1 Battalion', {'cost': 0.9},
+                      "Massed, fast-shifting fire support."),
+        'heavy_tank': ('M26 Pershing', {'cost': 0.9},
+                       "Arrives late, hits hard, keeps coming."),
+        'heavy_bomber': ('B-17 Flying Fortress', {'hp': 1.2},
+                         "Bristling guns; brings its crews home."),
+        'jet_fighter': ('P-80 Shooting Star', {},
+                        "America's jet age opens."),
+        'submarine': ('Gato-class', {'hp': 1.1},
+                      "The Pacific commerce war in steel."),
+        'battleship': ('Iowa-class', {'speed': 1.1},
+                       "Fast battleships riding with the carriers."),
     },
     'britain': {
         'infantry': ('Commonwealth Infantry', {'hp': 1.1},
@@ -309,6 +379,18 @@ NATION_UNITS = {
                              "The Dowding system: plotted, tracked, met."),
         'transport_air': ('Dakota Mk III', {},
                           "Lend-lease Dakotas on Commonwealth routes."),
+        'artillery': ('25-Pounder Regiment', {'cost': 0.9},
+                      "The Commonwealth's beloved gun-howitzer."),
+        'heavy_tank': ('Churchill VII', {'hp': 1.2, 'speed': 0.85},
+                       "Slow, but climbs what stops the rest."),
+        'heavy_bomber': ('Avro Lancaster', {'damage': 1.1},
+                         "The night offensive's heavy hand."),
+        'jet_fighter': ('Gloster Meteor', {},
+                        "Britain answers the jet question."),
+        'submarine': ('T-class', {},
+                      "Quiet boats for narrow seas."),
+        'battleship': ('King George V-class', {},
+                       "The Royal Navy's modern line."),
     },
     'japan': {
         'infantry': ('Imperial Infantry',
@@ -356,6 +438,19 @@ NATION_UNITS = {
                              "Naval air staffs range across the ocean."),
         'transport_air': ('Ki-57 Topsy', {'fuel': 1.2},
                           "Long-range transport of the southern drives."),
+        'artillery': ('Type 91 Battalion', {'cost': 0.9},
+                      "Light guns that travel anywhere."),
+        'heavy_tank': ('Type 97 Chi-Ha Kai', {'cost': 0.8,
+                                              'damage': 0.85},
+                       "The Empire's best armour, outmatched."),
+        'heavy_bomber': ('G4M Betty Wing', {'speed': 1.05, 'hp': 0.8},
+                         "Range bought with unarmoured tanks."),
+        'jet_fighter': ('Nakajima Kikka', {'cost': 1.1},
+                        "A desperate leap for the jet age."),
+        'submarine': ('I-class', {'vision': 1.1},
+                      "Long-ranged fleet boats with seaplanes."),
+        'battleship': ('Yamato-class', {'hp': 1.25, 'cost': 1.2},
+                       "The largest guns ever sent to sea."),
     },
     'soviet': {
         'infantry': ('Rifle Division',
@@ -402,6 +497,18 @@ NATION_UNITS = {
                              "Air armies massed over the breakthrough."),
         'transport_air': ('Li-2 Transport', {'cost': 0.9},
                           "Licence-built Dakotas supply the partisans."),
+        'artillery': ('ML-20 Gun-Howitzer Rgt', {'damage': 1.15},
+                      "The god of war speaks in salvoes."),
+        'heavy_tank': ('IS-2', {'damage': 1.1, 'cost': 0.95},
+                       "Breakthrough armour for the drive west."),
+        'heavy_bomber': ('Pe-8 Wing', {'cost': 0.95},
+                         "The VVS's small strategic arm."),
+        'jet_fighter': ('MiG-9', {},
+                        "Captured science, Soviet steel."),
+        'submarine': ('Shchuka-class', {'cost': 0.85},
+                      "Coastal boats in every sea."),
+        'battleship': ('Gangut-class (mod.)', {'hp': 0.9, 'cost': 0.8},
+                       "The old guard, re-gunned."),
     },
 }
 
@@ -705,7 +812,12 @@ class Unit:
         if not self.path:
             return False
         target, speed_mult = self.path[0]
-        speed = (self.stats['speed'] * UNIT_SPEED_FACTOR * speed_mult *
+        # on a road leg the ROUTING mult is only a flag: each chassis
+        # brings its own paved-road factor (feet gain little, wheels a
+        # lot), so column speeds stay true to life
+        eff_mult = (self.stats.get('road_mult', 3.0)
+                    if speed_mult > 1.001 else speed_mult)
+        speed = (self.stats['speed'] * UNIT_SPEED_FACTOR * eff_mult *
                  self.game.game_speed)
         # the climb bites: off-road land movement pays the real grade
         # (roads are engineered and exempt; one sample per leg)

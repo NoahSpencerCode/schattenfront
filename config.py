@@ -44,7 +44,8 @@ FORMATION_SPACING = 0.02      # just enough that counters don't overlap
                               # at full zoom
 UNIT_SPRITE_SCALE = 0.045     # fixed world-size of unit pictograms
                               # (tiny; vanishing when zoomed out is fine)
-ROAD_SPEED_MULTIPLIER = 10.0  # land units move 10x faster on roads
+ROAD_SPEED_MULTIPLIER = 4.0   # ROUTING preference for roads; actual
+                              # column speed uses each unit's road_mult
 BRIDGE_TOLERANCE_DEG = 0.45   # river crossing allowed this close to a bridge
 
 # Vision & Communication

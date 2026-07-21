@@ -216,3 +216,12 @@ class Bunker(Structure):
     bombs and naval shellfire."""
 
     ICON = 'bunker'
+
+
+class Radar(Structure):
+    """Research-gated early-warning station: a tall mast that watches
+    and relays far beyond any field observer, day and night."""
+
+    ICON = 'radar'
+    FIXED_SCALE = 0.040
+    TINT = 0.0
