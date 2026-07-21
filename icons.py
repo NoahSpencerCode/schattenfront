@@ -394,28 +394,36 @@ def _draw_info_button(d, ink):
 
 
 def _draw_scramble_button(d, ink):
-    """The SCRAMBLE control: a dispatch-red rounded pill with shaded
-    depth, worn like a klaxon switch (full-colour, ink ignored)."""
+    """The SCRAMBLE control: a dispatch-red rounded pill under a
+    smooth top-lit shade (full-colour, ink ignored)."""
+    import math as _m
+    x0, y0, x1, y1, r = 2.0, 32.0, 92.0, 66.0, 12.0
     # drop shadow, slightly low-right
-    d.rounded_rectangle([6, 36, 95, 70], radius=12, fill=(18, 10, 8, 120))
-    # body
-    d.rounded_rectangle([2, 32, 92, 66], radius=12,
-                        fill=(122, 26, 17, 255))
-    # upper half catches the light
-    d.rounded_rectangle([2, 32, 92, 49], radius=8,
-                        corners=(True, True, False, False),
-                        fill=(168, 48, 30, 255))
-    # lower half sinks into shadow
-    d.rounded_rectangle([2, 52, 92, 66], radius=8,
-                        corners=(False, False, True, True),
-                        fill=(96, 17, 11, 255))
-    # soften the band seams
-    d.rectangle([6, 47, 88, 53], fill=(122, 26, 17, 255))
+    d.rounded_rectangle([x0 + 3, y0 + 3, x1 + 3, y1 + 3], radius=r,
+                        fill=(18, 10, 8, 110))
+    # smooth vertical gradient laid row by row; each row is inset to
+    # hug the corner arcs so the shade never squares them off
+    top, bot = (178, 56, 36), (86, 14, 9)
+    steps = 68
+    h = y1 - y0
+    for i in range(steps):
+        ya = y0 + h * i / steps
+        yb = y0 + h * (i + 1) / steps
+        t = i / (steps - 1.0)
+        t = t * t * 0.55 + t * 0.45          # sink faster near the base
+        col = tuple(int(a + (b - a) * t) for a, b in zip(top, bot))
+        ym = (ya + yb) * 0.5
+        edge = min(ym - y0, y1 - ym)
+        inset = 0.0
+        if edge < r:
+            inset = r - _m.sqrt(max(0.0, r * r - (r - edge) ** 2))
+        d.rectangle([x0 + inset, ya, x1 - inset, yb], fill=col + (255,))
     # specular line along the top edge
-    d.line([(14, 35), (80, 35)], fill=(214, 110, 80, 200), width=2)
+    d.line([(x0 + 12, y0 + 3), (x1 - 12, y0 + 3)],
+           fill=(226, 122, 90, 170), width=1)
     # bezel
-    d.rounded_rectangle([2, 32, 92, 66], radius=12,
-                        outline=(38, 12, 8, 255), width=4)
+    d.rounded_rectangle([x0, y0, x1, y1], radius=r,
+                        outline=(38, 12, 8, 255), width=3)
 
 
 def _draw_tax_button(d, ink):
@@ -908,7 +916,7 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 9   # bump when drawings change to invalidate the cache
+ICON_VERSION = 10   # bump when drawings change to invalidate the cache
 
 
 class _ScaledDraw:

@@ -182,7 +182,7 @@ class BottomBar:
             text_font=base.hud_font,
             relief=None, frameColor=(0, 0, 0, 0),
             frameSize=(-0.28, 0.28, -0.056, 0.056),
-            pos=(0, 0, 0.365), command=None)
+            pos=(0, 0, 0.415), command=None)
         self.scramble_btn.setTransparency(True)
         self.scramble_btn.hide()
 
