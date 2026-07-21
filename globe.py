@@ -586,13 +586,29 @@ class Globe:
             fb[:, 0] = dist6[:, 6]              # annexing class in B
             # TRUE distance (radians) to the drawn frontier, so the
             # territory wash can hug the dashed line at a CONSTANT
-            # width -- the smooth-min value difference it replaced
-            # breathed with city density
-            cls = np.argmin(dist6, axis=1).reshape(self.BIDS_H,
-                                                   self.BIDS_W)
-            bd = self._chamfer(self._frontier_seed(cls))
-            fb[:, 3] = (bd * np.float32(np.pi / self.BIDS_H)
-                        ).reshape(-1)
+            # width. The seed is the zero set of the SAME field the
+            # dash tracer marches -- min(reach - d_e, d_riv - d_e) --
+            # so the ribbon follows every drawn contour, including the
+            # REACH CAP out in open country (a class-change seed
+            # missed those far-land frontiers entirely).
+            H, W = self.BIDS_H, self.BIDS_W
+            D7 = dist6.reshape(H, W, 7)
+            reach = (BORDER_REACH
+                     + 0.004 * (np.sin(grid[:, 0] * 21.0)
+                                + np.sin(grid[:, 1] * 17.0)
+                                + np.sin(grid[:, 2] * 25.0))
+                     ).reshape(H, W).astype(np.float32)
+            seed = np.zeros((H, W), dtype=bool)
+            for e in (0, 1, 2, 3, 4, 6):
+                d_e = D7[:, :, e]
+                d_riv = np.delete(D7, e, axis=2).min(axis=2)
+                inside = np.minimum(reach - d_e, d_riv - d_e) > 0
+                seed |= inside != np.roll(inside, 1, axis=1)
+                seed |= inside != np.roll(inside, -1, axis=1)
+                seed[1:] |= inside[1:] != inside[:-1]
+                seed[:-1] |= inside[:-1] != inside[1:]
+            bd = self._chamfer(seed)
+            fb[:, 3] = (bd * np.float32(np.pi / H)).reshape(-1)
             # trace the actual border curves out of the same fields and
             # pre-cut them into evenly spaced dashes (one geometry per
             # zoom octave): the drawn line is real geometry, so its
