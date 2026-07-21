@@ -2875,6 +2875,18 @@ class WW2RTSGame(ShowBase):
         # 6) idle personnel trucks run a taxi service for the infantry
         self._tick_ferry()
 
+    def _stocked_depot_near(self, t, rng=1.2, floor=3000.0):
+        """A cache this carrier could draw from: same power, worth
+        the stop, within reach."""
+        best = None
+        for d in self.depots:
+            if d.country != t.country or d.stock < floor:
+                continue
+            dd = t.dist_to(d.pos)
+            if dd < rng and (best is None or dd < best[0]):
+                best = (dd, d)
+        return best[1] if best else None
+
     def _assign_supply_calls(self):
         """Match starving units to supply carriers, NEAREST carrier
         first. A nearly-dry carrier is itself a valid casualty, so a
@@ -2895,11 +2907,25 @@ class WW2RTSGame(ShowBase):
         claimed = {id(getattr(t, '_supply_tgt', None)) for t in units
                    if t.alive and t.stats.get('supply_carrier')
                    and getattr(t, '_supply_tgt', None) is not None}
+        # a carrier is dispatchable when its tank is up -- OR when it
+        # stands by a stocked depot it can draw from on the way out:
+        # the caches are the forward distribution net
+        def dispatchable(t):
+            if t.supply > t.stats['supply_cap'] * 0.6:
+                return True
+            if t.stats['domain'] != 'land':
+                return False
+            dep = self._stocked_depot_near(t)
+            if dep is None:
+                return False
+            # it must be able to reach the cache (or already sit on it,
+            # where the exchange can fill it in place)
+            return t.supply > 0 or t.dist_to(dep.pos) < 0.5
         free = [t for t in units
                 if t.alive and not t.carried_by
                 and t.stats.get('supply_carrier')
-                and t.supply > t.stats['supply_cap'] * 0.6
-                and getattr(t, '_supply_tgt', None) is None]
+                and getattr(t, '_supply_tgt', None) is None
+                and dispatchable(t)]
         if not free:
             return
         for u in units:
@@ -2918,8 +2944,16 @@ class WW2RTSGame(ShowBase):
                      and (t.stats['domain'] == 'sea') == sea]
             if not cands:
                 continue
-            t = min(cands, key=lambda t: t.dist_to(u.pos))
+            # a lorry hauling stores to a depot finishes its run unless
+            # nobody else can take the call
+            calm = [t for t in cands
+                    if not getattr(t, '_depot_haul', False)]
+            t = min(calm if calm else cands,
+                    key=lambda t: t.dist_to(u.pos))
             t._supply_tgt = u
+            if getattr(t, '_depot_haul', False):
+                t._depot_haul = False
+                t.clear_orders()        # poached: divert at once
             free.remove(t)
             if not free:
                 return
@@ -2936,13 +2970,33 @@ class WW2RTSGame(ShowBase):
             return
         cap = truck.stats['supply_cap']
         frac = truck.supply / cap
+        truck._depot_haul = False
         tgt = getattr(truck, '_supply_tgt', None)
         if tgt is not None:
             # a call is assigned centrally (nearest free carrier); the
-            # shuttle just drives it
+            # shuttle drives it -- topping up at a depot on the way
+            # when the tank is low or the detour is cheap
             if truck.dist_to(tgt.pos) > truck.vision_range():
-                truck.give_order({'kind': 'move', 'goal': Vec3(tgt.pos),
-                                  'auto': True})
+                dep = None
+                if truck.stats['domain'] == 'land' and frac < 0.9:
+                    d_tgt = truck.dist_to(tgt.pos)
+                    reach = 6.0 if frac < 0.5 else d_tgt
+                    cand = self._stocked_depot_near(truck, rng=reach)
+                    if cand is not None and truck.dist_to(cand.pos) > 0.5:
+                        via = truck.dist_to(cand.pos) + \
+                            angle_between(cand.pos, tgt.pos) * GLOBE_RADIUS
+                        if frac < 0.5 or via < d_tgt * 1.35:
+                            dep = cand
+                if dep is not None:
+                    truck.give_order({'kind': 'move',
+                                      'goal': Vec3(dep.pos),
+                                      'auto': True})
+                    truck.give_order({'kind': 'move',
+                                      'goal': Vec3(tgt.pos),
+                                      'auto': True}, queue=True)
+                else:
+                    truck.give_order({'kind': 'move', 'goal': Vec3(tgt.pos),
+                                      'auto': True})
             return
         if frac < 0.5:
             sources = [c for c in self.cities
@@ -2959,13 +3013,15 @@ class WW2RTSGame(ShowBase):
                                       'goal': Vec3(src.pos),
                                       'auto': True})
         elif frac > 0.6 and truck.stats['domain'] == 'land':
-            # nobody starving: haul the load up the depot chain
+            # nobody starving: haul the load up the depot chain -- the
+            # standing job of every loaded lorry
             depots = [d for d in self.depots
                       if d.country == truck.country
                       and d.stock < DEPOT_STOCK_CAP * 0.8]
             if depots:
                 d = min(depots, key=lambda x: truck.dist_to(x.pos))
                 if truck.dist_to(d.pos) > 0.5:
+                    truck._depot_haul = True
                     truck.give_order({'kind': 'move',
                                       'goal': Vec3(d.pos),
                                       'auto': True})
