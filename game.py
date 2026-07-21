@@ -3709,12 +3709,43 @@ class WW2RTSGame(ShowBase):
         from utils import slerp
         segs = LineSegs()
         segs.setThickness(2.0)
-        segs.setColor(0.25, 0.80, 1.0, 0.85)    # neon sky-blue
+        BLUE = (0.25, 0.80, 1.0, 0.85)          # neon sky-blue
+        RED = (0.95, 0.28, 0.20, 0.95)          # attack legs and rings
+        segs.setColor(*BLUE)
         lift = GLOBE_RADIUS * LIFT_PATH  # above the map, never under it
-        joins = []                       # order waypoints (not path turns)
+        joins = []                       # (waypoint, ring colour)
         drew = False
+
+        def draw_leg(a, b):
+            n = max(1, int(angle_between(a, b) * GLOBE_RADIUS / 0.4))
+            for k in range(1, n + 1):
+                segs.drawTo(slerp(a, b, k / n) * lift)
+
         for u in self.selected:
             if not u.alive or u.country != self.player_country:
+                continue
+            # a parked aircraft's PLOTTED SORTIE: base -> objectives ->
+            # recovery field, attack legs and rings inked dispatch-red
+            if u.sortie_plan and self.is_parked(u):
+                drew = True
+                d, home = self._sortie_length(
+                    u, self._sortie_objectives(u, u.sortie_plan))
+                prev = Vec3(u.based_at.pos)
+                segs.setColor(*BLUE)
+                segs.moveTo(prev * lift)
+                for o in u.sortie_plan:
+                    tgt = o.get('target')
+                    wp = Vec3(tgt.pos) if tgt is not None \
+                        else Vec3(o.get('goal', prev))
+                    hot = o['kind'] == 'attack'
+                    segs.setColor(*(RED if hot else BLUE))
+                    draw_leg(prev, wp)
+                    prev = wp
+                    joins.append((Vec3(prev), RED if hot else BLUE))
+                if home is not None:
+                    segs.setColor(*BLUE)
+                    draw_leg(prev, Vec3(home.pos))
+                    joins.append((Vec3(home.pos), BLUE))
                 continue
             if not u.path and not u.order_queue:
                 continue
@@ -3722,18 +3753,15 @@ class WW2RTSGame(ShowBase):
             # follow the great circle of each leg so long paths hug the
             # planet instead of chording through it
             prev = Vec3(u.pos)
+            segs.setColor(*BLUE)
             segs.moveTo(prev * lift)
-
-            def draw_leg(a, b):
-                n = max(1, int(angle_between(a, b) * GLOBE_RADIUS / 0.4))
-                for k in range(1, n + 1):
-                    segs.drawTo(slerp(a, b, k / n) * lift)
-
             for (wp, _) in u.path:
                 draw_leg(prev, wp)
                 prev = Vec3(wp)
             if u.path:
-                joins.append(Vec3(prev))     # current order's destination
+                hot = (u.current_order is not None
+                       and u.current_order.get('kind') == 'attack')
+                joins.append((Vec3(prev), RED if hot else BLUE))
             # queued (shift-linked) orders: follow each leg's own planned
             # route when it is ready, with a join ring at each waypoint
             for order in u.order_queue:
@@ -3751,10 +3779,13 @@ class WW2RTSGame(ShowBase):
                 else:
                     draw_leg(prev, goal)
                     prev = Vec3(goal)
-                joins.append(Vec3(prev))
+                joins.append((Vec3(prev),
+                              RED if order.get('kind') == 'attack'
+                              else BLUE))
         # join rings: small fixed size (1/5 of the old ring)
         r = UNIT_SPRITE_SCALE * 0.16
-        for jp in joins:
+        for jp, col in joins:
+            segs.setColor(*col)
             for i in range(17):
                 a = 2 * math.pi * i / 16
                 east = north_tangent(jp).cross(jp)
@@ -4026,11 +4057,26 @@ class WW2RTSGame(ShowBase):
                         get_icon_path(p.unit_type, 'dark'),
                         p in self.selected)
                        for p in wing]
+            planned = [p for p in wing
+                       if p in self.selected and p.sortie_plan]
+            if planned:
+                entries.insert(0, ("++ SORTIE (ENTER) ++",
+                                   self._launch_sorties, []))
             bar.add_buttons(entries)
             n = sum(1 for p in wing if p in self.selected)
-            if n:
-                bar.set_hint("%d SELECTED -- SHIFT-CLICK TO ADD/REMOVE   "
-                             "RIGHT-CLICK AN OBJECTIVE TO LAUNCH" % n)
+            if planned:
+                lead = planned[0]
+                d, _ = self._sortie_length(
+                    lead, self._sortie_objectives(lead,
+                                                  lead.sortie_plan))
+                bar.set_hint(
+                    "PLAN FILED: %d LEG(S), %.0f/%.0f MI -- SHIFT-RMB "
+                    "ADDS LEGS -- ENTER OR THE SORTIE BUTTON LAUNCHES" %
+                    (len(lead.sortie_plan),
+                     (d or 0) * 60, lead.stats['fuel'] * 60))
+            elif n:
+                bar.set_hint("%d SELECTED -- RMB PLOTS THE SORTIE "
+                             "(SHIFT-RMB ADDS LEGS), ENTER LAUNCHES" % n)
             else:
                 bar.set_hint("CLICK A SQUADRON; SHIFT-CLICK TO ADD MORE "
                              "FOR A STRIKE PACKAGE")
@@ -4066,11 +4112,11 @@ class WW2RTSGame(ShowBase):
             "roads. Spearhead breakthroughs and exploit gaps -- but",
             "keep supply lorries close, for armour drinks stores."],
         'supply_truck': [
-            "Carries stores to the front. Right-click a position",
-            "near your troops to set its RAILHEAD; it then hauls",
-            "from the nearest city or depot and issues stores to any",
-            "friendly unit within sight -- unaided. Keep one behind",
-            "every advance. Depots let you stage stores forward."],
+            "Carries stores to the front, entirely on its own",
+            "initiative: it hauls from cities, answers the neediest",
+            "call, and pushes stock up the depot chain. It takes no",
+            "orders. Build DEPOTS with your engineers to stage the",
+            "chain toward the fighting."],
         'transport_truck': [
             "Motor transport for infantry over friendly ground.",
             "Foot troops that must cross water or drop from the sky",

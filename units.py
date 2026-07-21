@@ -102,25 +102,25 @@ UNIT_TYPES = {
     # can be committed to. Aircraft always fly a full sortie: airfield ->
     # objective -> airfield.
     'fighter': {
-        'label': 'Fighter Squadron', 'domain': 'air', 'speed': 3.77,
+        'label': 'Fighter Squadron', 'domain': 'air', 'speed': 2.64,
         'vision': 1.5, 'hp': 90, 'cost': 400, 'build_time': 8,
         'damage': 14, 'range': 0.8, 'targets': ('air', 'land'),
         'icon': 'FTR', 'fuel': 12.0},
     'bomber': {
         # 30% slower than a fighter; bombs only what lies under the flight
         # path, so its "range" is a tenth of a fighter's reach.
-        'label': 'Bomber Wing', 'domain': 'air', 'speed': 3.11,
+        'label': 'Bomber Wing', 'domain': 'air', 'speed': 2.18,
         'vision': 1.2, 'hp': 130, 'cost': 620, 'build_time': 12,
         'damage': 32, 'range': 0.06, 'targets': ('land', 'sea', 'bridge'),
         'icon': 'BMB', 'fuel': 18.0},
     'airforce_command': {
         # 60% slower than a fighter
-        'label': 'Air Command Wing', 'domain': 'air', 'speed': 2.64,
+        'label': 'Air Command Wing', 'domain': 'air', 'speed': 1.85,
         'vision': 1.2, 'hp': 110, 'cost': 900, 'build_time': 16,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'ACW', 'comm': True,
         'fuel': 16.0},
     'transport_air': {
-        'label': 'Air Transport', 'domain': 'air', 'speed': 2.42,
+        'label': 'Air Transport', 'domain': 'air', 'speed': 1.69,
         'vision': 1.0, 'hp': 120, 'cost': 500, 'build_time': 10,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'ATR',
         'capacity': 4, 'paradrop': True, 'fuel': 16.0},
@@ -137,13 +137,13 @@ UNIT_TYPES = {
         'build_time': 12, 'damage': 34, 'range': 0.7,
         'targets': ('land', 'bridge'), 'icon': 'HTK'},
     'heavy_bomber': {
-        'label': 'Heavy Bomber Wing', 'domain': 'air', 'speed': 2.73,
+        'label': 'Heavy Bomber Wing', 'domain': 'air', 'speed': 1.91,
         'vision': 1.2, 'hp': 180, 'cost': 950, 'build_time': 16,
         'damage': 48, 'range': 0.06,
         'targets': ('land', 'sea', 'bridge'), 'icon': 'HBM',
         'fuel': 30.0},
     'jet_fighter': {
-        'label': 'Jet Fighter Squadron', 'domain': 'air', 'speed': 5.84,
+        'label': 'Jet Fighter Squadron', 'domain': 'air', 'speed': 4.09,
         'vision': 1.5, 'hp': 100, 'cost': 1100, 'build_time': 14,
         'damage': 20, 'range': 0.9, 'targets': ('air', 'land'),
         'icon': 'JET', 'fuel': 10.0},
