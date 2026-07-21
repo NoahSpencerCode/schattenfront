@@ -761,6 +761,11 @@ class Unit:
         self.attack_target = None
         self.sortie_plan = []
         self.sortie_targets = []
+        # a route still cooking in the planner belongs to the OLD
+        # orders: forgetting this let a lorry boarded mid-planning
+        # receive its stale continental path after a paradrop and
+        # drive home straight across the ocean
+        self.plan_pending = None
 
     def give_order(self, order, queue=False):
         if not queue:

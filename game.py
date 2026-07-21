@@ -332,6 +332,7 @@ class WW2RTSGame(ShowBase):
         self.selected_harbor = None
         self.selected_depot = None
         self.roster_base = None          # airfield/carrier whose menu is up
+        self.garrison_sel = []           # stored land units picked to lift
         self.groups = {}
         self.funds = {}
         self.game_speed = 1.0
@@ -536,6 +537,7 @@ class WW2RTSGame(ShowBase):
         self.selected_airfield = None
         self.selected_depot = None
         self.roster_base = None
+        self.garrison_sel = []
         for b in self.bridges:
             b.root.removeNode()
         self.bridges = []
@@ -1443,6 +1445,7 @@ class WW2RTSGame(ShowBase):
             u.set_selected(False)
         self.selected = []
         self.roster_base = None
+        self.garrison_sel = []
         self._select_city(None)
         self._select_airfield(None)
         self._select_harbor(None)
@@ -1523,6 +1526,13 @@ class WW2RTSGame(ShowBase):
         if not own_selected:
             return
 
+        # stored garrison picked in an airfield roster: this click is
+        # the LIFT order (another field = fly there; ground = paradrop)
+        if (self.garrison_sel and self.roster_base is not None
+                and not isinstance(self.roster_base, Unit)):
+            if self._order_air_lift(ground, mpos):
+                return
+
         # an unload/paradrop order is armed: this click sites the drop
         if self.unload_mode:
             self.unload_mode = False
@@ -1580,33 +1590,27 @@ class WW2RTSGame(ShowBase):
                     self.fax_short("STRIKE ON %s ORDERED" % foe_field.name)
                     return
 
-        # right-click an own airfield with land units: board a parked
-        # air transport there if one has room, else march to the field
+        # right-click an own airfield: land units march in and join
+        # its GARRISON (stored on the field, lifted from its roster)
         if target is None:
             fields = [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
                       if a.country == self.player_country
                       and self._facing_camera(a.pos)]
             field = self._pick_object(mpos, fields)
             if field is not None:
-                lifters = [p for p in self.base_wing(field)
-                           if p.stats.get('capacity')
-                           and self._board_capacity_left(p) > 0]
                 landers = [u for u in commandable
                            if u.stats['domain'] == 'land']
-                if lifters and landers:
-                    self._order_board(lifters[0], landers, shift)
-                    return
-                for u in commandable:
-                    u.give_order({'kind': 'move',
-                                  'goal': Vec3(field.pos)}, queue=shift)
-                lifts = [u for u in commandable
-                         if u.stats.get('capacity') and u.cargo
-                         and u.stats['domain'] == 'air']
-                if lifts:
-                    self.fax_short("AIR LIFT TO %s ORDERED -- %d UNIT(S) "
-                                   "ABOARD" % (field.name,
-                                               sum(len(u.cargo)
-                                                   for u in lifts)))
+                for u in landers:
+                    u.give_order({'kind': 'garrison', 'target': field},
+                                 queue=shift)
+                if landers:
+                    self.fax_short("%d UNIT(S) ORDERED INTO %s" %
+                                   (len(landers), field.name))
+                else:
+                    for u in commandable:
+                        u.give_order({'kind': 'move',
+                                      'goal': Vec3(field.pos)},
+                                     queue=shift)
                 return
 
         if isinstance(target, Bridge):
@@ -1831,6 +1835,20 @@ class WW2RTSGame(ShowBase):
             # sight and see nothing
             unit.root.hide()
             unit.in_contact = True
+            if unit.cargo and not isinstance(field, Unit):
+                # the lift is complete: passengers file into the
+                # field's garrison, ready for the next leg
+                n = 0
+                for p in list(unit.cargo):
+                    if len(field.garrison) >= self.FIELD_GARRISON_CAP:
+                        break
+                    unit.cargo.remove(p)
+                    p.carried_by = field
+                    field.garrison.append(p)
+                    n += 1
+                if n and unit.country == self.player_country:
+                    self.fax_short("%d UNIT(S) DELIVERED TO %s" %
+                                   (n, field.name))
             if unit in self.selected:
                 self._deselect_unit(unit)
                 self._refresh_selection_ui()
@@ -2077,7 +2095,7 @@ class WW2RTSGame(ShowBase):
             unit.attack_target = order['target']
             self._approach_target(unit, order['target'],
                                   indicate=order.pop('indicate', False))
-        elif kind in ('board', 'repair'):
+        elif kind in ('board', 'repair', 'garrison'):
             self._approach_target(unit, order['target'])
 
     def _legal_goal(self, unit, goal):
@@ -2190,6 +2208,14 @@ class WW2RTSGame(ShowBase):
                     != token:
                 continue
             unit.plan_pending = None
+            # the first leg must be walkable from where the unit NOW
+            # stands: one carried or dropped elsewhere mid-planning
+            # discards the stale route instead of beelining over the
+            # sea to its first waypoint
+            if (path and unit.stats['domain'] == 'land'
+                    and not self.planner.segment_land_ok(
+                        unit.pos, path[0][0])):
+                path = None
             if path is None:
                 # back off so a stranded unit can't churn the planner
                 # (and spam FAXes) every tick
@@ -2267,6 +2293,17 @@ class WW2RTSGame(ShowBase):
             if not self._replan_ready(unit):
                 return False
             self._approach_target(unit, transport)
+            return not unit.path
+        if kind == 'garrison':
+            field = order['target']
+            if not getattr(field, 'alive', False):
+                return True
+            if unit.dist_to(field.pos) < 0.5:
+                self._store_in_field(field, unit)
+                return True
+            if not self._replan_ready(unit):
+                return False
+            self._approach_target(unit, field)
             return not unit.path
         if kind == 'build':
             # the engineers must actually be standing on the site before
@@ -2353,6 +2390,113 @@ class WW2RTSGame(ShowBase):
         elif accepted:
             self.fax_short("EMBARKATION ORDER DISPATCHED (%d)" %
                            len(accepted))
+
+    FIELD_GARRISON_CAP = 12
+
+    def _store_in_field(self, field, unit):
+        """A land unit files into the airfield's garrison: off the
+        map, safe, and ready to be air-lifted from the roster."""
+        if len(field.garrison) >= self.FIELD_GARRISON_CAP:
+            if unit.country == self.player_country:
+                self.fax_short("%s IS FULL -- GARRISON HELD OUTSIDE"
+                               % field.name)
+            return
+        unit.carried_by = field
+        unit.clear_orders()
+        unit.set_selected(False)
+        if unit in self.selected:
+            self.selected.remove(unit)
+        unit.root.hide()
+        field.garrison.append(unit)
+        if unit.country == self.player_country:
+            self.fax_short("%s STORED AT %s (%d/%d)" %
+                           (unit.stats['label'].upper(), field.name,
+                            len(field.garrison),
+                            self.FIELD_GARRISON_CAP))
+            if self.roster_base is field:
+                self._refresh_air_roster(field)
+
+    def _release_garrison(self, field):
+        """March the selected stored units back onto the apron."""
+        out = 0
+        for u in list(self.garrison_sel):
+            if u not in field.garrison or not u.alive:
+                continue
+            field.garrison.remove(u)
+            la, lo = self.world.nearest_land(
+                field.lat + random.uniform(-.3, .3),
+                field.lon + random.uniform(-.3, .3))
+            u.carried_by = None
+            u.pos = latlon_to_vec(la, lo)
+            u.root.show()
+            u.update_visual()
+            out += 1
+        self.garrison_sel = []
+        if out:
+            self.fax_short("%d UNIT(S) ON THE APRON AT %s" %
+                           (out, field.name))
+        self._refresh_air_roster(field)
+
+    def _select_garrison(self, unit):
+        """Garrison button: click picks one, shift-click builds the
+        lift party."""
+        base = self.roster_base
+        mw = self.mouseWatcherNode
+        shift = mw and mw.isButtonDown(self._key_shift)
+        if not shift:
+            self.garrison_sel = [unit]
+        elif unit in self.garrison_sel:
+            self.garrison_sel.remove(unit)
+        else:
+            self.garrison_sel.append(unit)
+        if base is not None:
+            self._refresh_air_roster(base)
+
+    def _order_air_lift(self, ground, mpos):
+        """RMB with garrison units picked: another airfield flies
+        them THERE; open ground means a paradrop. A parked transport
+        embarks them automatically."""
+        field = self.roster_base
+        sel = [u for u in self.garrison_sel
+               if u.alive and u in field.garrison]
+        if not sel:
+            self.garrison_sel = []
+            return False
+        lift = next((p for p in self.base_wing(field)
+                     if p.stats.get('capacity')
+                     and len(p.cargo) < p.stats['capacity']), None)
+        if lift is None:
+            self.fax.post(
+                "LIFT REFUSED",
+                "%s at %s. Fly an air transport onto the field first." %
+                (B("NO AIR TRANSPORT AVAILABLE"), field.name),
+                sender="AIR MINISTRY")
+            return True
+        room = lift.stats['capacity'] - len(lift.cargo)
+        taken, held = sel[:room], len(sel) - min(len(sel), room)
+        for u in taken:
+            field.garrison.remove(u)
+            u.carried_by = lift
+            lift.cargo.append(u)
+        dests = [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
+                 if a.country == self.player_country and a is not field
+                 and self._facing_camera(a.pos)]
+        dest = self._pick_object(mpos, dests)
+        if dest is not None:
+            lift.give_order({'kind': 'move', 'goal': Vec3(dest.pos),
+                             'auto': True})
+            verb = "AIR TRANSPORT TO %s" % dest.name
+        else:
+            lift.give_order({'kind': 'unload', 'goal': Vec3(ground),
+                             'auto': True})
+            verb = "PARACHUTE DROP"
+        self.garrison_sel = []
+        msg = "%s -- %d UNIT(S) AWAY" % (verb, len(taken))
+        if held:
+            msg += " (%d HELD: HOLDS FULL)" % held
+        self.fax_short(msg)
+        self._refresh_air_roster(field)
+        return True
 
     def _load_unit(self, transport, unit):
         unit.carried_by = transport
@@ -2555,6 +2699,10 @@ class WW2RTSGame(ShowBase):
         for u in list(self.units):
             if u.alive and u.based_at is field:
                 self.unit_destroyed(u, attacker)
+        for u in list(field.garrison):
+            if u.alive:
+                self.unit_destroyed(u, attacker)
+        field.garrison = []
         if self.selected_airfield is field:
             self._select_airfield(None)
         self._relocate_works(field, field.country, self.airfields)
@@ -3545,6 +3693,11 @@ class WW2RTSGame(ShowBase):
             for u in list(self.units):
                 if u.alive and u.based_at is field and u.country == old:
                     self.unit_destroyed(u, None)
+            for u in list(field.garrison):
+                if u.alive and u.country == old:
+                    self.unit_destroyed(u, None)
+            field.garrison = [u for u in field.garrison
+                              if u.alive and u.country != old]
             self._relocate_works(field, old, self.airfields)
             field.country = new_owner
             field.refresh_marker()
@@ -4044,12 +4197,8 @@ class WW2RTSGame(ShowBase):
             fields = [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
                       if a.country == self.player_country
                       and self._facing_camera(a.pos)]
-            f = self._pick_object(mpos, fields)
-            if f is not None and any(
-                    p.stats.get('capacity') and
-                    len(p.cargo) < p.stats['capacity']
-                    for p in self.base_wing(f)):
-                return 'embark'
+            if self._pick_object(mpos, fields) is not None:
+                return 'embark'     # the garrison takes them in
         return 'default'
 
     def _tick_hover_glow(self):
@@ -4506,12 +4655,23 @@ class WW2RTSGame(ShowBase):
                           "   (SUPPLIED BY CITY)" if base.city is not None
                           else "   (TRUCK SUPPLY REQUIRED)"))
             empty_hint = "NO AIRCRAFT ON THE FIELD"
-        if wing:
+        garrison = [] if is_carrier else [u for u in base.garrison
+                                          if u.alive]
+        if wing or garrison:
             entries = [("%d/%d" % (int(p.hp), p.max_hp),
                         self._select_embarked, [p],
                         get_icon_path(p.unit_type, 'dark'),
                         p in self.selected)
                        for p in wing]
+            # section two: the land garrison stored on the field
+            entries += [("%d/%d" % (int(u.hp), u.max_hp),
+                         self._select_garrison, [u],
+                         get_icon_path(u.unit_type, 'dark'),
+                         u in self.garrison_sel)
+                        for u in garrison]
+            if self.garrison_sel and not is_carrier:
+                entries.append(("++ TO THE APRON ++",
+                                self._release_garrison, [base]))
             planned = [p for p in wing
                        if p in self.selected and p.sortie_plan]
             bar.add_buttons(entries)
@@ -4526,10 +4686,18 @@ class WW2RTSGame(ShowBase):
                     "ADDS LEGS -- SCRAMBLE (OR ENTER) LAUNCHES" %
                     (len(lead.sortie_plan),
                      (d or 0) * 60, lead.stats['fuel'] * 60))
+            elif self.garrison_sel:
+                bar.set_hint("%d STORED UNIT(S) PICKED -- RMB GROUND "
+                             "TO PARADROP, RMB ANOTHER AIRFIELD TO FLY "
+                             "THEM THERE, OR SEND THEM TO THE APRON"
+                             % len(self.garrison_sel))
             elif n:
                 bar.set_hint("%d SELECTED -- RMB PLOTS THE SORTIE "
                              "(SHIFT-RMB ADDS LEGS), SCRAMBLE LAUNCHES"
                              % n)
+            elif garrison:
+                bar.set_hint("SQUADRONS FLY; THE GARRISON WAITS -- "
+                             "CLICK A STORED UNIT TO PLAN ITS LIFT")
             else:
                 bar.set_hint("CLICK A SQUADRON; SHIFT-CLICK TO ADD MORE "
                              "FOR A STRIKE PACKAGE")
