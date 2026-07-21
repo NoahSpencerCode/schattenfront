@@ -62,6 +62,8 @@ FOG_SATURATION = 0.5          # 50% less saturated
 TERRAIN_LOS = False           # relief-warped vision fields (heavy);
                               # False = clean circles, flag kept for later
 MILES_PER_WU = 132            # one world unit is ~212 km = 132 statute mi
+BORDER_WASH_BAND = 0.022      # frontier ribbon width, radians (~140 km)
+BORDER_WASH_FLOOR = 0.06      # interior tint floor (near-transparent)
 MAX_VISION_SOURCES = 320      # shader uniform budget (a big fleet
                               # must never lose its vision circles)
 

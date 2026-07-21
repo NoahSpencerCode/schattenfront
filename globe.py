@@ -16,7 +16,7 @@ from panda3d.core import (Geom, GeomNode, GeomTriangles, GeomVertexData,
                           GeomVertexFormat, GeomVertexWriter, GeomLines,
                           LineSegs,
                           Mat3, NodePath, Quat, Shader, TextNode, Texture,
-                          TransparencyAttrib, Vec3, SamplerState,
+                          TransparencyAttrib, Vec2, Vec3, SamplerState,
                           ColorBlendAttrib)
 
 from config import (COUNTRIES,
@@ -24,6 +24,7 @@ from config import (COUNTRIES,
                     NIGHT_DARKNESS, DETAIL_ACTIVATE_ALT, DETAIL_TEX_SIZE,
                     DETAIL_TIER_ALTS,
                     FOG_BRIGHTNESS, FOG_SATURATION, MAX_VISION_SOURCES,
+                    BORDER_WASH_BAND, BORDER_WASH_FLOOR,
                     LIFT_PATCH, LIFT_RING)
 from geodata import CACHE_DIR, TEXTURE_VERSION
 
@@ -171,6 +172,8 @@ uniform float fog_saturation;
 // locus halfway between nearest cities of DIFFERENT owners.
 uniform int site_count;          // 0 until the border bake has landed
 uniform vec3 nat_tint[6];
+uniform sampler2D coast_d;       // radians to the nearest coastline
+uniform vec2 wash_band;          // x = ribbon width (rad), y = floor
 uniform float border_fade;       // 0 close up .. 1 zoomed out
 uniform sampler2D border_dA;     // bilinear float: empires 0-3 smooth-
 uniform sampler2D border_dB;     // min distance fields; 4-5 in B
@@ -244,34 +247,32 @@ void main() {
         vec4 fB = texture2D(border_dB, buv);
         bool land_px = distance(tex.rgb, vec3(0.173, 0.227, 0.310)) > 0.12
                     && distance(tex.rgb, vec3(0.243, 0.329, 0.431)) > 0.07;
-        float d1 = fA.r; float d2 = 1e9; int owner = 0;
-        if (fA.g < d1) { d2 = d1; d1 = fA.g; owner = 1; }
-        else if (fA.g < d2) d2 = fA.g;
-        if (fA.b < d1) { d2 = d1; d1 = fA.b; owner = 2; }
-        else if (fA.b < d2) d2 = fA.b;
-        if (fA.a < d1) { d2 = d1; d1 = fA.a; owner = 3; }
-        else if (fA.a < d2) d2 = fA.a;
-        if (fB.r < d1) { d2 = d1; d1 = fB.r; owner = 4; }
-        else if (fB.r < d2) d2 = fB.r;
-        if (fB.g < d1) { d2 = d1; d1 = fB.g; owner = 5; }
-        else if (fB.g < d2) d2 = fB.g;
-        if (fB.b < d1) { d2 = d1; d1 = fB.b; owner = 6; }
-        else if (fB.b < d2) d2 = fB.b;
+        float d1 = fA.r; int owner = 0;
+        if (fA.g < d1) { d1 = fA.g; owner = 1; }
+        if (fA.b < d1) { d1 = fA.b; owner = 2; }
+        if (fA.a < d1) { d1 = fA.a; owner = 3; }
+        if (fB.r < d1) { d1 = fB.r; owner = 4; }
+        if (fB.g < d1) { d1 = fB.g; owner = 5; }
+        if (fB.b < d1) { d1 = fB.b; owner = 6; }
         // the empire's writ runs only so far; the cap undulates on
         // smooth sines so empty country gets an organic frontier
         float wob = 0.004 * (sin(nrm.x * 21.0) + sin(nrm.y * 17.0)
                              + sin(nrm.z * 25.0));
         float reach = 0.11 + wob;
         if (land_px && d1 < reach && owner != 5) {
-            // territory wash as a FRONTIER GRADIENT: strongest along
-            // the border (against a rival OR the open frontier) and
-            // fading to a whisper deep inside the realm. Annexation
-            // wears BLACK until absorbed.
+            // territory wash as a CONSTANT-WIDTH frontier ribbon: the
+            // baked TRUE distance to the drawn border (fB.a) and to
+            // the nearest COAST both count as the empire's edge, so
+            // the band hugs the dashed line evenly everywhere and an
+            // island wears its colours along the shore. Fades to a
+            // whisper deep inland. Annexation wears BLACK.
             vec3 tint = vec3(0.05, 0.05, 0.05);
             if (owner < 5) tint = nat_tint[owner];
-            float edge = min(d2 - d1, reach - d1);
-            float w = 1.0 - smoothstep(0.0, 0.05, edge);
-            c = mix(c, tint, (0.08 + 0.92 * w) * 0.42 * border_fade);
+            float edge = min(fB.a, texture2D(coast_d, buv).r);
+            float w = 1.0 - smoothstep(0.0, wash_band.x, edge);
+            c = mix(c, tint,
+                    (wash_band.y + (1.0 - wash_band.y) * w)
+                    * 0.42 * border_fade);
         }
     }
     gl_FragColor = vec4(c, 1.0);
@@ -350,9 +351,46 @@ class Globe:
             fdummy.setRamImage(
                 np.full(4, 9.0, dtype=np.float32).tobytes())
             self.root.setShaderInput(name, fdummy)
+        cdummy = Texture('coast_d')
+        cdummy.setup2dTexture(1, 1, Texture.TFloat, Texture.FR32)
+        cdummy.setRamImage(np.full(1, 9.0, dtype=np.float32).tobytes())
+        self.root.setShaderInput('coast_d', cdummy)
+        self.root.setShaderInput(
+            'wash_band', Vec2(BORDER_WASH_BAND, BORDER_WASH_FLOOR))
 
+        self._setup_coast_field(world_data)
         self.detail = DetailOverlay(base, world_data, self.root, self.shader)
         self._make_country_labels()
+
+    def _setup_coast_field(self, world):
+        """Distance (radians) to the nearest coastline, baked ONCE
+        from the land mask and cached: the territory wash rims every
+        shore, so an island empire reads as clearly as a land one."""
+        from geodata import CACHE_DIR
+        path = os.path.join(CACHE_DIR,
+                            'coast_dist_v1_%d.npy' % self.BIDS_W)
+        if os.path.exists(path):
+            cd = np.load(path)
+        else:
+            m = world.land_mask
+            sy = m.shape[0] // self.BIDS_H
+            sx = m.shape[1] // self.BIDS_W
+            land = m[::sy, ::sx][:self.BIDS_H, :self.BIDS_W][::-1]
+            seed = self._frontier_seed(land.astype(np.int8))
+            cd = (self._chamfer(seed)
+                  * np.float32(np.pi / self.BIDS_H)).astype(np.float32)
+            np.save(path, cd)
+        tex = Texture('coast_d')
+        tex.setup2dTexture(self.BIDS_W, self.BIDS_H, Texture.TFloat,
+                           Texture.FR32)
+        tex.setRamImage(cd.tobytes())
+        tex.setMinfilter(SamplerState.FTLinear)
+        tex.setMagfilter(SamplerState.FTLinear)
+        tex.setWrapU(SamplerState.WMRepeat)
+        tex.setWrapV(SamplerState.WMClamp)
+        self.root.setShaderInput('coast_d', tex)
+        self.root.setShaderInput(
+            'wash_band', Vec2(BORDER_WASH_BAND, BORDER_WASH_FLOOR))
 
     def set_sun_direction(self, sun_dir):
         self.root.setShaderInput('sun_dir', sun_dir)
@@ -433,6 +471,51 @@ class Globe:
     # small ID map on a worker thread (once per ownership change); the
     # shader then does constant-time analytic work per fragment.
     BIDS_W, BIDS_H = 2048, 1024
+
+    @staticmethod
+    def _chamfer(seed):
+        """Two-pass 8-neighbour chamfer distance transform over an
+        equirect grid (longitude wraps). Returns float32 PIXEL
+        distances to the seed set. Pure numpy: the row scans use the
+        min-prefix trick, so each row is one vector op, and the whole
+        sheet runs comfortably on the bake worker."""
+        H, W = seed.shape
+        INF = np.float32(1e9)
+        d = np.where(seed, np.float32(0.0), INF)
+        SQ2 = np.float32(1.41421356)
+        idx = np.arange(2 * W, dtype=np.float32)
+
+        def scan_row(row):
+            rr = np.concatenate([row, row])
+            f = np.minimum.accumulate(rr - idx) + idx
+            row = np.minimum(f[:W], f[W:])
+            rr = np.concatenate([row, row])[::-1]
+            b = (np.minimum.accumulate(rr - idx) + idx)[::-1]
+            return np.minimum(row, np.minimum(b[:W], b[W:]))
+
+        for y in range(H):
+            if y:
+                up = d[y - 1]
+                np.minimum(d[y], up + 1.0, out=d[y])
+                np.minimum(d[y], np.roll(up, 1) + SQ2, out=d[y])
+                np.minimum(d[y], np.roll(up, -1) + SQ2, out=d[y])
+            d[y] = scan_row(d[y])
+        for y in range(H - 2, -1, -1):
+            dn = d[y + 1]
+            np.minimum(d[y], dn + 1.0, out=d[y])
+            np.minimum(d[y], np.roll(dn, 1) + SQ2, out=d[y])
+            np.minimum(d[y], np.roll(dn, -1) + SQ2, out=d[y])
+            d[y] = scan_row(d[y])
+        return d
+
+    @staticmethod
+    def _frontier_seed(cls):
+        """Texels where the class map changes: the drawn frontier."""
+        seed = cls != np.roll(cls, 1, axis=1)
+        seed |= cls != np.roll(cls, -1, axis=1)
+        seed[1:] |= cls[1:] != cls[:-1]
+        seed[:-1] |= cls[:-1] != cls[1:]
+        return seed
     _bids_grid = None               # cached texel unit vectors
 
     def _border_grid(self):
@@ -501,6 +584,15 @@ class Globe:
             fb[:, 2] = dist6[:, 4]
             fb[:, 1] = dist6[:, 5]
             fb[:, 0] = dist6[:, 6]              # annexing class in B
+            # TRUE distance (radians) to the drawn frontier, so the
+            # territory wash can hug the dashed line at a CONSTANT
+            # width -- the smooth-min value difference it replaced
+            # breathed with city density
+            cls = np.argmin(dist6, axis=1).reshape(self.BIDS_H,
+                                                   self.BIDS_W)
+            bd = self._chamfer(self._frontier_seed(cls))
+            fb[:, 3] = (bd * np.float32(np.pi / self.BIDS_H)
+                        ).reshape(-1)
             # trace the actual border curves out of the same fields and
             # pre-cut them into evenly spaced dashes (one geometry per
             # zoom octave): the drawn line is real geometry, so its
