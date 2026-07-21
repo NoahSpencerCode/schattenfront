@@ -110,8 +110,12 @@ class Terrain:
 
     def __init__(self, log=_log):
         play, art = ensure_dem(log)
-        self.elev = np.load(play, mmap_mode="r")      # gameplay truth
-        self.elev_art = np.load(art, mmap_mode="r")   # the drawn sheet
+        # both grids fit in RAM with room to spare (~19 MB each);
+        # keeping them memmapped made every LOS gather pay page-cache
+        # and memmap-machinery tax -- the single largest frame cost in
+        # a big battle. float32 up front also skips per-query astype.
+        self.elev = np.load(play).astype(np.float32)      # gameplay truth
+        self.elev_art = np.load(art).astype(np.float32)   # the drawn sheet
 
     # ------------------------------------------------------- sampling
     def sample_m(self, lat, lon):
@@ -143,10 +147,15 @@ class Terrain:
         c1 = (c0 + 1) % DEM_W
         wr = (rf - r0).astype(np.float32)
         wc = (cf - c0).astype(np.float32)
-        e00 = field[r0, c0].astype(np.float32)
-        e01 = field[r0, c1].astype(np.float32)
-        e10 = field[r1, c0].astype(np.float32)
-        e11 = field[r1, c1].astype(np.float32)
+        # flat gathers: one ravelled take per corner is markedly
+        # cheaper than 2-D fancy indexing on the hot LOS path
+        flat = field.reshape(-1)
+        b0 = r0 * DEM_W
+        b1 = r1 * DEM_W
+        e00 = flat[b0 + c0].astype(np.float32, copy=False)
+        e01 = flat[b0 + c1].astype(np.float32, copy=False)
+        e10 = flat[b1 + c0].astype(np.float32, copy=False)
+        e11 = flat[b1 + c1].astype(np.float32, copy=False)
         e = (e00 * (1 - wr) * (1 - wc) + e01 * (1 - wr) * wc
              + e10 * wr * (1 - wc) + e11 * wr * wc)
         return np.maximum(e, 0.0)

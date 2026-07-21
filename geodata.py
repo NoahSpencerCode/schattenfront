@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 32  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 33  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -1256,7 +1256,7 @@ class WorldData:
         is built over water: arms stop at the shore, rooftops only stand
         on land, and streets are clipped at the waterline."""
         rng = np.random.RandomState(zlib.crc32(name.encode()) & 0xffffff)
-        radius_deg = 0.055 + 0.0028 * math.sqrt(max(1.0, pop_k))
+        radius_deg = 0.065 + 0.0042 * math.sqrt(max(1.0, pop_k))
         coslat = max(0.15, math.cos(math.radians(lat)))
 
         # A local land/water gate mask rendered from the SAME vector
@@ -1265,8 +1265,8 @@ class WorldData:
         # buildings in the sea. Frame matches the plan mapping exactly:
         # x follows longitude, y is latitude compressed by coslat.
         gw = 512
-        gx = radius_deg * 1.5
-        gy = radius_deg * coslat * 1.5
+        gx = radius_deg * 1.9
+        gy = radius_deg * coslat * 1.9
         gimg = self.render_region(lon - gx, lat - gy, lon + gx, lat + gy,
                                   gw, gw, land_only=True)
         gate = np.all(np.asarray(gimg) ==
@@ -1284,20 +1284,22 @@ class WorldData:
 
         # ---- branching built-up shape: a compact core with arms of
         # shrinking lobes reaching out along the growth axes ----
-        core_r = 0.62
+        core_r = 0.50
         lobes = [(0.0, 0.0, core_r)]
         arms = []                       # lobe-centre chains, per arm
-        n_arms = 3 + int(min(4, pop_k / 1200.0))
-        arm_len = 1 + int(min(3, pop_k / 900.0))
+        n_arms = 4 + int(min(4, pop_k / 1000.0))
+        arm_len = 2 + int(min(3, pop_k / 800.0))
         base_a = float(rng.uniform(0, 2 * math.pi))
         for a in range(n_arms):
             ang = base_a + 2 * math.pi * a / n_arms + \
-                float(rng.uniform(-0.4, 0.4))
-            drift = float(rng.uniform(-0.55, 0.55))
+                float(rng.uniform(-0.5, 0.5))
+            drift = float(rng.uniform(-0.7, 0.7))
             chain = [(0.0, 0.0)]
-            d = 0.40
-            rad = 0.40 * float(rng.uniform(0.8, 1.15))
-            n_l = max(1, arm_len - (1 if rng.rand() < 0.4 else 0))
+            d = 0.46
+            rad = 0.34 * float(rng.uniform(0.75, 1.15))
+            # unequal arms: some spike far out, some stay stubby
+            n_l = max(1, arm_len - (2 if rng.rand() < 0.3 else
+                                    1 if rng.rand() < 0.5 else 0))
             for _ in range(n_l):
                 ang += drift * float(rng.uniform(0.4, 1.1))
                 nx = chain[-1][0] + math.cos(ang) * d
@@ -1306,9 +1308,30 @@ class WorldData:
                     break               # the town cannot grow into the sea
                 lobes.append((nx, ny, rad))
                 chain.append((nx, ny))
-                d *= 0.8
-                rad *= 0.78
+                d *= 0.85
+                rad *= 0.82
             arms.append(chain)
+            # a long arm may fork: a side spur off its midpoint makes
+            # the web read as grown, not drawn
+            if len(chain) >= 3 and rng.rand() < 0.45:
+                fx, fy = chain[len(chain) // 2]
+                fang = ang + float(rng.choice([-1.0, 1.0])) * \
+                    float(rng.uniform(0.7, 1.3))
+                fd = d * 1.1
+                frad = rad * 1.1
+                fork = [(fx, fy)]
+                for _ in range(1 + int(rng.rand() < 0.5)):
+                    fx += math.cos(fang) * fd
+                    fy += math.sin(fang) * fd
+                    if not on_land(fx, fy):
+                        break
+                    lobes.append((fx, fy, frad))
+                    fork.append((fx, fy))
+                    fang += float(rng.uniform(-0.4, 0.4))
+                    fd *= 0.85
+                    frad *= 0.82
+                if len(fork) >= 2:
+                    arms.append(fork)
 
         def depth(x, y):
             """0 at a lobe centre, 1 at the built-up fringe, >1 outside."""
@@ -1327,7 +1350,7 @@ class WorldData:
         streets = []                    # (points, width_frac)
         spines = []
         for chain in arms:
-            pts = [(0.0, 0.0)]
+            pts = [chain[0]]
             for k in range(len(chain) - 1):
                 (x1, y1), (x2, y2) = chain[k], chain[k + 1]
                 if k == len(chain) - 2:     # run past the last lobe centre
@@ -1346,9 +1369,9 @@ class WorldData:
         order = sorted(range(len(spines)),
                        key=lambda i: math.atan2(spines[i][-1][1],
                                                 spines[i][-1][0]))
-        for f in (0.42, 0.72) if len(spines) >= 2 else ():
+        for f in (0.35, 0.62, 0.88) if len(spines) >= 2 else ():
             for oi in range(len(order)):
-                if rng.rand() < 0.3:             # torn web = organic
+                if rng.rand() < 0.25:            # torn web = organic
                     continue
                 a = spines[order[oi]]
                 b = spines[order[(oi + 1) % len(order)]]
@@ -1409,8 +1432,8 @@ class WorldData:
         # ---- rooftops: dense jittered plots, footprint-reserved ----
         # grid resolution follows the rooftop size so the footprint test
         # stays accurate however dense the city is
-        ext = 1.45
-        G = int(min(640, max(192, 2 * ext / (pitch * 0.15))))
+        ext = 1.75
+        G = int(min(768, max(192, 2 * ext / (pitch * 0.15))))
         cell = 2 * ext / G
         occ = np.zeros((G, G), dtype=bool)
         centers = -ext + (np.arange(G) + 0.5) * cell

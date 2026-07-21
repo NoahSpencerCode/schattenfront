@@ -207,16 +207,16 @@ def make_city_marker(loader, faction_color, capital):
 
 
 def make_bridge_marker(loader):
-    """A bridge pictogram at river scale, upright for billboarding
-    (20%% smaller than the old flat marker)."""
+    """A bridge pictogram at river scale, lying flat on the map so the
+    holder's heading can lay the deck along its road."""
     root = NodePath('bridge_marker')
     cm = CardMaker('bridge_icon')
-    cm.setFrame(-0.011, 0.011, -0.011, 0.011)   # 1:1
+    cm.setFrame(-0.011, 0.011, -0.011, 0.011)   # 1:1, deck along +Y
     icon = root.attachNewNode(cm.generate())
+    icon.setP(-90)
     icon.setTexture(_icon_texture(loader, 'bridge_map', 'dark'))
     icon.setTransparency(TransparencyAttrib.MAlpha)
     set_marker_layer(icon, LAYER_BRIDGE)
-    root.setBillboardPointEye()
     root.setLightOff()
     return root
 

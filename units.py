@@ -102,25 +102,25 @@ UNIT_TYPES = {
     # can be committed to. Aircraft always fly a full sortie: airfield ->
     # objective -> airfield.
     'fighter': {
-        'label': 'Fighter Squadron', 'domain': 'air', 'speed': 4.52,
+        'label': 'Fighter Squadron', 'domain': 'air', 'speed': 3.77,
         'vision': 1.5, 'hp': 90, 'cost': 400, 'build_time': 8,
         'damage': 14, 'range': 0.8, 'targets': ('air', 'land'),
         'icon': 'FTR', 'fuel': 12.0},
     'bomber': {
         # 30% slower than a fighter; bombs only what lies under the flight
         # path, so its "range" is a tenth of a fighter's reach.
-        'label': 'Bomber Wing', 'domain': 'air', 'speed': 3.58,
+        'label': 'Bomber Wing', 'domain': 'air', 'speed': 3.11,
         'vision': 1.2, 'hp': 130, 'cost': 620, 'build_time': 12,
         'damage': 32, 'range': 0.06, 'targets': ('land', 'sea', 'bridge'),
         'icon': 'BMB', 'fuel': 18.0},
     'airforce_command': {
         # 60% slower than a fighter
-        'label': 'Air Command Wing', 'domain': 'air', 'speed': 2.82,
+        'label': 'Air Command Wing', 'domain': 'air', 'speed': 2.64,
         'vision': 1.2, 'hp': 110, 'cost': 900, 'build_time': 16,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'ACW', 'comm': True,
         'fuel': 16.0},
     'transport_air': {
-        'label': 'Air Transport', 'domain': 'air', 'speed': 3.11,
+        'label': 'Air Transport', 'domain': 'air', 'speed': 2.42,
         'vision': 1.0, 'hp': 120, 'cost': 500, 'build_time': 10,
         'damage': 0, 'range': 0, 'targets': (), 'icon': 'ATR',
         'capacity': 4, 'paradrop': True, 'fuel': 16.0},
@@ -137,13 +137,13 @@ UNIT_TYPES = {
         'build_time': 12, 'damage': 34, 'range': 0.7,
         'targets': ('land', 'bridge'), 'icon': 'HTK'},
     'heavy_bomber': {
-        'label': 'Heavy Bomber Wing', 'domain': 'air', 'speed': 3.91,
+        'label': 'Heavy Bomber Wing', 'domain': 'air', 'speed': 2.73,
         'vision': 1.2, 'hp': 180, 'cost': 950, 'build_time': 16,
         'damage': 48, 'range': 0.06,
         'targets': ('land', 'sea', 'bridge'), 'icon': 'HBM',
         'fuel': 30.0},
     'jet_fighter': {
-        'label': 'Jet Fighter Squadron', 'domain': 'air', 'speed': 7.53,
+        'label': 'Jet Fighter Squadron', 'domain': 'air', 'speed': 5.84,
         'vision': 1.5, 'hp': 100, 'cost': 1100, 'build_time': 14,
         'damage': 20, 'range': 0.9, 'targets': ('air', 'land'),
         'icon': 'JET', 'fuel': 10.0},
@@ -575,7 +575,8 @@ class Unit:
 
         # logistics
         self.supply = self.stats['supply_cap']
-        self.station = None               # supply truck's assigned post
+        self.sortie_plan = []     # parked aircraft: waypoints on the board
+        self.sortie_targets = []  # aloft: remaining briefed targets
         # carriers hold aviation supply for their air wing's sorties
         self.av_stock = 6000.0 if unit_type == 'aircraft_carrier' else 0.0
 
@@ -739,6 +740,8 @@ class Unit:
         self.order_queue = []
         self.current_order = None
         self.attack_target = None
+        self.sortie_plan = []
+        self.sortie_targets = []
 
     def give_order(self, order, queue=False):
         if not queue:
@@ -778,8 +781,17 @@ class Unit:
         self.fire_cooldown = max(0.0, self.fire_cooldown - dt)
 
         if self.current_order is None and self.order_queue:
-            self.current_order = self.order_queue.pop(0)
-            self.game.begin_order(self, self.current_order)
+            nxt = self.order_queue[0]
+            # a transport holds at the ramp until every unit ordered
+            # aboard has embarked -- waypoints can be planned ahead
+            hold = (self.stats.get('capacity')
+                    and self.stats['domain'] != 'air'
+                    and nxt.get('kind') in ('move', 'unload')
+                    and not nxt.get('auto')
+                    and self.game.inbound_boarders(self))
+            if not hold:
+                self.current_order = self.order_queue.pop(0)
+                self.game.begin_order(self, self.current_order)
 
         # a route is still being planned in the background
         if getattr(self, 'plan_pending', None):
@@ -795,6 +807,11 @@ class Unit:
         moved = self._follow_path(dt)
         if self.drop_at is not None:
             self.game.check_paradrop(self)
+        # a briefed sortie works down its target list as each falls
+        if self.sortie_targets and (
+                self.attack_target is None
+                or not getattr(self.attack_target, 'alive', False)):
+            self.attack_target = self.sortie_targets.pop(0)
         self._combat(dt)
 
         if self.current_order and not self.path:
