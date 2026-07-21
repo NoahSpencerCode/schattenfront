@@ -17,6 +17,7 @@ from utils import latlon_to_vec
 AIRFIELD_STOCK_CAP = 6000.0     # lbs of aviation supply
 AIRFIELD_HP = 260.0             # demolishable, like bridges
 DEPOT_STOCK_CAP = 20000.0
+HARBOR_STOCK_CAP = 24000.0
 BUNKER_RADIUS = 0.2             # infantry sheltered within this range
 SORTIE_COST = 600.0             # lbs per aircraft takeoff
 
@@ -155,10 +156,13 @@ class Harbor(Structure):
     FIXED_SCALE = 0.045
     TINT = 0.0                  # city-sketch palette, like the towns
 
+    STOCK_CAP = HARBOR_STOCK_CAP
+
     def __init__(self, game, lat, lon, country, name, city=None):
         self.city = city
         self.ready = []                 # unit types awaiting launch
         self.production = []            # hulls on the ways: [type, time]
+        self.stock = 0.0                # the quayside supply cache
         import zlib as _zlib
         self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
         Structure.__init__(self, game, lat, lon, country, name)
@@ -205,6 +209,7 @@ class Depot(Structure):
     """Supply cache: trucks deliver to and draw from it."""
 
     ICON = 'depot'
+    STOCK_CAP = DEPOT_STOCK_CAP
 
     def __init__(self, game, lat, lon, country, name):
         self.stock = 0.0

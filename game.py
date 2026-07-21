@@ -39,7 +39,7 @@ from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     CITY_GROSS_FORTNIGHT, CITY_VISION_RANGE, COUNTRIES,
                     DAY_CYCLE_LENGTH, FORMATION_SPACING, GLOBE_RADIUS,
                     INDUSTRY_DRIFT, LIFT_FX, LIFT_GROUND, LIFT_PATH,
-                    MINUTES_PER_SECOND,
+                    MAX_VISION_SOURCES, MINUTES_PER_SECOND,
                     NIGHT_VISION_FACTOR, PRODUCTION_TIME_FACTOR,
                     STARTING_FUNDS, SUPPLY_TRANSFER_RANGE, TAX_DEFAULT,
                     TAX_EQUILIBRIUM, UNIT_SPRITE_SCALE)
@@ -2807,6 +2807,10 @@ class WW2RTSGame(ShowBase):
             if (a.city is not None and a.city.country == a.country
                     and not a.city.annexing):
                 a.stock = AIRFIELD_STOCK_CAP
+        for h in self.harbors:
+            if (h.city is not None and h.city.country == h.country
+                    and not h.city.annexing):
+                h.stock = h.STOCK_CAP
         for u in units:
             if u.alive and u.unit_type == 'aircraft_carrier':
                 for c in self.cities:
@@ -2816,8 +2820,11 @@ class WW2RTSGame(ShowBase):
                         u.av_stock = AIRFIELD_STOCK_CAP
                         break
 
-        # 2) depots: trucks exchange with them, nearby units draw
-        for d in self.depots:
+        # 2) the caches -- depots inland, HARBOURS on the coast: the
+        # carriers of either element exchange with them, nearby units
+        # draw; a chain can therefore cross an ocean quay to quay
+        for d in list(self.depots) + list(self.harbors):
+            d_cap = d.STOCK_CAP
             for u in units:
                 if not u.alive or u.carried_by or u.country != d.country:
                     continue
@@ -2826,16 +2833,15 @@ class WW2RTSGame(ShowBase):
                 cap = u.stats['supply_cap']
                 if cap <= 0:
                     continue
-                if (u.stats.get('supply_carrier')
-                        and u.stats['domain'] == 'land'):
-                    # a truck with a customer tops up from the depot; a
-                    # jobless one dumps its load into the cache -- that
-                    # asymmetry is what makes a chain flow forward
+                if u.stats.get('supply_carrier'):
+                    # a carrier with a customer tops up from the cache;
+                    # a jobless one dumps its load -- that asymmetry is
+                    # what makes a chain flow forward
                     has_job = getattr(u, '_supply_tgt', None) is not None
                     if (not has_job and u.supply > cap * 0.35
-                            and d.stock < DEPOT_STOCK_CAP):
+                            and d.stock < d_cap):
                         move = min(u.supply - cap * 0.25,
-                                   DEPOT_STOCK_CAP - d.stock)
+                                   d_cap - d.stock)
                         u.supply -= move
                         d.stock += move
                     elif has_job and u.supply < cap and d.stock > 0:
@@ -2928,9 +2934,12 @@ class WW2RTSGame(ShowBase):
 
     def _stocked_depot_near(self, t, rng=1.2, floor=3000.0):
         """A cache this carrier could draw from: same power, worth
-        the stop, within reach."""
+        the stop, within reach. Lorries use depots AND harbours;
+        supply ships use the harbours alone."""
+        caches = (list(self.depots) + list(self.harbors)
+                  if t.stats['domain'] == 'land' else self.harbors)
         best = None
-        for d in self.depots:
+        for d in caches:
             if d.country != t.country or d.stock < floor:
                 continue
             dd = t.dist_to(d.pos)
@@ -2964,8 +2973,6 @@ class WW2RTSGame(ShowBase):
         def dispatchable(t):
             if t.supply > t.stats['supply_cap'] * 0.6:
                 return True
-            if t.stats['domain'] != 'land':
-                return False
             dep = self._stocked_depot_near(t)
             if dep is None:
                 return False
@@ -3031,7 +3038,7 @@ class WW2RTSGame(ShowBase):
             # when the tank is low or the detour is cheap
             if truck.dist_to(tgt.pos) > truck.vision_range():
                 dep = None
-                if truck.stats['domain'] == 'land' and frac < 0.9:
+                if frac < 0.9:
                     d_tgt = truck.dist_to(tgt.pos)
                     reach = 6.0 if frac < 0.5 else d_tgt
                     cand = self._stocked_depot_near(truck, rng=reach)
@@ -3052,27 +3059,38 @@ class WW2RTSGame(ShowBase):
                                       'auto': True})
             return
         if frac < 0.5:
-            sources = [c for c in self.cities
-                       if c.country == truck.country]
-            sources += [d for d in self.depots
-                        if d.country == truck.country and d.stock > 2000]
             if truck.stats['domain'] == 'sea':
                 sources = [c for c in self.cities
                            if c.country == truck.country and c.harbor]
+                sources += [h for h in self.harbors
+                            if h.country == truck.country
+                            and h.stock > 2000]
+            else:
+                sources = [c for c in self.cities
+                           if c.country == truck.country]
+                sources += [d for d in self.depots + self.harbors
+                            if d.country == truck.country
+                            and d.stock > 2000]
             if sources:
                 src = min(sources, key=lambda s: truck.dist_to(s.pos))
                 if truck.dist_to(src.pos) > 0.4:
                     truck.give_order({'kind': 'move',
                                       'goal': Vec3(src.pos),
                                       'auto': True})
-        elif frac > 0.6 and truck.stats['domain'] == 'land':
-            # nobody starving: haul the load up the depot chain -- the
-            # standing job of every loaded lorry
-            depots = [d for d in self.depots
-                      if d.country == truck.country
-                      and d.stock < DEPOT_STOCK_CAP * 0.8]
-            if depots:
-                d = min(depots, key=lambda x: truck.dist_to(x.pos))
+        elif frac > 0.6:
+            # nobody starving: haul the load up the chain -- lorries
+            # feed hungry depots and harbours, supply SHIPS carry the
+            # stores quay to quay across the sea
+            if truck.stats['domain'] == 'sea':
+                hungry = [h for h in self.harbors
+                          if h.country == truck.country
+                          and h.stock < h.STOCK_CAP * 0.8]
+            else:
+                hungry = [d for d in self.depots + self.harbors
+                          if d.country == truck.country
+                          and d.stock < d.STOCK_CAP * 0.8]
+            if hungry:
+                d = min(hungry, key=lambda x: truck.dist_to(x.pos))
                 if truck.dist_to(d.pos) > 0.5:
                     truck._depot_haul = True
                     truck.give_order({'kind': 'move',
@@ -3625,27 +3643,52 @@ class WW2RTSGame(ShowBase):
         az = math.atan2(d.dot(nn), d.dot(e))
         return int((az + math.pi) / (2.0 * math.pi) * n_az) % n_az
 
+    @staticmethod
+    def _vision_priority(u):
+        """Who keeps their field when the shader budget runs out:
+        blimps on station, then aircraft, naval, armour, other armed
+        troops -- the unarmed tail is shed first."""
+        if getattr(u, 'deployed', False):
+            return 1
+        d = u.stats['domain']
+        if d == 'air':
+            return 2
+        if d == 'sea':
+            return 3
+        if u.unit_type in ('tank', 'heavy_tank'):
+            return 4
+        if u.stats['damage'] > 0:
+            return 5
+        return 6
+
     def _update_vision_shader(self):
         """Per-frame fog refresh so the fields glide with their
-        units; each land/sea source carries its terrain LOS profile."""
+        units; each land/sea source carries its terrain LOS profile.
+        Over budget, sources are shed in REVERSE order of worth."""
         if not self.globe:
             return
         self._los_budget = 12       # fresh profiles allowed this frame
-        entries = [(u.pos, u.vision_range(),
-                    self._los_obs(u, u.pos, u.vision_range(),
-                                  u.is_air()
-                                  or getattr(u, 'deployed', False)))
-                   for u in self._vision_units if u.alive]
+        ranked = [(self._vision_priority(u), u)
+                  for u in self._vision_units if u.alive]
+        ranked.sort(key=lambda p: p[0])
+        entries = []
+        # fixed installations first: radar masts and the cities are
+        # few, deliberate, and must never wink out
+        for r in getattr(self, '_vision_radars', ()):
+            entries.append((r.pos, 2.6, self._los_obs(r, r.pos, 2.6,
+                                                      False)))
         for c in self._vision_cities:
             day = self.is_day(c.pos)
             rng = CITY_VISION_RANGE * (1.0 if day else NIGHT_VISION_FACTOR)
             entries.append((c.pos, rng,
                             self._los_obs(c, c.pos, rng, False)))
-        for r in getattr(self, '_vision_radars', ()):
-            # radar sweeps day and night, terrain-shadowed like any
-            # ground observer but with a far taller mast
-            entries.append((r.pos, 2.6, self._los_obs(r, r.pos, 2.6,
-                                                      False)))
+        room = MAX_VISION_SOURCES - len(entries)
+        for _, u in ranked[:max(0, room)]:
+            entries.append((u.pos, u.vision_range(),
+                            self._los_obs(u, u.pos, u.vision_range(),
+                                          u.is_air()
+                                          or getattr(u, 'deployed',
+                                                     False))))
         self.globe.set_vision(entries)
 
     # ====================================================== AI
@@ -4270,8 +4313,11 @@ class WW2RTSGame(ShowBase):
     def _refresh_harbor_ui(self, harbor):
         bar = self.bottom_bar
         bar.set_title("%s -- FLEET YARD" % harbor.name)
-        bar.set_info("READY HULLS %d   LAUNCHING IS ONE-WAY: A SHIP "
-                     "NEVER RETURNS TO THE YARD" % len(harbor.ready))
+        bar.set_info("READY HULLS %d   SUPPLY CACHE %s / %s LBS   "
+                     "LAUNCHING IS ONE-WAY" %
+                     (len(harbor.ready),
+                      "{:,}".format(int(harbor.stock)),
+                      "{:,}".format(int(harbor.STOCK_CAP))))
         entries = []
         for i, ut in enumerate(harbor.ready[:17]):
             s = stats_for(ut, harbor.country)
