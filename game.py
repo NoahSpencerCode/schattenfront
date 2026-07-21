@@ -1499,14 +1499,6 @@ class WW2RTSGame(ShowBase):
             self._refresh_selection_ui()
             return
 
-        # aircraft already aloft are committed to their flight plan
-        aloft = [u for u in own_selected
-                 if u.stats['domain'] == 'air' and u.based_at is None]
-        if aloft:
-            self.fax_short("AIRCRAFT ALOFT -- COMMITTED TO FLIGHT PLAN")
-            if len(aloft) == len(own_selected):
-                return
-
         enemies = [(u, self._unit_world_pos(u)) for u in self.units
                    if u.alive and u.country != self.player_country
                    and u.visible_to_player and self._facing_camera(u.pos)]
@@ -1529,7 +1521,7 @@ class WW2RTSGame(ShowBase):
                 self._order_board(transport, boarders, shift)
                 return
 
-        commandable = [u for u in own_selected if u not in aloft]
+        commandable = own_selected
 
         # enemy airfields can be demolished like bridges
         if target is None:
@@ -1753,6 +1745,7 @@ class WW2RTSGame(ShowBase):
         unit.path = [(objective, 1.0), (Vec3(home.pos), 1.0)]
         unit.landing_at = home
         unit.based_at = None            # wheels up
+        unit._flown = 0.0
         self._draw_base_stock(was_base, SORTIE_COST)
         # own aircraft appear at once; enemy aircraft stay dark until a
         # friendly vision field actually spots them
@@ -1863,7 +1856,7 @@ class WW2RTSGame(ShowBase):
             return
         unit.sortie_plan.append(order)
         self.fax_short(
-            "SORTIE PLAN: %d LEG(S), %d/%d MI -- ENTER TO LAUNCH" %
+            "SORTIE PLAN: %d LEG(S), %d/%d MI -- SCRAMBLE TO LAUNCH" %
             (len(unit.sortie_plan), d * 60, unit.stats['fuel'] * 60))
         if unit in self.selected:
             self._refresh_selection_ui()
@@ -1878,7 +1871,7 @@ class WW2RTSGame(ShowBase):
                 if self._launch_sortie(u):
                     n += 1
         if n:
-            self.fax_short("%d SORTIE(S) AIRBORNE" % n)
+            self.fax_short("%d SQUADRON(S) SCRAMBLED" % n)
             self._refresh_selection_ui()
 
     def _launch_sortie(self, unit):
@@ -1904,6 +1897,7 @@ class WW2RTSGame(ShowBase):
         unit.path = [(p, 1.0) for p in pts] + [(Vec3(home.pos), 1.0)]
         unit.landing_at = home
         unit.based_at = None            # wheels up
+        unit._flown = 0.0
         self._draw_base_stock(base, SORTIE_COST)
         unit.root.show()
         tgts = [o['target'] for o in plan
@@ -1919,6 +1913,58 @@ class WW2RTSGame(ShowBase):
         unit.current_order = {'kind': 'sortie'}
         self._refresh_air_base(base)
         return True
+
+    def _retask_air(self, unit, order, queue):
+        """Amend an airborne flight plan. A plain order replaces the
+        remaining outbound legs; shift adds one before the run home.
+        The ask is checked against endurance minus miles already flown
+        -- an over-reach turns the flight straight home instead."""
+        kind = order['kind']
+        tgt = order.get('target')
+        obj = Vec3(tgt.pos) if tgt is not None \
+            else Vec3(order.get('goal', unit.pos))
+        fields = self.airfields_of(unit.country)
+        if not fields:
+            return
+        keep = [Vec3(p) for (p, _) in unit.path[:-1]] if queue else []
+        pts = keep + [obj]
+        home = min(fields, key=lambda f: angle_between(obj, f.pos))
+        d = 0.0
+        prev = Vec3(unit.pos)
+        for p in pts:
+            d += angle_between(prev, p) * GLOBE_RADIUS
+            prev = Vec3(p)
+        d += angle_between(prev, home.pos) * GLOBE_RADIUS
+        left = unit.stats['fuel'] - getattr(unit, '_flown', 0.0)
+        if d > left:
+            self.fax.post(
+                "RETASK REFUSED",
+                "%s: the amended plan asks %d mi of tanks holding "
+                "%d mi. The flight turns for home." %
+                (B("BEYOND REMAINING FUEL"), d * 60, max(0, left) * 60),
+                sender="AIR MINISTRY")
+            if not unit.path:            # a plain order wiped the plan
+                rtb = min(fields, key=lambda f: unit.dist_to(f.pos))
+                unit.path = [(Vec3(rtb.pos), 1.0)]
+                unit.landing_at = rtb
+            unit.current_order = {'kind': 'sortie'}
+            unit.order_queue = []
+            return
+        unit.path = [(p, 1.0) for p in pts] + [(Vec3(home.pos), 1.0)]
+        unit.landing_at = home
+        if kind == 'attack' and tgt is not None:
+            if queue and unit.attack_target is not None and \
+                    getattr(unit.attack_target, 'alive', False):
+                unit.sortie_targets.append(tgt)
+            else:
+                unit.attack_target = tgt
+                unit.sortie_targets = []
+        elif kind == 'unload':
+            unit.drop_at = obj
+        unit.current_order = {'kind': 'sortie'}
+        unit.order_queue = []
+        self.fax_short("FLIGHT RETASKED -- %d MI OF %d REMAIN" %
+                       (d * 60, max(0, left) * 60))
 
     # order execution callbacks (called by Unit.update) ------------------
     def begin_order(self, unit, order):
@@ -1963,8 +2009,9 @@ class WW2RTSGame(ShowBase):
         if unit.country == self.player_country and not order.get('auto'):
             order['indicate'] = True
         # parked player aircraft do not scramble on the click: the order
-        # goes on the plotting board; ENTER (or SORTIE) commits it
-        if (unit.stats['domain'] == 'air' and unit.based_at is not None
+        # goes on the plotting board; ENTER (or SCRAMBLE) commits it.
+        # Aloft aircraft are RETASKED in flight on their remaining fuel.
+        if (unit.stats['domain'] == 'air'
                 and unit.country == self.player_country
                 and not order.get('auto')
                 and order['kind'] in ('move', 'attack', 'unload')):
@@ -1972,7 +2019,10 @@ class WW2RTSGame(ShowBase):
                 unit.order_queue.remove(order)
             except ValueError:
                 pass
-            self._plot_sortie_leg(unit, order)
+            if unit.based_at is not None:
+                self._plot_sortie_leg(unit, order)
+            else:
+                self._retask_air(unit, order, queue)
             return
         if (queue and order['kind'] in ('move', 'unload')
                 and order.get('goal') is not None
@@ -3604,9 +3654,8 @@ class WW2RTSGame(ShowBase):
 
     def _cursor_context(self, mpos):
         # attack: a shooter is selected and a valid target is hovered
-        shooters = [u for u in self.selected if u.stats['damage'] > 0
-                    and not (u.stats['domain'] == 'air'
-                             and u.based_at is None)]
+        # (airborne squadrons count -- they can be retasked mid-flight)
+        shooters = [u for u in self.selected if u.stats['damage'] > 0]
         if shooters:
             cands = [(u, self._unit_world_pos(u)) for u in self.units
                      if u.alive and u.country != self.player_country
@@ -3762,6 +3811,10 @@ class WW2RTSGame(ShowBase):
                 hot = (u.current_order is not None
                        and u.current_order.get('kind') == 'attack')
                 joins.append((Vec3(prev), RED if hot else BLUE))
+            if u.stats['domain'] == 'air' and u.based_at is None:
+                for t in [u.attack_target] + list(u.sortie_targets):
+                    if t is not None and getattr(t, 'alive', False):
+                        joins.append((Vec3(t.pos), RED))
             # queued (shift-linked) orders: follow each leg's own planned
             # route when it is ready, with a join ring at each waypoint
             for order in u.order_queue:
@@ -3814,6 +3867,7 @@ class WW2RTSGame(ShowBase):
         # unit, keyed to that unit's type
         bar.hide_info()
         bar.hide_capture()
+        self._sync_scramble()
         primary = next((u for u in self.selected
                         if u.country == self.player_country), None)
         if primary is not None:
@@ -3914,9 +3968,6 @@ class WW2RTSGame(ShowBase):
                         (int(u.hp), u.max_hp, u.stats['fuel'] * 60,
                          int(self._base_stock(base))))
                     entries = []
-                    if u.sortie_plan:
-                        entries.append(("++ SORTIE (ENTER) ++",
-                                        self._launch_sorties, []))
                     if u.cargo:
                         entries.append(("++ UNLOAD HERE ++",
                                         self._unload_parked, [u]))
@@ -3941,11 +3992,9 @@ class WW2RTSGame(ShowBase):
                     if d is not None:
                         info += "   PLAN %d LEG(S) %.0f MI" % (
                             len(u.sortie_plan), d * 60)
-                    bar.add_buttons([("++ SORTIE (ENTER) ++",
-                                      self._launch_sorties, [])])
                 bar.set_info(info)
                 bar.set_hint("RMB PLOTS WAYPOINTS AND TARGETS -- "
-                             "SHIFT-RMB ADDS LEGS -- ENTER LAUNCHES")
+                             "SHIFT-RMB ADDS LEGS -- SCRAMBLE LAUNCHES")
                 return
             bar.set_title("%s -- %s" % (u.stats['label'].upper(),
                                         BRANCH_OF[u.stats['domain']]))
@@ -4028,6 +4077,19 @@ class WW2RTSGame(ShowBase):
         self._unload_cargo(transport)
         self._refresh_selection_ui()
 
+    def _sync_scramble(self):
+        """The red SCRAMBLE button floats above the bar whenever any
+        selected parked squadron has a sortie plan on the board."""
+        bar = self.bottom_bar
+        planned = any(u.alive and u.country == self.player_country
+                      and u.stats['domain'] == 'air'
+                      and u.based_at is not None and u.sortie_plan
+                      for u in self.selected)
+        if planned:
+            bar.show_scramble(self._launch_sorties)
+        else:
+            bar.hide_scramble()
+
     def _refresh_air_roster(self, base):
         """Shared airfield/carrier menu: lists parked squadrons as
         buttons; selected ones are white-bordered.  Stays up while you
@@ -4059,9 +4121,6 @@ class WW2RTSGame(ShowBase):
                        for p in wing]
             planned = [p for p in wing
                        if p in self.selected and p.sortie_plan]
-            if planned:
-                entries.insert(0, ("++ SORTIE (ENTER) ++",
-                                   self._launch_sorties, []))
             bar.add_buttons(entries)
             n = sum(1 for p in wing if p in self.selected)
             if planned:
@@ -4071,12 +4130,13 @@ class WW2RTSGame(ShowBase):
                                                   lead.sortie_plan))
                 bar.set_hint(
                     "PLAN FILED: %d LEG(S), %.0f/%.0f MI -- SHIFT-RMB "
-                    "ADDS LEGS -- ENTER OR THE SORTIE BUTTON LAUNCHES" %
+                    "ADDS LEGS -- SCRAMBLE (OR ENTER) LAUNCHES" %
                     (len(lead.sortie_plan),
                      (d or 0) * 60, lead.stats['fuel'] * 60))
             elif n:
                 bar.set_hint("%d SELECTED -- RMB PLOTS THE SORTIE "
-                             "(SHIFT-RMB ADDS LEGS), ENTER LAUNCHES" % n)
+                             "(SHIFT-RMB ADDS LEGS), SCRAMBLE LAUNCHES"
+                             % n)
             else:
                 bar.set_hint("CLICK A SQUADRON; SHIFT-CLICK TO ADD MORE "
                              "FOR A STRIKE PACKAGE")

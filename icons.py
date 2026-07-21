@@ -393,6 +393,31 @@ def _draw_info_button(d, ink):
     d.rectangle([35, 70, 61, 77], fill=col)                   # serif base
 
 
+def _draw_scramble_button(d, ink):
+    """The SCRAMBLE control: a dispatch-red rounded pill with shaded
+    depth, worn like a klaxon switch (full-colour, ink ignored)."""
+    # drop shadow, slightly low-right
+    d.rounded_rectangle([6, 36, 95, 70], radius=12, fill=(18, 10, 8, 120))
+    # body
+    d.rounded_rectangle([2, 32, 92, 66], radius=12,
+                        fill=(122, 26, 17, 255))
+    # upper half catches the light
+    d.rounded_rectangle([2, 32, 92, 49], radius=8,
+                        corners=(True, True, False, False),
+                        fill=(168, 48, 30, 255))
+    # lower half sinks into shadow
+    d.rounded_rectangle([2, 52, 92, 66], radius=8,
+                        corners=(False, False, True, True),
+                        fill=(96, 17, 11, 255))
+    # soften the band seams
+    d.rectangle([6, 47, 88, 53], fill=(122, 26, 17, 255))
+    # specular line along the top edge
+    d.line([(14, 35), (80, 35)], fill=(214, 110, 80, 200), width=2)
+    # bezel
+    d.rounded_rectangle([2, 32, 92, 66], radius=12,
+                        outline=(38, 12, 8, 255), width=4)
+
+
 def _draw_tax_button(d, ink):
     """Parchment button bearing the taxman's mark: a bold percent sign
     over a coin -- opens the city's tax decree."""
@@ -483,6 +508,7 @@ _DRAWERS = {
     'nosupply': _draw_nosupply,
     'bridge_map': _draw_bridge_map,
     'info_button': _draw_info_button,
+    'scramble_button': _draw_scramble_button,
     'cursor_default': _draw_cursor_default,
     'cursor_attack': _draw_cursor_attack,
     'cursor_embark': _draw_cursor_embark,

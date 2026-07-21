@@ -853,6 +853,11 @@ class Unit:
             self.path.pop(0)
         else:
             self.pos = slerp(self.pos, target, step / ang)
+        if self.stats['domain'] == 'air':
+            # the fuel odometer: what a retasking mid-air may still ask
+            # of the tanks is endurance minus this
+            self._flown = getattr(self, '_flown', 0.0) + \
+                min(step, ang) * GLOBE_RADIUS
         if self.stats['supply_cap'] > 0:
             self.supply = max(0.0, self.supply - self.stats['use_move'] *
                               dt * self.game.game_speed)

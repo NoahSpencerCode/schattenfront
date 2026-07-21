@@ -170,6 +170,21 @@ class BottomBar:
             frameSize=(-0.20, 0.20, -0.030, 0.046),
             relief=DGG.FLAT, pos=(0.95, 0, 0.235), command=None)
         self.capture_btn.hide()
+        # red SCRAMBLE button floating ABOVE the bar: launches every
+        # selected squadron whose sortie plan is on the plotting board
+        self.scramble_btn = DirectButton(
+            parent=self.frame,
+            image=get_icon_path('scramble_button', 'dark'),
+            image_scale=(0.30, 1, 0.30),
+            text="SCRAMBLE", text_scale=0.036,
+            text_fg=(0.97, 0.90, 0.80, 1.0),
+            text_pos=(0, -0.013),
+            text_font=base.hud_font,
+            relief=None, frameColor=(0, 0, 0, 0),
+            frameSize=(-0.28, 0.28, -0.056, 0.056),
+            pos=(0, 0, 0.365), command=None)
+        self.scramble_btn.setTransparency(True)
+        self.scramble_btn.hide()
 
     def show_info(self, command, args):
         self.info_btn['command'] = command
@@ -186,6 +201,14 @@ class BottomBar:
 
     def hide_capture(self):
         self.capture_btn.hide()
+
+    def show_scramble(self, command, args=()):
+        self.scramble_btn['command'] = command
+        self.scramble_btn['extraArgs'] = list(args)
+        self.scramble_btn.show()
+
+    def hide_scramble(self):
+        self.scramble_btn.hide()
 
     def set_title(self, text):
         self.title_tn.setText(text)
