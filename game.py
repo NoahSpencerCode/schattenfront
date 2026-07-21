@@ -326,6 +326,7 @@ class WW2RTSGame(ShowBase):
         self.selected_city = None
         self.selected_airfield = None
         self.selected_harbor = None
+        self.selected_depot = None
         self.roster_base = None          # airfield/carrier whose menu is up
         self.groups = {}
         self.funds = {}
@@ -511,6 +512,7 @@ class WW2RTSGame(ShowBase):
         self.build_mode = None
         self._clear_road_plan()
         self.selected_airfield = None
+        self.selected_depot = None
         self.roster_base = None
         for b in self.bridges:
             b.root.removeNode()
@@ -1349,6 +1351,14 @@ class WW2RTSGame(ShowBase):
             self.clear_selection()
             self._select_harbor(harbor)
             return
+        own_depots = [(d, d.pos * GLOBE_RADIUS) for d in self.depots
+                      if d.country == self.player_country
+                      and self._facing_camera(d.pos)]
+        depot = self._pick_object(mpos, own_depots)
+        if depot:
+            self.clear_selection()
+            self._select_depot(depot)
+            return
         own_cities = [(c, c.label_pos * GLOBE_RADIUS)
                       for c in self.cities
                       if c.country == self.player_country
@@ -1414,6 +1424,7 @@ class WW2RTSGame(ShowBase):
         self._select_city(None)
         self._select_airfield(None)
         self._select_harbor(None)
+        self._select_depot(None)
         self._refresh_selection_ui()
 
     def _select_city(self, city):
@@ -1438,6 +1449,14 @@ class WW2RTSGame(ShowBase):
         self.selected_harbor = harbor
         if harbor:
             harbor.sel_ring.show()
+        self._refresh_selection_ui()
+
+    def _select_depot(self, depot):
+        if self.selected_depot:
+            self.selected_depot.sel_ring.hide()
+        self.selected_depot = depot
+        if depot:
+            depot.sel_ring.show()
         self._refresh_selection_ui()
 
     def assign_group(self, n):
@@ -2790,15 +2809,25 @@ class WW2RTSGame(ShowBase):
                         or u.country != src.country
                         or u.stats['supply_cap'] <= 0):
                     continue
-                if u.stats.get('supply_carrier') and not src_sea:
-                    continue        # trucks don't top up other trucks
-                if not src_sea and u.stats['domain'] == 'sea':
-                    continue        # ships resupply at sea, not from shore
+                cap_u = u.stats['supply_cap']
+                if u.stats.get('supply_carrier'):
+                    # a fellow carrier is a casualty, not a customer: it
+                    # is topped up only when nearly dry, and only to a
+                    # working reserve, so a stranded column gets legs
+                    # back without supply sloshing between lorries
+                    if src_sea != (u.stats['domain'] == 'sea'):
+                        continue
+                    if u.supply >= cap_u * 0.3:
+                        continue
+                    need = cap_u * 0.6 - u.supply
+                else:
+                    if not src_sea and u.stats['domain'] == 'sea':
+                        continue    # ships resupply at sea, not from shore
+                    need = cap_u - u.supply
                 if src.supply <= 0:
                     break
                 if u.dist_to(src.pos) > rng:
                     continue
-                need = u.stats['supply_cap'] - u.supply
                 if need <= 0:
                     continue
                 move = min(need, src.supply)
@@ -2833,14 +2862,67 @@ class WW2RTSGame(ShowBase):
                 u.set_nosupply_flag(u.stats['supply_cap'] > 0
                                     and u.supply <= 0)
 
-        # 5) idle supply carriers run their loops automatically
+        # 5) every starving call is answered by its NEAREST free
+        # carrier, then the idle carriers run their loops
+        self._assign_supply_calls()
         for u in units:
             if (u.alive and not u.carried_by
                     and u.stats.get('supply_carrier')):
                 self._auto_shuttle(u)
+        if self.selected_depot is not None:
+            self._refresh_depot_ui(self.selected_depot)
 
         # 6) idle personnel trucks run a taxi service for the infantry
         self._tick_ferry()
+
+    def _assign_supply_calls(self):
+        """Match starving units to supply carriers, NEAREST carrier
+        first. A nearly-dry carrier is itself a valid casualty, so a
+        stranded column is rescued rather than abandoned."""
+        units = self.units
+        for t in units:
+            if not (t.alive and t.stats.get('supply_carrier')):
+                continue
+            tgt = getattr(t, '_supply_tgt', None)
+            if tgt is None:
+                continue
+            cap = tgt.stats['supply_cap']
+            lim = cap * (0.55 if tgt.stats.get('supply_carrier')
+                         else 0.8)
+            if (not tgt.alive or tgt.carried_by
+                    or tgt.supply > lim or not t.alive):
+                t._supply_tgt = None
+        claimed = {id(getattr(t, '_supply_tgt', None)) for t in units
+                   if t.alive and t.stats.get('supply_carrier')
+                   and getattr(t, '_supply_tgt', None) is not None}
+        free = [t for t in units
+                if t.alive and not t.carried_by
+                and t.stats.get('supply_carrier')
+                and t.supply > t.stats['supply_cap'] * 0.6
+                and getattr(t, '_supply_tgt', None) is None]
+        if not free:
+            return
+        for u in units:
+            if (not u.alive or u.carried_by or u.stats['supply_cap'] <= 0
+                    or id(u) in claimed):
+                continue
+            cap = u.stats['supply_cap']
+            if u.stats.get('supply_carrier'):
+                if u.supply >= cap * 0.05:
+                    continue        # only a truly stranded carrier calls
+            elif u.supply >= cap * 0.5:
+                continue
+            sea = u.stats['domain'] == 'sea'
+            cands = [t for t in free if t.country == u.country
+                     and t is not u
+                     and (t.stats['domain'] == 'sea') == sea]
+            if not cands:
+                continue
+            t = min(cands, key=lambda t: t.dist_to(u.pos))
+            t._supply_tgt = u
+            free.remove(t)
+            if not free:
+                return
 
     def _auto_shuttle(self, truck):
         """Empty: fetch more.  Full: answer the neediest call or haul
@@ -2854,7 +2936,15 @@ class WW2RTSGame(ShowBase):
             return
         cap = truck.stats['supply_cap']
         frac = truck.supply / cap
-        if frac < 0.5 and getattr(truck, '_supply_tgt', None) is None:
+        tgt = getattr(truck, '_supply_tgt', None)
+        if tgt is not None:
+            # a call is assigned centrally (nearest free carrier); the
+            # shuttle just drives it
+            if truck.dist_to(tgt.pos) > truck.vision_range():
+                truck.give_order({'kind': 'move', 'goal': Vec3(tgt.pos),
+                                  'auto': True})
+            return
+        if frac < 0.5:
             sources = [c for c in self.cities
                        if c.country == truck.country]
             sources += [d for d in self.depots
@@ -2868,50 +2958,17 @@ class WW2RTSGame(ShowBase):
                     truck.give_order({'kind': 'move',
                                       'goal': Vec3(src.pos),
                                       'auto': True})
-        elif frac > 0.6:
-            # DISPATCHED, not stampeded: each starving unit calls
-            # exactly ONE responding carrier (the nearest without a
-            # customer); everyone else pushes the depot chain
-            same_sea = truck.stats['domain'] == 'sea'
-            tgt = getattr(truck, '_supply_tgt', None)
-            if tgt is not None and (
-                    not tgt.alive
-                    or tgt.supply > tgt.stats['supply_cap'] * 0.8):
-                truck._supply_tgt = tgt = None
-            if tgt is None:
-                claimed = {id(getattr(t, '_supply_tgt', None))
-                           for t in self.units
-                           if t.alive and t is not truck
-                           and t.stats.get('supply_carrier')
-                           and t.country == truck.country}
-                needy = [u for u in self.units
-                         if u.alive and u.country == truck.country
-                         and not u.carried_by
-                         and u.stats['supply_cap'] > 0
-                         and not u.stats.get('supply_carrier')
-                         and u.supply < u.stats['supply_cap'] * 0.5
-                         and (u.stats['domain'] == 'sea') == same_sea
-                         and id(u) not in claimed]
-                if needy:
-                    tgt = min(needy,
-                              key=lambda u: truck.dist_to(u.pos))
-                    truck._supply_tgt = tgt
-            if tgt is not None and \
-                    truck.dist_to(tgt.pos) > truck.vision_range():
-                truck.give_order({'kind': 'move',
-                                  'goal': Vec3(tgt.pos),
-                                  'auto': True})
-            elif tgt is None and truck.stats['domain'] == 'land':
-                # nobody starving: haul the load up the depot chain
-                depots = [d for d in self.depots
-                          if d.country == truck.country
-                          and d.stock < DEPOT_STOCK_CAP * 0.8]
-                if depots:
-                    d = min(depots, key=lambda x: truck.dist_to(x.pos))
-                    if truck.dist_to(d.pos) > 0.5:
-                        truck.give_order({'kind': 'move',
-                                          'goal': Vec3(d.pos),
-                                          'auto': True})
+        elif frac > 0.6 and truck.stats['domain'] == 'land':
+            # nobody starving: haul the load up the depot chain
+            depots = [d for d in self.depots
+                      if d.country == truck.country
+                      and d.stock < DEPOT_STOCK_CAP * 0.8]
+            if depots:
+                d = min(depots, key=lambda x: truck.dist_to(x.pos))
+                if truck.dist_to(d.pos) > 0.5:
+                    truck.give_order({'kind': 'move',
+                                      'goal': Vec3(d.pos),
+                                      'auto': True})
 
     FERRY_MIN_MARCH = 1.0       # a march worth motorizing (world units)
     FERRY_PICKUP_MAX = 1.5      # how far a truck will drive to collect
@@ -2957,19 +3014,18 @@ class WW2RTSGame(ShowBase):
         for cab, riders in buckets.values():
             riders.sort(key=lambda u: cab.dist_to(u.pos))
             riders = riders[:cab.stats['capacity']]
-            claims = []
+            # the marchers never break stride: the lorry does all the
+            # driving and scoops them up on the road
+            claims = [(u, Vec3(u.current_order['goal'])) for u in riders]
             for u in riders:
-                goal = Vec3(u.current_order['goal'])
                 u._ferry_by = cab
-                u.give_order({'kind': 'board', 'target': cab,
-                              'auto': True})
-                claims.append((u, goal))
-            cab._ferry = {'state': 'collect', 'claims': claims}
+            cab._ferry = {'state': 'collect', 'claims': claims,
+                          'chase': None}
             cab.give_order({'kind': 'move', 'goal': Vec3(riders[0].pos),
                             'auto': True})
             if cab.country == self.player_country:
-                self.fax_short("MOTOR COLUMN COLLECTING %d "
-                               "INFANTRY UNIT(S)" % len(claims))
+                self.fax_short("MOTOR COLUMN INTERCEPTING %d "
+                               "MARCHER(S)" % len(claims))
 
     def _ferry_job(self, truck, job):
         """Advance one truck's active taxi job by one tick."""
@@ -2984,25 +3040,39 @@ class WW2RTSGame(ShowBase):
             truck._ferry = None
             return
         if job['state'] == 'collect':
+            # a lorry that cannot find a road to its marchers releases
+            # them -- they never stopped walking, so nothing is lost
+            if globalClock.getFrameTime() < getattr(
+                    truck, '_route_fail_until', 0.0):
+                for u, g in job['claims']:
+                    u._ferry_by = None
+                truck._ferry = None
+                return
             keep = []
             for u, g in job['claims']:
-                aboard = u.carried_by is truck
-                orders = list(u.order_queue)
-                if u.current_order:
-                    orders.append(u.current_order)
-                coming = aboard or any(
-                    o.get('kind') == 'board'
-                    and o.get('target') is truck for o in orders)
-                if coming:
+                if u.carried_by is truck:
+                    keep.append((u, g))
+                    continue
+                if u.carried_by is not None:
+                    u._ferry_by = None
+                    continue
+                o = u.current_order
+                marching = (o is not None and o.get('kind') == 'move'
+                            and o.get('goal') is not None
+                            and (Vec3(o['goal'])
+                                 - g).lengthSquared() < 1e-8)
+                if marching:
                     keep.append((u, g))
                 else:
-                    u._ferry_by = None
+                    u._ferry_by = None   # re-tasked, arrived, or lost
             job['claims'] = keep
             if not keep:
                 truck._ferry = None
                 truck.clear_orders()
                 return
-            if all(u.carried_by is truck for u, _ in keep):
+            walkers = [(u, g) for u, g in keep
+                       if u.carried_by is not truck]
+            if not walkers:
                 dest = Vec3(keep[0][1])
                 job['state'] = 'deliver'
                 truck.give_order({'kind': 'move',
@@ -3010,6 +3080,19 @@ class WW2RTSGame(ShowBase):
                 truck.give_order({'kind': 'unload',
                                   'goal': Vec3(dest), 'auto': True},
                                  queue=True)
+                return
+            u, _g = min(walkers, key=lambda p: truck.dist_to(p[0].pos))
+            if truck.dist_to(u.pos) < 0.45:
+                self._load_unit(truck, u)   # scooped mid-march
+                return
+            # chase the moving marcher; re-aim only when the last aim
+            # has drifted stale so the planner isn't churned
+            aim = job.get('chase')
+            if aim is None or \
+                    angle_between(aim, u.pos) * GLOBE_RADIUS > 0.3:
+                job['chase'] = Vec3(u.pos)
+                truck.give_order({'kind': 'move', 'goal': Vec3(u.pos),
+                                  'auto': True})
         else:                           # deliver
             if truck.cargo and (truck.current_order or truck.order_queue
                                 or truck.plan_pending):
@@ -3878,6 +3961,9 @@ class WW2RTSGame(ShowBase):
         if self.selected_harbor:
             self._refresh_harbor_ui(self.selected_harbor)
             return
+        if self.selected_depot:
+            self._refresh_depot_ui(self.selected_depot)
+            return
         if self.selected_city:
             city = self.selected_city
             tag = " (CAPITAL)" if city.capital else ""
@@ -4143,6 +4229,21 @@ class WW2RTSGame(ShowBase):
         else:
             bar.set_hint(empty_hint)
 
+    def _refresh_depot_ui(self, depot):
+        """The depot's ledger: stock on hand and how the chain runs.
+        Refreshed live once a second while selected."""
+        from structures import DEPOT_STOCK_CAP as _CAP
+        bar = self.bottom_bar
+        bar.set_title("%s -- SUPPLY CACHE" % depot.name)
+        pct = 100.0 * depot.stock / _CAP
+        bar.set_info("STOCK %s / %s LBS   (%d%% FULL)   %s" %
+                     ("{:,}".format(int(depot.stock)),
+                      "{:,}".format(int(_CAP)), pct,
+                      COUNTRIES[depot.country]['name'].upper()))
+        bar.set_hint("JOBLESS LORRIES DUMP STORES HERE; LORRIES ON A "
+                     "CALL DRAW FROM IT -- SITE DEPOTS FORWARD TO "
+                     "STAGE THE CHAIN")
+
     def _refresh_engineer_ui(self, eng):
         bar = self.bottom_bar
         bar.set_title("ENGINEER COMPANY -- WORKS DETAIL")
@@ -4178,9 +4279,11 @@ class WW2RTSGame(ShowBase):
             "orders. Build DEPOTS with your engineers to stage the",
             "chain toward the fighting."],
         'transport_truck': [
-            "Motor transport for infantry over friendly ground.",
-            "Foot troops that must cross water or drop from the sky",
-            "require sea or air transport instead."],
+            "Motor transport for infantry over friendly ground. An",
+            "idle lorry runs a taxi service on its own: it drives out",
+            "to infantry on a long march, scoops them up WITHOUT",
+            "breaking their stride, and drops them at their goal.",
+            "Water crossings and air drops need ships or aircraft."],
         'aa_artillery': [
             "Air defence. Engages enemy aircraft at long range and",
             "is useless against ground troops. Post batteries over",
