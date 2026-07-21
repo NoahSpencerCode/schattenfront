@@ -63,6 +63,7 @@ from structures import (Airfield, Bunker, Depot, Harbor,
                         BUNKER_RADIUS, DEPOT_STOCK_CAP, SORTIE_COST)
 from ui import (TopBar, BottomBar, FaxPanel, BudgetFax, BriefingFax,
                 ProductionFax, TaxFax, B)
+from config import UNIT_SPEED_FACTOR
 from units import (Unit, UNIT_TYPES, BRANCH_OF, FIRE_SUPPLY_FACTOR,
                    NATION_UNIT_STATS, stats_for)
 from utils import (angle_between, find_regular_font_path,
@@ -3174,8 +3175,9 @@ class WW2RTSGame(ShowBase):
                     has_job = getattr(u, '_supply_tgt', None) is not None
                     if (not has_job and u.supply > cap * 0.35
                             and d.stock < d_cap):
-                        move = min(u.supply - cap * 0.25,
-                                   d_cap - d.stock)
+                        keep = max(cap * 0.25, self._fuel_reserve(u))
+                        move = max(0.0, min(u.supply - keep,
+                                            d_cap - d.stock))
                         u.supply -= move
                         d.stock += move
                     elif has_job and u.supply < cap and d.stock > 0:
@@ -3195,6 +3197,11 @@ class WW2RTSGame(ShowBase):
                 continue
             rng = max(src.vision_range(), SUPPLY_TRANSFER_RANGE)
             src_sea = src.stats['domain'] == 'sea'
+            # the way home is not for sale: only stores above the
+            # fuel reserve may be issued
+            avail = src.supply - self._fuel_reserve(src)
+            if avail <= 0:
+                continue
             for u in units:
                 if (u is src or not u.alive or u.carried_by
                         or u.country != src.country
@@ -3215,17 +3222,18 @@ class WW2RTSGame(ShowBase):
                     if not src_sea and u.stats['domain'] == 'sea':
                         continue    # ships resupply at sea, not from shore
                     need = cap_u - u.supply
-                if src.supply <= 0:
+                if avail <= 0:
                     break
                 if u.dist_to(src.pos) > rng:
                     continue
                 if need <= 0:
                     continue
-                move = min(need, src.supply)
+                move = min(need, avail)
                 u.supply += move
                 src.supply -= move
+                avail -= move
             # aviation stock: trucks feed airfields, ships feed carriers
-            if src.supply > 0:
+            if avail > 0:
                 if src_sea:
                     for u in units:
                         if (u.alive and u.country == src.country
@@ -3233,9 +3241,12 @@ class WW2RTSGame(ShowBase):
                                 and u.dist_to(src.pos) <= rng
                                 and u.av_stock < AIRFIELD_STOCK_CAP):
                             move = min(AIRFIELD_STOCK_CAP - u.av_stock,
-                                       src.supply)
+                                       avail)
                             u.av_stock += move
                             src.supply -= move
+                            avail -= move
+                            if avail <= 0:
+                                break
                 else:
                     for a in self.airfields:
                         if (a.country == src.country
@@ -3243,9 +3254,12 @@ class WW2RTSGame(ShowBase):
                                 and angle_between(a.pos, src.pos) *
                                 GLOBE_RADIUS <= rng):
                             move = min(AIRFIELD_STOCK_CAP - a.stock,
-                                       src.supply)
+                                       avail)
                             a.stock += move
                             src.supply -= move
+                            avail -= move
+                            if avail <= 0:
+                                break
 
         # 4) starving units get the red jerrycan
         for u in units:
@@ -3265,6 +3279,39 @@ class WW2RTSGame(ShowBase):
 
         # 6) idle personnel trucks run a taxi service for the infantry
         self._tick_ferry()
+
+    def _move_cost_lbs(self, u, d_wu):
+        """Stores burnt driving d_wu world units (halfway between
+        road and open-country pace for wheels)."""
+        eff = u.stats['speed'] * UNIT_SPEED_FACTOR
+        if u.stats['domain'] == 'land':
+            eff *= 0.5 * (1.0 + u.stats.get('road_mult', 3.0))
+        return u.stats['use_move'] * d_wu / max(eff, 1e-6)
+
+    def _sources_for(self, u):
+        if u.stats['domain'] == 'sea':
+            srcs = [c.pos for c in self.cities
+                    if c.country == u.country and c.harbor]
+            srcs += [h.pos for h in self.harbors
+                     if h.country == u.country and h.stock > 2000]
+        else:
+            srcs = [c.pos for c in self.cities
+                    if c.country == u.country]
+            srcs += [d.pos for d in self.depots + self.harbors
+                     if d.country == u.country and d.stock > 2000]
+        return srcs
+
+    def _fuel_reserve(self, u, at_pos=None):
+        """Stores a carrier must KEEP to reach its nearest friendly
+        source (from at_pos if given): the never-strand floor."""
+        p = at_pos if at_pos is not None else u.pos
+        srcs = self._sources_for(u)
+        cap = u.stats['supply_cap']
+        if not srcs:
+            return cap * 0.15
+        d = min(angle_between(p, sp) * GLOBE_RADIUS for sp in srcs)
+        return min(cap * 0.6,
+                   self._move_cost_lbs(u, d) * 1.3 + 40.0)
 
     def _stocked_depot_near(self, t, rng=1.2, floor=3000.0):
         """A cache this carrier could draw from: same power, worth
@@ -3342,8 +3389,15 @@ class WW2RTSGame(ShowBase):
             # nobody else can take the call
             calm = [t for t in cands
                     if not getattr(t, '_depot_haul', False)]
-            t = min(calm if calm else cands,
-                    key=lambda t: t.dist_to(u.pos))
+            pool = calm if calm else cands
+            # THE TRIP RULE: a carrier answers only if it can reach the
+            # customer, deliver something worth the drive, and still
+            # make a friendly source afterwards. Customers beyond every
+            # carrier's safe range are served by GROWING THE CHAIN.
+            pool = [t for t in pool if self._trip_ok(t, u.pos)]
+            if not pool:
+                continue
+            t = min(pool, key=lambda t: t.dist_to(u.pos))
             t._supply_tgt = u
             if getattr(t, '_depot_haul', False):
                 t._depot_haul = False
@@ -3351,6 +3405,24 @@ class WW2RTSGame(ShowBase):
             free.remove(t)
             if not free:
                 return
+
+    def _trip_ok(self, t, dest_pos):
+        """Can this carrier reach dest with its way home intact and a
+        tenth of a load to hand over? A stocked cache it can REACH
+        counts as a refill stop, matching the shuttle's own via-cache
+        routing -- but with no reachable stores and a dry tank the
+        errand is refused rather than stranding the carrier."""
+        cap = t.stats['supply_cap']
+        d_direct = angle_between(t.pos, dest_pos) * GLOBE_RADIUS
+        best = t.supply - self._move_cost_lbs(t, d_direct)
+        cache = self._stocked_depot_near(t, rng=6.0)
+        if cache is not None:
+            d1 = t.dist_to(cache.pos)
+            if t.supply - self._move_cost_lbs(t, d1) > 0.0:
+                d2 = angle_between(cache.pos, dest_pos) * GLOBE_RADIUS
+                best = max(best, cap - self._move_cost_lbs(t, d2))
+        return (best - self._fuel_reserve(t, at_pos=dest_pos)
+                >= cap * 0.1)
 
     def _auto_shuttle(self, truck):
         """Empty: fetch more.  Full: answer the neediest call or haul
@@ -3366,6 +3438,10 @@ class WW2RTSGame(ShowBase):
         frac = truck.supply / cap
         truck._depot_haul = False
         tgt = getattr(truck, '_supply_tgt', None)
+        if tgt is not None and not self._trip_ok(truck, tgt.pos):
+            # the situation moved: the errand is no longer safe --
+            # hand the call back and go refill instead
+            truck._supply_tgt = tgt = None
         if tgt is not None:
             # a call is assigned centrally (nearest free carrier); the
             # shuttle drives it -- topping up at a depot on the way
@@ -3425,7 +3501,10 @@ class WW2RTSGame(ShowBase):
                           and d.stock < d.STOCK_CAP * 0.8]
             if hungry:
                 d = min(hungry, key=lambda x: truck.dist_to(x.pos))
-                if truck.dist_to(d.pos) > 0.5:
+                haul_cost = self._move_cost_lbs(
+                    truck, truck.dist_to(d.pos))
+                if (truck.dist_to(d.pos) > 0.5
+                        and truck.supply - haul_cost >= cap * 0.35):
                     truck._depot_haul = True
                     truck.give_order({'kind': 'move',
                                       'goal': Vec3(d.pos),
