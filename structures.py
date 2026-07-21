@@ -246,6 +246,7 @@ class Depot(Structure):
     """Supply cache: trucks deliver to and draw from it."""
 
     ICON = 'depot'
+    FIXED_SCALE = 0.03          # half the standard structure footprint
     STOCK_CAP = DEPOT_STOCK_CAP
 
     def __init__(self, game, lat, lon, country, name):
