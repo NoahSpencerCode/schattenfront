@@ -883,10 +883,10 @@ class Unit:
             # of the tanks is endurance minus this
             self._flown = getattr(self, '_flown', 0.0) + moved_wu
         if self.stats['supply_cap'] > 0:
-            # stores burn with the MILES marched, not the clock -- a
-            # full infantry tank is ~3 world units of marching, so a
-            # strategic advance is possible but still needs its train
-            burn = self.stats['use_move'] * moved_wu * 10.0
+            # the ORIGINAL harsh economy, by design: the column burns
+            # stores every second it is under way, and no advance
+            # outlives its train -- supply reliance is a core mechanic
+            burn = self.stats['use_move'] * dt * self.game.game_speed
             if getattr(self, 'submerged', False):
                 burn *= 2.0             # running submerged drinks amps
             self.supply = max(0.0, self.supply - burn)

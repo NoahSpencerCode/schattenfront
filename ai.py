@@ -310,13 +310,24 @@ class NationAI:
         inf_near = sum(1 for u in near if u.unit_type == 'infantry')
         if inf_near >= need + 1 and len(near) >= need + 2 \
                 and not self.overseas:
-            # the group is massed: advance on the objective as one
+            # the group is massed: advance on the objective as one --
+            # WITH its train, for no column outlives its stores
             for u in near:
                 g._pending_ai_orders.append(
                     (u, {'kind': 'move', 'goal': Vec3(self.objective.pos)}))
                 orders += 1
                 if orders >= MAX_ORDERS_PER_THINK:
                     break
+            lorries = [u for u in g.units
+                       if u.alive and u.country == self.country
+                       and u.unit_type == 'supply_truck'
+                       and not u.carried_by
+                       and getattr(u, '_supply_tgt', None) is None
+                       and angle_between(u.pos, self.staging.pos) < 0.08]
+            for u in lorries[:2]:
+                u.give_order({'kind': 'move',
+                              'goal': Vec3(self.objective.pos),
+                              'auto': True})
         else:
             # still gathering: everyone idle marches to the staging city
             for u in idle:
@@ -448,10 +459,25 @@ class NationAI:
                                 'goal': latlon_to_vec(bl, bo)}))
                 else:
                     # moored off the staging city: call infantry aboard
+                    # -- and ONE lorry of stores, or the beachhead
+                    # starves before it reaches the objective
                     slots = g._board_capacity_left(lift)
                     riders = sorted(
                         (u for u in idle if u.unit_type == 'infantry'),
                         key=lambda u: angle_between(u.pos, lift.pos))
-                    for u in riders[:max(0, min(slots, need))]:
+                    manifest = riders[:max(0, min(slots, need))]
+                    if not any(p.unit_type == 'supply_truck'
+                               for p in lift.cargo):
+                        lorry = next(
+                            (u for u in g.units
+                             if u.alive and u.country == self.country
+                             and u.unit_type == 'supply_truck'
+                             and not u.carried_by
+                             and getattr(u, '_supply_tgt', None) is None
+                             and angle_between(u.pos, lift.pos) < 0.08),
+                            None)
+                        if lorry is not None and slots > len(manifest):
+                            manifest.append(lorry)
+                    for u in manifest:
                         g._pending_ai_orders.append(
                             (u, {'kind': 'board', 'target': lift}))

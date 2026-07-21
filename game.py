@@ -2976,6 +2976,8 @@ class WW2RTSGame(ShowBase):
                 if t.alive and not t.carried_by
                 and t.stats.get('supply_carrier')
                 and getattr(t, '_supply_tgt', None) is None
+                and not (t.current_order
+                         and t.current_order.get('kind') == 'board')
                 and dispatchable(t)]
         if not free:
             return
