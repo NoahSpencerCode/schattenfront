@@ -186,19 +186,23 @@ class City:
 
 
 ROAD_CHUNK_HP = 120.0
+ROAD_SECTION_LEN = 0.45         # world units per section (ends trim)
 
 
-class RoadTarget:
-    """A marked stretch of roadway under attack: bomb it out and the
-    way is CUT until engineers lay road over the gap again."""
+class RoadSection:
+    """One consistent-length stretch of roadway: its own geometry,
+    its own hit points. Bomb it out and exactly THIS section vanishes
+    and closes to traffic, until the engineers relay it."""
 
-    def __init__(self, game, pos):
+    def __init__(self, game, pts):
         self.game = game
-        self.pos = Vec3(pos)
+        self.pts = pts                  # unit vectors along the section
+        self.pos = Vec3(pts[len(pts) // 2])
         self.alive = True
         self.hp = ROAD_CHUNK_HP
         self.max_hp = ROAD_CHUNK_HP
         self.country = None
+        self.node = None
 
     def take_damage(self, amount, attacker=None):
         if not self.alive:
@@ -207,7 +211,7 @@ class RoadTarget:
         if self.hp <= 0:
             self.hp = 0.0
             self.alive = False
-            self.game._cut_road(self.pos)
+            self.game._cut_road_section(self)
 
 
 class Bridge:
@@ -352,9 +356,9 @@ class WW2RTSGame(ShowBase):
         self._build_ghost_kind = None
         self._ghost_t = 0.0
         self._works_ghosts = []         # planned works awaiting shovels
-        self.road_cuts = []             # bombed-out chunks of roadway
-        self.road_targets = []          # live bombing marks on roads
-        self._road_pick_pts = []        # sparse samples for road picks
+        self.road_cuts = []             # bombed-out sections of roadway
+        self.road_sections = []         # every section, a live target
+        self._glow_section = None       # section under the gunsight
         self.road_plan = []             # surveyed road waypoints
         self.road_preview = None        # yellow survey line
         self.selected = []
@@ -1708,7 +1712,7 @@ class WW2RTSGame(ShowBase):
                        if self._facing_camera(b.pos)]
             target = self._pick_object(mpos, bridges)
         if target is None:
-            rt = self._pick_road_target(mpos)
+            rt = self._pick_road_section(mpos)
             if rt is not None:
                 attackers = [u for u in own_selected
                              if u.can_target('bridge')]
@@ -3302,7 +3306,7 @@ class WW2RTSGame(ShowBase):
                 if not hasattr(self.world, 'custom_road_paths'):
                     self.world.custom_road_paths = []
                 self.world.custom_road_paths.append(list(curve))
-                self._draw_custom_road(poly)
+            self._build_road_overlay()
         self._apply_marker_scale()
         if country == self.player_country:
             self.fax.post("WORKS COMPLETE",
@@ -3338,30 +3342,66 @@ class WW2RTSGame(ShowBase):
                 self.fax_short("%d BRIDGE(S) THROWN ACROSS THE "
                                "CROSSINGS" % built)
 
+    @staticmethod
+    def _split_sections(poly, target):
+        """Cut a polyline into sections of CONSISTENT arc length;
+        only the final remainder runs short (and merges into its
+        neighbour when it is a mere stub)."""
+        out, run, run_len = [], [poly[0]], 0.0
+        for a, b in zip(poly[:-1], poly[1:]):
+            run.append(b)
+            run_len += angle_between(a, b) * GLOBE_RADIUS
+            if run_len >= target:
+                out.append(run)
+                run, run_len = [b], 0.0
+        if len(run) >= 2:
+            if run_len < target * 0.5 and out:
+                out[-1].extend(run[1:])     # stub joins its neighbour
+            else:
+                out.append(run)
+        return out
+
     def _build_road_overlay(self):
         """EVERY road on the map -- map-born and engineer-laid alike
-        -- is drawn by this ONE overlay with one brush, and painted by
-        the detail tiles with one brush. The base texture carries no
-        roads at all, so a demolished road can truly vanish."""
+        -- is one chain of consistent-length SECTIONS, each its own
+        geometry and its own bombing target. The base texture and the
+        tiles carry no roads at all."""
         grp = getattr(self, '_custom_road_group', None)
         if grp is not None and not grp.isEmpty():
             grp.removeNode()
-        self._custom_road_group = None
+        grp = self.render.attachNewNode('roads')
+        grp.setTwoSided(True)
+        grp.setShader(self._road_shader())
+        grp.setShaderInput('sun_dir', Vec3(1, 0, 0))
+        from config import NIGHT_DARKNESS
+        grp.setShaderInput('night_darkness', NIGHT_DARKNESS)
+        grp.setShaderInput('tint', Vec4(0, 0, 0, 0))
+        grp.setLightOff()
+        self._custom_road_group = grp
         self.custom_roads = []
+        self.road_sections = []
+        self._glow_section = None
         paths = list(self.world.road_paths.values()) \
             + list(getattr(self.world, 'spur_paths', [])) \
             + list(getattr(self.world, 'custom_road_paths', []))
-        self._road_pick_pts = []
         for path in paths:
             pts = list(path[::3])
             if path and (not pts or pts[-1] != path[-1]):
                 pts.append(path[-1])
             poly = [latlon_to_vec(la, lo) for (la, lo) in pts]
-            if len(poly) >= 2:
-                self._draw_custom_road(poly)
-                self._road_pick_pts.extend(poly[::10])
+            if len(poly) < 2:
+                continue
+            for sec_pts in self._split_sections(poly,
+                                                ROAD_SECTION_LEN):
+                mid = sec_pts[len(sec_pts) // 2]
+                if any(angle_between(mid, c) * GLOBE_RADIUS
+                       < self.ROAD_CUT_R for c in self.road_cuts):
+                    continue            # this stretch is bombed out
+                sec = RoadSection(self, sec_pts)
+                sec.node = self._draw_road_section(sec_pts)
+                self.road_sections.append(sec)
 
-    ROAD_CUT_R = 0.22               # a bombed chunk's radius, wu
+    ROAD_CUT_R = 0.30               # a bombed section's radius, wu
 
     def _road_shader(self):
         """Roads are lit by the SAME sun as the map."""
@@ -3379,61 +3419,35 @@ void main() {
 #version 120
 varying vec3 nrm; varying vec4 col;
 uniform vec3 sun_dir; uniform float night_darkness;
+uniform vec4 tint;
 void main() {
     float d = dot(normalize(nrm), normalize(sun_dir));
     float daylight = smoothstep(-0.08, 0.18, d);
     float shade = mix(1.0 - night_darkness, 1.0, daylight);
-    gl_FragColor = vec4(col.rgb * shade, col.a);
+    vec3 base = mix(col.rgb, tint.rgb, tint.a);
+    gl_FragColor = vec4(base * shade, col.a);
 }
 """)
         return self._road_shader_obj
 
-    def _draw_custom_road(self, poly):
-        """The road as REAL surface geometry: verge ribbon under, a
-        darker core over -- fixed WORLD width (it scales with zoom
-        like the terrain), day/night-lit like the map, and gapped
-        wherever a bomb has cut the way."""
+    def _draw_road_section(self, pts):
+        """One section's geometry: verge ribbon under, darker core
+        over, fixed WORLD width, painted in fixed order (coplanar
+        strips z-fight under depth writes)."""
         from models import make_road_ribbon
         from panda3d.core import NodePath as _NP
-        if getattr(self, '_custom_road_group', None) is None \
-                or self._custom_road_group.isEmpty():
-            grp = self.render.attachNewNode('custom_roads')
-            grp.setTwoSided(True)       # winding must never cull a road
-            grp.setShader(self._road_shader())
-            grp.setShaderInput('sun_dir', Vec3(1, 0, 0))
-            from config import NIGHT_DARKNESS
-            grp.setShaderInput('night_darkness', NIGHT_DARKNESS)
-            grp.setLightOff()
-            self._custom_road_group = grp
-        root = self._custom_road_group.attachNewNode('custom_road')
-        cuts = getattr(self, 'road_cuts', [])
-        # split the polyline into runs that dodge the bombed chunks
-        runs, run = [], []
-        for i, p in enumerate(poly):
-            cut = any(angle_between(p, c) * GLOBE_RADIUS
-                      < self.ROAD_CUT_R for c in cuts)
-            if cut:
-                if len(run) >= 2:
-                    runs.append(run)
-                run = []
-            else:
-                run.append(p)
-        if len(run) >= 2:
-            runs.append(run)
+        root = self._custom_road_group.attachNewNode('road_sec')
         R = GLOBE_RADIUS * LIFT_GROUND
-        for pts in runs:
-            for half_w, col, layer in (
-                    (0.00009, (106 / 255.0, 89 / 255.0, 66 / 255.0,
-                               1.0), 30),
-                    (0.00005, (84 / 255.0, 68 / 255.0, 47 / 255.0,
-                               1.0), 31)):
-                np_ = _NP(make_road_ribbon('road', pts, half_w, col, R))
-                np_.reparentTo(root)
-                # coplanar strips z-fight under depth writes: paint in
-                # fixed order instead (core strictly OVER the verge),
-                # the same law every flat marker follows
-                set_marker_layer(np_, layer)
+        for half_w, col, layer in (
+                (0.00009, (106 / 255.0, 89 / 255.0, 66 / 255.0,
+                           1.0), 30),
+                (0.00005, (84 / 255.0, 68 / 255.0, 47 / 255.0,
+                           1.0), 31)):
+            np_ = _NP(make_road_ribbon('road', pts, half_w, col, R))
+            np_.reparentTo(root)
+            set_marker_layer(np_, layer)
         self.custom_roads.append(root)
+        return root
 
     # ====================================================== logistics
     def _tick_supply(self):
@@ -4687,36 +4701,48 @@ void main() {
                 mode = self._cursor_context(Point2(mw.getMouse()))
         self._set_cursor_mode(mode)
 
-    def _pick_road_target(self, mpos):
-        """A click on open roadway: the nearest sample within the
-        pick radius becomes (or reuses) a bombing mark."""
+    def _pick_road_section(self, mpos):
+        """A click ANYWHERE along a living section finds it: every
+        section tests its own dense point chain."""
+        cam = latlon_to_vec(self.cam_lat, self.cam_lon)
         best, best_d = None, CLICK_RADIUS
-        for p in self._road_pick_pts:
-            if not self._facing_camera(p):
+        for sec in getattr(self, 'road_sections', ()):
+            if not sec.alive or sec.pos.dot(cam) < 0.5:
                 continue
-            sp = self.screen_pos(p * GLOBE_RADIUS)
-            if sp is None:
-                continue
-            d = (sp - mpos).length()
-            if d < best_d:
-                best, best_d = p, d
-        if best is None:
-            return None
-        for rt in self.road_targets:
-            if rt.alive and angle_between(rt.pos, best) \
-                    * GLOBE_RADIUS < 0.2:
-                return rt
-        rt = RoadTarget(self, best)
-        self.road_targets.append(rt)
-        return rt
+            for p in sec.pts[::2]:
+                sp = self.screen_pos(p * GLOBE_RADIUS)
+                if sp is None:
+                    continue
+                d = (sp - mpos).length()
+                if d < best_d:
+                    best, best_d = sec, d
+        return best
 
-    def _cut_road(self, pos):
-        """The bombs land: a chunk of roadway ceases to exist -- on
-        the map, and in the route graph."""
-        self.road_cuts.append(Vec3(pos))
-        self.planner.notify_road_cut(Vec3(pos))
-        self._build_road_overlay()
-        la, lo = vec_to_latlon(pos)
+    def _set_road_glow(self, sec):
+        """The section under the gunsight burns red so the pilot
+        knows exactly what dies."""
+        old = getattr(self, '_glow_section', None)
+        if old is sec:
+            return
+        if old is not None and old.node is not None \
+                and not old.node.isEmpty():
+            old.node.setShaderInput('tint', Vec4(0, 0, 0, 0))
+        self._glow_section = sec
+        if sec is not None and sec.node is not None \
+                and not sec.node.isEmpty():
+            sec.node.setShaderInput('tint',
+                                    Vec4(0.95, 0.20, 0.15, 0.75))
+
+    def _cut_road_section(self, sec):
+        """The bombs land: exactly this section ceases to exist --
+        on the map, and in the route graph."""
+        if self._glow_section is sec:
+            self._set_road_glow(None)
+        if sec.node is not None and not sec.node.isEmpty():
+            sec.node.removeNode()
+        self.road_cuts.append(Vec3(sec.pos))
+        self.planner.notify_road_cut(Vec3(sec.pos))
+        la, lo = vec_to_latlon(sec.pos)
         self.fax.post(
             "ROAD CUT",
             "The roadway at %s is %s. Columns must go around -- or "
@@ -4740,16 +4766,22 @@ void main() {
                 bl += [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
                        if a.country != self.player_country
                        and self._facing_camera(a.pos)]
-                bl += [(p, p * GLOBE_RADIUS)
-                       for p in self._road_pick_pts[::6]
-                       if self._facing_camera(p)]
                 target = self._pick_object(mpos, bl)
                 kind = 'bridge'
+            if target is None and any(u.can_target('bridge')
+                                      for u in shooters):
+                sec = self._pick_road_section(mpos)
+                if sec is not None:
+                    self._set_road_glow(sec)
+                    return 'attack'
+            self._set_road_glow(None)
             if target is not None and any(u.can_target(kind)
                                           for u in shooters):
                 return 'attack'
         # embark: land units selected, hovering a transport (ship or a
         # parked air transport at an airfield)
+        if not shooters:
+            self._set_road_glow(None)
         landers = [u for u in self.selected
                    if u.stats['domain'] == 'land'
                    and u.country == self.player_country

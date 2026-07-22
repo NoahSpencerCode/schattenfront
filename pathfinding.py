@@ -520,7 +520,7 @@ class MovementPlanner:
         self.road_cuts = [Vec3(c) for c in remaining]
         self._adj_cache = None
 
-    ROAD_CUT_R = 0.22
+    ROAD_CUT_R = 0.30
 
     def _land_edges_usable(self, edge):
         i, j, cost, is_road, bs = edge[:5]
