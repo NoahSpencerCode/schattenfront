@@ -3423,9 +3423,9 @@ void main() {
         R = GLOBE_RADIUS * LIFT_GROUND
         for pts in runs:
             for half_w, col, off in (
-                    (0.00055, (106 / 255.0, 89 / 255.0, 66 / 255.0,
+                    (0.00009, (106 / 255.0, 89 / 255.0, 66 / 255.0,
                                1.0), 1),
-                    (0.00032, (84 / 255.0, 68 / 255.0, 47 / 255.0,
+                    (0.00005, (84 / 255.0, 68 / 255.0, 47 / 255.0,
                                1.0), 2)):
                 np_ = _NP(make_road_ribbon('road', pts, half_w, col, R))
                 np_.reparentTo(root)
