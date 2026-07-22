@@ -5439,15 +5439,6 @@ class WW2RTSGame(ShowBase):
         self._drain_plans()
         self._update_vision_shader()    # fog circles glide with units
         self.globe.set_comm_width(self.cam_dist - GLOBE_RADIUS)
-        # close in, the DETAIL TILES paint the laid roads with the
-        # map's own brush; the distant-view lines bow out
-        if getattr(self, '_custom_road_group', None) is not None \
-                and not self._custom_road_group.isEmpty():
-            near = (self.cam_dist - GLOBE_RADIUS) < DETAIL_ACTIVATE_ALT
-            if near and not self._custom_road_group.isHidden():
-                self._custom_road_group.hide()
-            elif not near and self._custom_road_group.isHidden():
-                self._custom_road_group.show()
         self.globe.tick_border_bake()   # swap in a finished border bake
         self._tick_build_ghost()
         self._hover_timer -= dt
