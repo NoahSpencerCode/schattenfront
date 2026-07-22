@@ -3422,14 +3422,17 @@ void main() {
             runs.append(run)
         R = GLOBE_RADIUS * LIFT_GROUND
         for pts in runs:
-            for half_w, col, off in (
+            for half_w, col, layer in (
                     (0.00009, (106 / 255.0, 89 / 255.0, 66 / 255.0,
-                               1.0), 1),
+                               1.0), 30),
                     (0.00005, (84 / 255.0, 68 / 255.0, 47 / 255.0,
-                               1.0), 2)):
+                               1.0), 31)):
                 np_ = _NP(make_road_ribbon('road', pts, half_w, col, R))
                 np_.reparentTo(root)
-                np_.setDepthOffset(off)
+                # coplanar strips z-fight under depth writes: paint in
+                # fixed order instead (core strictly OVER the verge),
+                # the same law every flat marker follows
+                set_marker_layer(np_, layer)
         self.custom_roads.append(root)
 
     # ====================================================== logistics
