@@ -360,6 +360,7 @@ class WW2RTSGame(ShowBase):
         self.road_sections = []         # every section, a live target
         self._glow_section = None       # section under the gunsight
         self.demolish_mode = False      # armed: roads/works take fire
+        self._spot_cache = {}           # (country, target) -> seen?
         self.road_plan = []             # surveyed road waypoints
         self.road_preview = None        # yellow survey line
         self.selected = []
@@ -2509,7 +2510,8 @@ class WW2RTSGame(ShowBase):
             if not getattr(target, 'alive', False):
                 unit.attack_target = None
                 return True
-            if unit.dist_to(target.pos) > unit.stats['range']:
+            if unit.dist_to(target.pos) > \
+                    self.effective_fire_range(unit, target):
                 if not self._replan_ready(unit):
                     return False
                 self._approach_target(unit, target)
@@ -2821,9 +2823,54 @@ class WW2RTSGame(ShowBase):
                                "CLOSE WITH THE SHORE")
 
     # ====================================================== combat
+    INDIRECT_FIRE = ('tank', 'heavy_tank', 'artillery')
+
+    def target_observed(self, shooter, target):
+        """Is the target inside some OTHER friendly unit's eyes?
+        The observer scan is O(units), so verdicts are cached
+        briefly."""
+        key = (shooter.country, id(target))
+        now = globalClock.getFrameTime()
+        hit = self._spot_cache.get(key)
+        if hit is not None and now - hit[0] < 0.6:
+            return hit[1]
+        seen = False
+        for u in self.units:
+            if (u.alive and u.country == shooter.country
+                    and u is not shooter and not u.carried_by
+                    and not self.is_parked(u)
+                    and u.dist_to(target.pos) <= u.vision_range()):
+                seen = True
+                break
+        if len(self._spot_cache) > 4000:
+            self._spot_cache.clear()
+        self._spot_cache[key] = (now, seen)
+        return seen
+
+    def effective_fire_range(self, u, target):
+        """THE GUNNERY LAW: no gun fires beyond its own eyes --
+        except tanks, artillery and warships, which range out to
+        TWICE their vision when another friendly unit has the target
+        under observation."""
+        rng = u.stats['range']
+        vis = u.vision_range()
+        if rng <= vis:
+            return rng
+        if (u.stats['domain'] == 'sea'
+                or u.unit_type in self.INDIRECT_FIRE):
+            if self.target_observed(u, target):
+                return min(rng, vis * 2.0)
+        return min(rng, vis)
+
     def auto_acquire_target(self, unit):
-        best, best_d = None, min(unit.vision_range(),
-                                 unit.stats['range'] * 1.6)
+        vis = unit.vision_range()
+        rng = unit.stats['range']
+        if (unit.stats['domain'] == 'sea'
+                or unit.unit_type in self.INDIRECT_FIRE):
+            horizon = min(rng, vis * 2.0)
+        else:
+            horizon = min(rng, vis)
+        best, best_d = None, horizon
         night_blind = not self.is_day(unit.pos)   # vs the other domain
         unit_air = unit.is_air()
         for other in self.units:
@@ -2837,6 +2884,8 @@ class WW2RTSGame(ShowBase):
                                 # each other
             d = unit.dist_to(other.pos)
             if d < best_d:
+                if d > vis and not self.target_observed(unit, other):
+                    continue    # beyond own eyes, nobody spotting
                 best, best_d = other, d
         return best
 

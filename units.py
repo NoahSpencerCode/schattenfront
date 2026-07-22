@@ -915,8 +915,10 @@ class Unit:
             if target is None:
                 self.fire_cooldown = 0.35
                 return
-        rng = self.stats['range']
-        if self.dist_to(target.pos) <= rng:
+        # the gunnery law: range is capped by the unit's own eyes
+        # (or a friendly observer's, for the indirect-fire arms)
+        if self.dist_to(target.pos) <= \
+                self.game.effective_fire_range(self, target):
             if self.fire_cooldown <= 0.0:
                 self.game.resolve_shot(self, target)
                 self.fire_cooldown = FIRE_INTERVAL
