@@ -1134,7 +1134,7 @@ class DetailOverlay:
                         sw[0], sw[1], sw[2], sw[3],
                         DETAIL_TEX_SIZE, DETAIL_TEX_SIZE,
                         border_w=3, road_w=4, mottle=True,
-                        ss=2 if tier < 2 else 1)
+                        ss=2 if tier < 2 else 1, roads=False)
                     if self._gen != gen:
                         break
                     arr = np.asarray(img, dtype=np.uint8)
@@ -1305,7 +1305,7 @@ class DetailOverlay:
                     sw[0], sw[1], sw[2], sw[3],
                     DETAIL_TEX_SIZE, DETAIL_TEX_SIZE,
                     border_w=3, road_w=4, mottle=True,
-                    ss=2 if tier_in < 2 else 1)
+                    ss=2 if tier_in < 2 else 1, roads=False)
                 arr = np.asarray(img, dtype=np.uint8)
                 data = np.flipud(arr)[:, :, ::-1].tobytes()
                 try:

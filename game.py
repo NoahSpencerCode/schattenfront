@@ -3255,7 +3255,6 @@ class WW2RTSGame(ShowBase):
                     self.world.custom_road_paths = []
                 self.world.custom_road_paths.append(list(curve))
                 self._draw_custom_road(poly)
-                self.globe.detail.flush()   # tiles repaint the new road
         self._apply_marker_scale()
         if country == self.player_country:
             self.fax.post("WORKS COMPLETE",
@@ -3291,6 +3290,27 @@ class WW2RTSGame(ShowBase):
                 self.fax_short("%d BRIDGE(S) THROWN ACROSS THE "
                                "CROSSINGS" % built)
 
+    def _tick_road_width(self):
+        """The ONE road overlay serves every zoom: its strokes gain
+        weight as the camera drops, quantized so the pass runs only
+        when the band actually changes."""
+        alt = max(0.2, self.cam_dist - GLOBE_RADIUS)
+        f = max(1.0, min(6.0, 3.6 / alt))
+        f = round(f * 2.0) / 2.0
+        if f == getattr(self, '_road_width_f', 1.0):
+            return
+        self._road_width_f = f
+        grp = getattr(self, '_custom_road_group', None)
+        if grp is None or grp.isEmpty():
+            return
+        for road in grp.getChildren():
+            for np_ in road.getChildren():
+                tag = np_.getPythonTag('road_pass')
+                if tag == 'verge':
+                    np_.setRenderModeThickness(4.6 * f)
+                elif tag == 'core':
+                    np_.setRenderModeThickness(2.4 * f)
+
     def _build_road_overlay(self):
         """EVERY road on the map -- map-born and engineer-laid alike
         -- is drawn by this ONE overlay with one brush, and painted by
@@ -3322,9 +3342,11 @@ class WW2RTSGame(ShowBase):
             self._custom_road_group = self.render.attachNewNode(
                 'custom_roads')
         root = self._custom_road_group.attachNewNode('custom_road')
-        for thick, col, off in (
-                (4.6, (170 / 255.0, 143 / 255.0, 104 / 255.0), 1),
-                (2.4, (122 / 255.0, 96 / 255.0, 62 / 255.0), 2)):
+        for tag, thick, col, off in (
+                ('verge', 4.6, (170 / 255.0, 143 / 255.0, 104 / 255.0),
+                 1),
+                ('core', 2.4, (122 / 255.0, 96 / 255.0, 62 / 255.0),
+                 2)):
             segs = LineSegs()
             segs.setThickness(thick)
             segs.setColor(col[0], col[1], col[2], 1.0)
@@ -3341,6 +3363,9 @@ class WW2RTSGame(ShowBase):
             np_ = root.attachNewNode(segs.create())
             np_.setLightOff()
             np_.setDepthOffset(off)
+            np_.setPythonTag('road_pass', tag)
+            f = getattr(self, '_road_width_f', 1.0)
+            np_.setRenderModeThickness(thick * f)
         self.custom_roads.append(root)
 
     # ====================================================== logistics
@@ -5461,6 +5486,7 @@ class WW2RTSGame(ShowBase):
         self._drain_plans()
         self._update_vision_shader()    # fog circles glide with units
         self.globe.set_comm_width(self.cam_dist - GLOBE_RADIUS)
+        self._tick_road_width()
         self.globe.tick_border_bake()   # swap in a finished border bake
         self._tick_build_ghost()
         self._hover_timer -= dt
