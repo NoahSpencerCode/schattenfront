@@ -39,6 +39,7 @@ from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     CITY_GROSS_FORTNIGHT, CITY_VISION_RANGE, COUNTRIES,
                     DAY_CYCLE_LENGTH, FORMATION_SPACING, GLOBE_RADIUS,
                     INDUSTRY_DRIFT, LIFT_FX, LIFT_GROUND, LIFT_PATH,
+                    DETAIL_ACTIVATE_ALT,
                     MAX_VISION_SOURCES, MILES_PER_WU,
                     MINUTES_PER_SECOND, TERRAIN_LOS,
                     NIGHT_VISION_FACTOR, PRODUCTION_TIME_FACTOR,
@@ -3103,6 +3104,12 @@ class WW2RTSGame(ShowBase):
                             'site': Vec3(a), 'points': [Vec3(b)],
                             'from': Vec3(a), 't': build_time,
                             'cost': cost}, queue=shift or chained)
+            # the ordered leg leaves the survey sheet: the order's own
+            # path viz takes over; only the anchor stays for chaining
+            self.road_plan = [Vec3(b)]
+            if self.road_preview:
+                self.road_preview.removeNode()
+                self.road_preview = None
             self.fax_short("ROAD LEG UNDER CONSTRUCTION -- CLICK "
                            "EXTENDS THE LINE, ESC ENDS THE SURVEY")
             return
@@ -3142,7 +3149,9 @@ class WW2RTSGame(ShowBase):
                        "ESC STANDS DOWN" % label)
 
     def _draw_road_plan(self, eng):
-        """Yellow survey line: engineer through the planned waypoints."""
+        """Survey line: the TRAVEL leg (engineer to the start) in
+        movement blue, the road itself between survey points in
+        surveyor's yellow."""
         from utils import slerp
         if self.road_preview:
             self.road_preview.removeNode()
@@ -3150,10 +3159,12 @@ class WW2RTSGame(ShowBase):
         pts = [Vec3(eng.pos)] + self.road_plan
         segs = LineSegs()
         segs.setThickness(2.2)
-        segs.setColor(1.0, 0.85, 0.2, 0.9)      # surveyor's yellow
         lift = GLOBE_RADIUS * LIFT_PATH
+        segs.setColor(0.25, 0.80, 1.0, 0.85)    # travel: movement blue
         segs.moveTo(pts[0] * lift)
-        for a, b in zip(pts[:-1], pts[1:]):
+        for idx, (a, b) in enumerate(zip(pts[:-1], pts[1:])):
+            if idx == 1:
+                segs.setColor(1.0, 0.85, 0.2, 0.9)  # the road itself
             n = max(1, int(angle_between(a, b) * GLOBE_RADIUS / 0.3))
             for k in range(1, n + 1):
                 segs.drawTo(slerp(a, b, k / n) * lift)
@@ -3212,11 +3223,15 @@ class WW2RTSGame(ShowBase):
                 seed = zlib.crc32(("eng:%.3f,%.3f,%.3f,%.3f"
                                    % (la1, lo1, la2, lo2)).encode())
                 curve = self.world._curved_road_points(
-                    la1, lo1, la2, lo2, seed, passes=1)
+                    la1, lo1, la2, lo2, seed, passes=5, amp=0.04)
                 self._auto_bridge_curve(curve)
                 poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
                 self.planner.add_custom_road(poly)
+                if not hasattr(self.world, 'custom_road_paths'):
+                    self.world.custom_road_paths = []
+                self.world.custom_road_paths.append(list(curve))
                 self._draw_custom_road(poly)
+                self.globe.detail.flush()   # tiles repaint the new road
         self._apply_marker_scale()
         if country == self.player_country:
             self.fax.post("WORKS COMPLETE",
@@ -3253,26 +3268,35 @@ class WW2RTSGame(ShowBase):
                                "CROSSINGS" % built)
 
     def _draw_custom_road(self, poly):
-        """Ink the built road with the map's own dirt-road colour,
-        following the same snaking centre-line the route graph uses."""
-        segs = LineSegs()
-        segs.setThickness(2.5)
-        segs.setColor(122 / 255.0, 96 / 255.0, 62 / 255.0, 1.0)
+        """Distant-view ink for the built road: verge under, core
+        over, the SAME palette the map painter uses -- when the detail
+        tiles bake it in, the two are indistinguishable."""
         from utils import slerp
-        first = True
-        for a, b in zip(poly[:-1], poly[1:]):
-            n = max(1, int(angle_between(a, b) * GLOBE_RADIUS / 0.2))
-            for i in range(0 if first else 1, n + 1):
-                p = slerp(a, b, i / n) * (GLOBE_RADIUS * LIFT_GROUND)
-                if first:
-                    segs.moveTo(p)
-                    first = False
-                else:
-                    segs.drawTo(p)
-        np_ = self.render.attachNewNode(segs.create())
-        np_.setLightOff()
-        np_.setDepthOffset(2)
-        self.custom_roads.append(np_)
+        if getattr(self, '_custom_road_group', None) is None \
+                or self._custom_road_group.isEmpty():
+            self._custom_road_group = self.render.attachNewNode(
+                'custom_roads')
+        root = self._custom_road_group.attachNewNode('custom_road')
+        for thick, col, off in (
+                (4.6, (170 / 255.0, 143 / 255.0, 104 / 255.0), 1),
+                (2.4, (122 / 255.0, 96 / 255.0, 62 / 255.0), 2)):
+            segs = LineSegs()
+            segs.setThickness(thick)
+            segs.setColor(col[0], col[1], col[2], 1.0)
+            first = True
+            for a, b in zip(poly[:-1], poly[1:]):
+                n = max(1, int(angle_between(a, b) * GLOBE_RADIUS / 0.2))
+                for i in range(0 if first else 1, n + 1):
+                    p = slerp(a, b, i / n) * (GLOBE_RADIUS * LIFT_GROUND)
+                    if first:
+                        segs.moveTo(p)
+                        first = False
+                    else:
+                        segs.drawTo(p)
+            np_ = root.attachNewNode(segs.create())
+            np_.setLightOff()
+            np_.setDepthOffset(off)
+        self.custom_roads.append(root)
 
     # ====================================================== logistics
     def _tick_supply(self):
@@ -4674,8 +4698,7 @@ class WW2RTSGame(ShowBase):
             # planet instead of chording through it
             cur_kind = (u.current_order.get('kind')
                         if u.current_order else None)
-            cur_col = (YELLOW if cur_kind == 'build'
-                       else RED if cur_kind == 'attack' else BLUE)
+            cur_col = RED if cur_kind == 'attack' else BLUE
             prev = Vec3(u.pos)
             segs.setColor(*cur_col)
             segs.moveTo(prev * lift)
@@ -4683,7 +4706,9 @@ class WW2RTSGame(ShowBase):
                 draw_leg(prev, wp)
                 prev = Vec3(wp)
             if u.path:
-                joins.append((Vec3(prev), cur_col))
+                joins.append((Vec3(prev),
+                              YELLOW if cur_kind == 'build'
+                              else cur_col))
             if u.stats['domain'] == 'air' and u.based_at is None:
                 for t in [u.attack_target] + list(u.sortie_targets):
                     if t is not None and getattr(t, 'alive', False):
@@ -5368,6 +5393,15 @@ class WW2RTSGame(ShowBase):
         self._drain_plans()
         self._update_vision_shader()    # fog circles glide with units
         self.globe.set_comm_width(self.cam_dist - GLOBE_RADIUS)
+        # close in, the DETAIL TILES paint the laid roads with the
+        # map's own brush; the distant-view lines bow out
+        if getattr(self, '_custom_road_group', None) is not None \
+                and not self._custom_road_group.isEmpty():
+            near = (self.cam_dist - GLOBE_RADIUS) < DETAIL_ACTIVATE_ALT
+            if near and not self._custom_road_group.isHidden():
+                self._custom_road_group.hide()
+            elif not near and self._custom_road_group.isHidden():
+                self._custom_road_group.show()
         self.globe.tick_border_bake()   # swap in a finished border bake
         self._tick_build_ghost()
         self._hover_timer -= dt

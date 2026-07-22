@@ -717,13 +717,12 @@ class WorldData:
                  (len(self.roads), len(self.bridges)))
 
     def _curved_road_points(self, lat1, lon1, lat2, lon2, seed, passes=5,
-                            smooth=True):
+                            smooth=True, amp=0.16):
         """A gently snaking centre-line between two cities: recursive
         midpoint displacement, each displaced point pulled back onto land
         if it strays over water. Returns [(lat, lon), ...] incl. endpoints."""
         rng = np.random.RandomState(seed & 0xffffffff)
         pts = [(lat1, lon1), (lat2, lon2)]
-        amp = 0.16                       # fraction of segment length
         for _ in range(passes):          # 5 passes -> up to 33 vertices
             out = [pts[0]]
             for k in range(len(pts) - 1):
@@ -1152,6 +1151,14 @@ class WorldData:
                 line = [((lo + s - lon0) * sx, (lat1 - la) * sy)
                         for (la, lo) in path]
                 road_lines.append((line, max(2, road_w - 1)))
+        for path in getattr(self, 'custom_road_paths', []):
+            lons = [p[1] for p in path]
+            lats = [p[0] for p in path]
+            bb = (min(lons), min(lats), max(lons), max(lats))
+            for s in window_shifts(bb):
+                line = [((lo + s - lon0) * sx, (lat1 - la) * sy)
+                        for (la, lo) in path]
+                road_lines.append((line, road_w))
         verge = max(2, 2 * ss)
         for line, w in road_lines:
             draw.line(line, fill=ROAD_EDGE, width=w + verge,

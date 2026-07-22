@@ -1204,6 +1204,26 @@ class DetailOverlay:
             self._incoming.append(p)
             uploads += 1
 
+    def flush(self):
+        """The vectors changed (an engineer laid a road): every baked
+        tile is stale. Drop the RAM cache and the shown window so the
+        next update repaints from the fresh data."""
+        with self._qlock:
+            cached = list(self._ram_cache.values())
+            self._ram_cache.clear()
+            self._ram_order = []
+        for p in cached:
+            p.removeNode()
+        for t in self.tiles:
+            t.removeNode()
+        self.tiles = []
+        for t in self._incoming:
+            t.removeNode()
+        self._incoming = []
+        self.window = None
+        self._render_window = None
+        self._done = False
+
     # ------------------------------------------------- RAM tile cache
     def _ram_take(self, sw):
         with self._qlock:
