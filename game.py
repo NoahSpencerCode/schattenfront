@@ -739,6 +739,7 @@ class WW2RTSGame(ShowBase):
         self._apply_fortnight_budget()
 
         self._make_engineer_button()
+        self._build_road_overlay()
         self._loading_np = loading      # held up through the warm-up
         self._warmup_t0 = globalClock.getFrameTime()
         self._bind_game_controls()
@@ -3289,6 +3290,27 @@ class WW2RTSGame(ShowBase):
             if self.player_country:
                 self.fax_short("%d BRIDGE(S) THROWN ACROSS THE "
                                "CROSSINGS" % built)
+
+    def _build_road_overlay(self):
+        """EVERY road on the map -- map-born and engineer-laid alike
+        -- is drawn by this ONE overlay with one brush, and painted by
+        the detail tiles with one brush. The base texture carries no
+        roads at all, so a demolished road can truly vanish."""
+        grp = getattr(self, '_custom_road_group', None)
+        if grp is not None and not grp.isEmpty():
+            grp.removeNode()
+        self._custom_road_group = None
+        self.custom_roads = []
+        paths = list(self.world.road_paths.values()) \
+            + list(getattr(self.world, 'spur_paths', [])) \
+            + list(getattr(self.world, 'custom_road_paths', []))
+        for path in paths:
+            pts = list(path[::3])
+            if path and (not pts or pts[-1] != path[-1]):
+                pts.append(path[-1])
+            poly = [latlon_to_vec(la, lo) for (la, lo) in pts]
+            if len(poly) >= 2:
+                self._draw_custom_road(poly)
 
     def _draw_custom_road(self, poly):
         """Distant-view ink for the built road: verge under, core

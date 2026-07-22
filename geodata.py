@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 34  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 35  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -1006,9 +1006,12 @@ class WorldData:
         if os.path.exists(path):
             return path
         self.log("Painting the WW2 globe map (first run only)...")
+        # NO roads in the static sheet: every road (map-born and
+        # engineer-laid alike) is drawn by the live overlay and the
+        # detail tiles, so a demolished road can actually disappear
         img = self.render_region(-180.0, -90.0, 180.0, 90.0,
                                  TEX_W, TEX_H, border_w=2, road_w=3,
-                                 city_r=8, mottle=True)
+                                 city_r=8, mottle=True, roads=False)
         img.save(path)
         self.log("Map texture saved: %s" % path)
         return path
@@ -1016,7 +1019,7 @@ class WorldData:
     # ================================================== region rendering
     def render_region(self, lon0, lat0, lon1, lat1, w, h,
                       border_w=2, road_w=3, city_r=8, mottle=False,
-                      land_only=False, ss=1):
+                      land_only=False, ss=1, roads=True):
         """Draw a lon/lat window of the map at any resolution.
 
         Used both for the base globe texture and, in realtime, for the
@@ -1130,8 +1133,8 @@ class WorldData:
         # TWO passes -- a pale verge first, then every core stroke on
         # top -- so the light border never overpaints a junction
         road_lines = []
-        road_paths = getattr(self, 'road_paths', {})
-        for (i, j) in self.roads:
+        road_paths = getattr(self, 'road_paths', {}) if roads else {}
+        for (i, j) in (self.roads if roads else ()):
             path = road_paths.get((i, j))
             if not path:
                 a, b = self.cities[i], self.cities[j]
@@ -1143,7 +1146,7 @@ class WorldData:
                 line = [((lo + s - lon0) * sx, (lat1 - la) * sy)
                         for (la, lo) in path]
                 road_lines.append((line, road_w))
-        for path in getattr(self, 'spur_paths', []):
+        for path in (getattr(self, 'spur_paths', []) if roads else []):
             lons = [p[1] for p in path]
             lats = [p[0] for p in path]
             bb = (min(lons), min(lats), max(lons), max(lats))
@@ -1151,7 +1154,8 @@ class WorldData:
                 line = [((lo + s - lon0) * sx, (lat1 - la) * sy)
                         for (la, lo) in path]
                 road_lines.append((line, max(2, road_w - 1)))
-        for path in getattr(self, 'custom_road_paths', []):
+        for path in (getattr(self, 'custom_road_paths', [])
+                     if roads else []):
             lons = [p[1] for p in path]
             lats = [p[0] for p in path]
             bb = (min(lons), min(lats), max(lons), max(lats))
