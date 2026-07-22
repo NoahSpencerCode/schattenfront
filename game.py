@@ -3156,18 +3156,41 @@ class WW2RTSGame(ShowBase):
         if self.road_preview:
             self.road_preview.removeNode()
             self.road_preview = None
-        pts = [Vec3(eng.pos)] + self.road_plan
+        # the blue travel line is drawn only while NO leg is ordered
+        # yet -- afterwards the order's own path viz shows the march,
+        # and the anchor keeps just its ring
+        pending = any(o.get('kind') == 'build'
+                      for o in ([eng.current_order]
+                                if eng.current_order else [])
+                      + eng.order_queue)
+        pts = ([] if pending else [Vec3(eng.pos)]) + self.road_plan
         segs = LineSegs()
         segs.setThickness(2.2)
         lift = GLOBE_RADIUS * LIFT_PATH
-        segs.setColor(0.25, 0.80, 1.0, 0.85)    # travel: movement blue
-        segs.moveTo(pts[0] * lift)
-        for idx, (a, b) in enumerate(zip(pts[:-1], pts[1:])):
-            if idx == 1:
-                segs.setColor(1.0, 0.85, 0.2, 0.9)  # the road itself
-            n = max(1, int(angle_between(a, b) * GLOBE_RADIUS / 0.3))
-            for k in range(1, n + 1):
-                segs.drawTo(slerp(a, b, k / n) * lift)
+        if len(pts) >= 2:
+            segs.setColor(0.25, 0.80, 1.0, 0.85)    # travel blue
+            segs.moveTo(pts[0] * lift)
+            for idx, (a, b) in enumerate(zip(pts[:-1], pts[1:])):
+                if idx == 1 or pending:
+                    segs.setColor(1.0, 0.85, 0.2, 0.9)  # the road
+                n = max(1, int(angle_between(a, b) * GLOBE_RADIUS
+                               / 0.3))
+                for k in range(1, n + 1):
+                    segs.drawTo(slerp(a, b, k / n) * lift)
+        # every survey point wears its yellow waypoint ring
+        segs.setColor(1.0, 0.85, 0.2, 0.9)
+        r = UNIT_SPRITE_SCALE * 0.16
+        for jp in self.road_plan:
+            east = north_tangent(jp).cross(jp)
+            for i in range(17):
+                a_ = 2 * math.pi * i / 16
+                p = jp + (north_tangent(jp) * math.cos(a_)
+                          + east * math.sin(a_)) * (r / GLOBE_RADIUS)
+                p.normalize()
+                if i == 0:
+                    segs.moveTo(p * lift)
+                else:
+                    segs.drawTo(p * lift)
         self.road_preview = self.render.attachNewNode(segs.create())
         self.road_preview.setLightOff()
         self.road_preview.setDepthOffset(4)
@@ -4709,6 +4732,18 @@ class WW2RTSGame(ShowBase):
                 joins.append((Vec3(prev),
                               YELLOW if cur_kind == 'build'
                               else cur_col))
+            if cur_kind == 'build' and u.current_order.get('points'):
+                # the leg under construction: the road drawn yellow
+                site = Vec3(u.current_order['site'])
+                segs.setColor(*YELLOW)
+                segs.moveTo(site * lift)
+                pv = site
+                for wp in u.current_order['points']:
+                    draw_leg(pv, Vec3(wp))
+                    pv = Vec3(wp)
+                joins.append((Vec3(site), YELLOW))
+                joins.append((pv, YELLOW))
+                prev = pv
             if u.stats['domain'] == 'air' and u.based_at is None:
                 for t in [u.attack_target] + list(u.sortie_targets):
                     if t is not None and getattr(t, 'alive', False):
@@ -4727,7 +4762,9 @@ class WW2RTSGame(ShowBase):
                 kind_q = order.get('kind')
                 col = (YELLOW if kind_q == 'build'
                        else RED if kind_q == 'attack' else BLUE)
-                segs.setColor(*col)
+                # the march to any goal is TRAVEL: blue; the works
+                # site itself keeps the yellow ring
+                segs.setColor(*(BLUE if kind_q == 'build' else col))
                 pre = order.get('pre_path')
                 if pre:
                     for (wp, _) in pre:
@@ -4737,6 +4774,15 @@ class WW2RTSGame(ShowBase):
                     draw_leg(prev, goal)
                     prev = Vec3(goal)
                 joins.append((Vec3(prev), col))
+                if kind_q == 'build' and order.get('points'):
+                    # then the ROAD leg itself, yellow end to end
+                    segs.setColor(*YELLOW)
+                    pv = Vec3(order['site'])
+                    for wp in order['points']:
+                        draw_leg(pv, Vec3(wp))
+                        pv = Vec3(wp)
+                    joins.append((pv, YELLOW))
+                    prev = pv
         # join rings: small fixed size (1/5 of the old ring)
         r = UNIT_SPRITE_SCALE * 0.16
         for jp, col in joins:
