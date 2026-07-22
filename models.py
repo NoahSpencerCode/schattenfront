@@ -212,20 +212,39 @@ def make_road_ribbon(name, pts, half_w, color, radius):
     WORLD width riding the sphere at the given radius. Fixed world
     size means it scales with zoom exactly like the terrain, and real
     geometry means the day/night shader can light it like the map."""
+    # sanitize: duplicated consecutive points give a ZERO tangent,
+    # whose normalize() breeds NaN vertices -- one NaN voids the whole
+    # strip's bounds (invisible roads) and near-degenerates paint the
+    # long sliver spikes
+    clean = [pts[0]]
+    for p in pts[1:]:
+        if (p - clean[-1]).lengthSquared() > 1e-12:
+            clean.append(p)
+    pts = clean
+    n = len(pts)
+    if n < 2:
+        return GeomNode(name)
     fmt = GeomVertexFormat.getV3c4()
     vdata = GeomVertexData(name, fmt, Geom.UHStatic)
     vw = GeomVertexWriter(vdata, 'vertex')
     cw = GeomVertexWriter(vdata, 'color')
-    n = len(pts)
     strip = GeomTristrips(Geom.UHStatic)
+    last_side = None
     for i in range(n):
         p = pts[i]
         t = pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]
         t = t - p * t.dot(p)
-        if t.lengthSquared() < 1e-14:
-            t = Vec3(1, 0, 0) - p * p.x
-        t.normalize()
-        side = t.cross(p)
+        if t.lengthSquared() > 1e-12:
+            t.normalize()
+            side = t.cross(p)
+        elif last_side is not None:
+            side = last_side          # carry the last good frame
+        else:
+            side = Vec3(0, 0, 1).cross(p)
+        if side.lengthSquared() < 1e-12:
+            side = Vec3(0, 1, 0).cross(p)
+        side.normalize()
+        last_side = Vec3(side)
         a = p + side * half_w
         b = p - side * half_w
         a.normalize()

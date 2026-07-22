@@ -3398,6 +3398,7 @@ void main() {
         if getattr(self, '_custom_road_group', None) is None \
                 or self._custom_road_group.isEmpty():
             grp = self.render.attachNewNode('custom_roads')
+            grp.setTwoSided(True)       # winding must never cull a road
             grp.setShader(self._road_shader())
             grp.setShaderInput('sun_dir', Vec3(1, 0, 0))
             from config import NIGHT_DARKNESS
@@ -3422,10 +3423,10 @@ void main() {
         R = GLOBE_RADIUS * LIFT_GROUND
         for pts in runs:
             for half_w, col, off in (
-                    (0.0026, (106 / 255.0, 89 / 255.0, 66 / 255.0,
-                              1.0), 1),
-                    (0.0015, (84 / 255.0, 68 / 255.0, 47 / 255.0,
-                              1.0), 2)):
+                    (0.00055, (106 / 255.0, 89 / 255.0, 66 / 255.0,
+                               1.0), 1),
+                    (0.00032, (84 / 255.0, 68 / 255.0, 47 / 255.0,
+                               1.0), 2)):
                 np_ = _NP(make_road_ribbon('road', pts, half_w, col, R))
                 np_.reparentTo(root)
                 np_.setDepthOffset(off)
