@@ -507,10 +507,36 @@ class MovementPlanner:
             self._river_ok_cache[key] = ('X' if hit is None else hit)
         return None if hit == 'X' else hit
 
+    def notify_road_cut(self, pos):
+        """A stretch of roadway was bombed out: road edges running
+        through it close (the adjacency cache rebuilds lazily)."""
+        if not hasattr(self, 'road_cuts'):
+            self.road_cuts = []
+        self.road_cuts.append(Vec3(pos))
+        self._adj_cache = None
+
+    def clear_road_cuts(self, remaining):
+        """Engineers relaid road over some cuts: keep the rest."""
+        self.road_cuts = [Vec3(c) for c in remaining]
+        self._adj_cache = None
+
+    ROAD_CUT_R = 0.22
+
     def _land_edges_usable(self, edge):
         i, j, cost, is_road, bs = edge[:5]
         if is_road:
-            return all(self.bridges[bi].alive for bi in (bs or []))
+            if not all(self.bridges[bi].alive for bi in (bs or [])):
+                return False
+            cuts = getattr(self, 'road_cuts', None)
+            if cuts:
+                pts = [self._nodes[i][0]] + (edge[5] or []) \
+                    + [self._nodes[j][0]]
+                for c in cuts:
+                    for p in pts:
+                        if angle_between(c, p) * GLOBE_RADIUS \
+                                < self.ROAD_CUT_R:
+                            return False
+            return True
         return True  # off-road rivers are re-checked lazily during A*
 
     def plan_land(self, start_vec, goal_vec):

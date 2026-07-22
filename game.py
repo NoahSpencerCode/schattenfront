@@ -185,6 +185,31 @@ class City:
         self.label.removeNode()
 
 
+ROAD_CHUNK_HP = 120.0
+
+
+class RoadTarget:
+    """A marked stretch of roadway under attack: bomb it out and the
+    way is CUT until engineers lay road over the gap again."""
+
+    def __init__(self, game, pos):
+        self.game = game
+        self.pos = Vec3(pos)
+        self.alive = True
+        self.hp = ROAD_CHUNK_HP
+        self.max_hp = ROAD_CHUNK_HP
+        self.country = None
+
+    def take_damage(self, amount, attacker=None):
+        if not self.alive:
+            return
+        self.hp -= amount
+        if self.hp <= 0:
+            self.hp = 0.0
+            self.alive = False
+            self.game._cut_road(self.pos)
+
+
 class Bridge:
     def __init__(self, game, info, index):
         self.game = game
@@ -327,6 +352,9 @@ class WW2RTSGame(ShowBase):
         self._build_ghost_kind = None
         self._ghost_t = 0.0
         self._works_ghosts = []         # planned works awaiting shovels
+        self.road_cuts = []             # bombed-out chunks of roadway
+        self.road_targets = []          # live bombing marks on roads
+        self._road_pick_pts = []        # sparse samples for road picks
         self.road_plan = []             # surveyed road waypoints
         self.road_preview = None        # yellow survey line
         self.selected = []
@@ -1679,6 +1707,17 @@ class WW2RTSGame(ShowBase):
             bridges = [(b, b.pos * GLOBE_RADIUS) for b in self.bridges
                        if self._facing_camera(b.pos)]
             target = self._pick_object(mpos, bridges)
+        if target is None:
+            rt = self._pick_road_target(mpos)
+            if rt is not None:
+                attackers = [u for u in own_selected
+                             if u.can_target('bridge')]
+                for u in attackers:
+                    u.give_order({'kind': 'attack', 'target': rt},
+                                 queue=shift)
+                if attackers:
+                    self.fax_short("ROAD INTERDICTION ORDERED")
+                    return
         if target is None:
             own_transports = [
                 (u, self._unit_world_pos(u)) for u in self.units
@@ -3248,6 +3287,15 @@ class WW2RTSGame(ShowBase):
                                    % (la1, lo1, la2, lo2)).encode())
                 curve = self.world._curved_road_points(
                     la1, lo1, la2, lo2, seed, passes=5, amp=0.04)
+                healed = [c for c in self.road_cuts
+                          if any(angle_between(
+                              latlon_to_vec(cla, clo), c)
+                              * GLOBE_RADIUS < self.ROAD_CUT_R
+                              for (cla, clo) in curve[::4])]
+                if healed:
+                    self.road_cuts = [c for c in self.road_cuts
+                                      if c not in healed]
+                    self.planner.clear_road_cuts(self.road_cuts)
                 self._auto_bridge_curve(curve)
                 poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
                 self.planner.add_custom_road(poly)
@@ -3290,27 +3338,6 @@ class WW2RTSGame(ShowBase):
                 self.fax_short("%d BRIDGE(S) THROWN ACROSS THE "
                                "CROSSINGS" % built)
 
-    def _tick_road_width(self):
-        """The ONE road overlay serves every zoom: its strokes gain
-        weight as the camera drops, quantized so the pass runs only
-        when the band actually changes."""
-        alt = max(0.2, self.cam_dist - GLOBE_RADIUS)
-        f = max(1.0, min(6.0, 3.6 / alt))
-        f = round(f * 2.0) / 2.0
-        if f == getattr(self, '_road_width_f', 1.0):
-            return
-        self._road_width_f = f
-        grp = getattr(self, '_custom_road_group', None)
-        if grp is None or grp.isEmpty():
-            return
-        for road in grp.getChildren():
-            for np_ in road.getChildren():
-                tag = np_.getPythonTag('road_pass')
-                if tag == 'verge':
-                    np_.setRenderModeThickness(4.6 * f)
-                elif tag == 'core':
-                    np_.setRenderModeThickness(2.4 * f)
-
     def _build_road_overlay(self):
         """EVERY road on the map -- map-born and engineer-laid alike
         -- is drawn by this ONE overlay with one brush, and painted by
@@ -3324,6 +3351,7 @@ class WW2RTSGame(ShowBase):
         paths = list(self.world.road_paths.values()) \
             + list(getattr(self.world, 'spur_paths', [])) \
             + list(getattr(self.world, 'custom_road_paths', []))
+        self._road_pick_pts = []
         for path in paths:
             pts = list(path[::3])
             if path and (not pts or pts[-1] != path[-1]):
@@ -3331,41 +3359,76 @@ class WW2RTSGame(ShowBase):
             poly = [latlon_to_vec(la, lo) for (la, lo) in pts]
             if len(poly) >= 2:
                 self._draw_custom_road(poly)
+                self._road_pick_pts.extend(poly[::10])
+
+    ROAD_CUT_R = 0.22               # a bombed chunk's radius, wu
+
+    def _road_shader(self):
+        """Roads are lit by the SAME sun as the map."""
+        if getattr(self, '_road_shader_obj', None) is None:
+            from panda3d.core import Shader as _Sh
+            self._road_shader_obj = _Sh.make(_Sh.SL_GLSL, """
+#version 120
+varying vec3 nrm; varying vec4 col;
+void main() {
+    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+    nrm = normalize(gl_Vertex.xyz);
+    col = gl_Color;
+}
+""", """
+#version 120
+varying vec3 nrm; varying vec4 col;
+uniform vec3 sun_dir; uniform float night_darkness;
+void main() {
+    float d = dot(normalize(nrm), normalize(sun_dir));
+    float daylight = smoothstep(-0.08, 0.18, d);
+    float shade = mix(1.0 - night_darkness, 1.0, daylight);
+    gl_FragColor = vec4(col.rgb * shade, col.a);
+}
+""")
+        return self._road_shader_obj
 
     def _draw_custom_road(self, poly):
-        """Distant-view ink for the built road: verge under, core
-        over, the SAME palette the map painter uses -- when the detail
-        tiles bake it in, the two are indistinguishable."""
-        from utils import slerp
+        """The road as REAL surface geometry: verge ribbon under, a
+        darker core over -- fixed WORLD width (it scales with zoom
+        like the terrain), day/night-lit like the map, and gapped
+        wherever a bomb has cut the way."""
+        from models import make_road_ribbon
+        from panda3d.core import NodePath as _NP
         if getattr(self, '_custom_road_group', None) is None \
                 or self._custom_road_group.isEmpty():
-            self._custom_road_group = self.render.attachNewNode(
-                'custom_roads')
+            grp = self.render.attachNewNode('custom_roads')
+            grp.setShader(self._road_shader())
+            grp.setShaderInput('sun_dir', Vec3(1, 0, 0))
+            from config import NIGHT_DARKNESS
+            grp.setShaderInput('night_darkness', NIGHT_DARKNESS)
+            grp.setLightOff()
+            self._custom_road_group = grp
         root = self._custom_road_group.attachNewNode('custom_road')
-        for tag, thick, col, off in (
-                ('verge', 4.6, (170 / 255.0, 143 / 255.0, 104 / 255.0),
-                 1),
-                ('core', 2.4, (122 / 255.0, 96 / 255.0, 62 / 255.0),
-                 2)):
-            segs = LineSegs()
-            segs.setThickness(thick)
-            segs.setColor(col[0], col[1], col[2], 1.0)
-            first = True
-            for a, b in zip(poly[:-1], poly[1:]):
-                n = max(1, int(angle_between(a, b) * GLOBE_RADIUS / 0.2))
-                for i in range(0 if first else 1, n + 1):
-                    p = slerp(a, b, i / n) * (GLOBE_RADIUS * LIFT_GROUND)
-                    if first:
-                        segs.moveTo(p)
-                        first = False
-                    else:
-                        segs.drawTo(p)
-            np_ = root.attachNewNode(segs.create())
-            np_.setLightOff()
-            np_.setDepthOffset(off)
-            np_.setPythonTag('road_pass', tag)
-            f = getattr(self, '_road_width_f', 1.0)
-            np_.setRenderModeThickness(thick * f)
+        cuts = getattr(self, 'road_cuts', [])
+        # split the polyline into runs that dodge the bombed chunks
+        runs, run = [], []
+        for i, p in enumerate(poly):
+            cut = any(angle_between(p, c) * GLOBE_RADIUS
+                      < self.ROAD_CUT_R for c in cuts)
+            if cut:
+                if len(run) >= 2:
+                    runs.append(run)
+                run = []
+            else:
+                run.append(p)
+        if len(run) >= 2:
+            runs.append(run)
+        R = GLOBE_RADIUS * LIFT_GROUND
+        for pts in runs:
+            for half_w, col, off in (
+                    (0.0026, (106 / 255.0, 89 / 255.0, 66 / 255.0,
+                              1.0), 1),
+                    (0.0015, (84 / 255.0, 68 / 255.0, 47 / 255.0,
+                              1.0), 2)):
+                np_ = _NP(make_road_ribbon('road', pts, half_w, col, R))
+                np_.reparentTo(root)
+                np_.setDepthOffset(off)
         self.custom_roads.append(root)
 
     # ====================================================== logistics
@@ -4620,6 +4683,43 @@ class WW2RTSGame(ShowBase):
                 mode = self._cursor_context(Point2(mw.getMouse()))
         self._set_cursor_mode(mode)
 
+    def _pick_road_target(self, mpos):
+        """A click on open roadway: the nearest sample within the
+        pick radius becomes (or reuses) a bombing mark."""
+        best, best_d = None, CLICK_RADIUS
+        for p in self._road_pick_pts:
+            if not self._facing_camera(p):
+                continue
+            sp = self.screen_pos(p * GLOBE_RADIUS)
+            if sp is None:
+                continue
+            d = (sp - mpos).length()
+            if d < best_d:
+                best, best_d = p, d
+        if best is None:
+            return None
+        for rt in self.road_targets:
+            if rt.alive and angle_between(rt.pos, best) \
+                    * GLOBE_RADIUS < 0.2:
+                return rt
+        rt = RoadTarget(self, best)
+        self.road_targets.append(rt)
+        return rt
+
+    def _cut_road(self, pos):
+        """The bombs land: a chunk of roadway ceases to exist -- on
+        the map, and in the route graph."""
+        self.road_cuts.append(Vec3(pos))
+        self.planner.notify_road_cut(Vec3(pos))
+        self._build_road_overlay()
+        la, lo = vec_to_latlon(pos)
+        self.fax.post(
+            "ROAD CUT",
+            "The roadway at %s is %s. Columns must go around -- or "
+            "the engineers must relay it." %
+            (self._grid_ref(la, lo), B("BOMBED OUT")),
+            sender="AIR RECONNAISSANCE")
+
     def _cursor_context(self, mpos):
         # attack: a shooter is selected and a valid target is hovered
         # (airborne squadrons count -- they can be retasked mid-flight)
@@ -4636,6 +4736,9 @@ class WW2RTSGame(ShowBase):
                 bl += [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
                        if a.country != self.player_country
                        and self._facing_camera(a.pos)]
+                bl += [(p, p * GLOBE_RADIUS)
+                       for p in self._road_pick_pts[::6]
+                       if self._facing_camera(p)]
                 target = self._pick_object(mpos, bl)
                 kind = 'bridge'
             if target is not None and any(u.can_target(kind)
@@ -5486,7 +5589,6 @@ class WW2RTSGame(ShowBase):
         self._drain_plans()
         self._update_vision_shader()    # fog circles glide with units
         self.globe.set_comm_width(self.cam_dist - GLOBE_RADIUS)
-        self._tick_road_width()
         self.globe.tick_border_bake()   # swap in a finished border bake
         self._tick_build_ghost()
         self._hover_timer -= dt
@@ -5514,6 +5616,9 @@ class WW2RTSGame(ShowBase):
                               2 * math.pi * gdt / DAY_CYCLE_LENGTH)
             sun = self.sun_direction()
             self.globe.set_sun_direction(sun)
+            grp = getattr(self, '_custom_road_group', None)
+            if grp is not None and not grp.isEmpty():
+                grp.setShaderInput('sun_dir', sun)
             self.sun_np.setPos(sun * 200)
             self.sun_np.lookAt(0, 0, 0)
 

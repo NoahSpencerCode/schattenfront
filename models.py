@@ -10,9 +10,10 @@ sits at surface height under a node oriented by globe.orient_to_surface.
 import math
 
 from panda3d.core import (CardMaker, Geom, GeomNode, GeomTriangles,
+                          GeomTristrips,
                           GeomVertexData, GeomVertexFormat, GeomVertexWriter,
                           LineSegs, NodePath, SamplerState, TextNode,
-                          TransparencyAttrib)
+                          TransparencyAttrib, Vec3)
 
 from icons import get_icon_path
 
@@ -204,6 +205,43 @@ def make_city_marker(loader, faction_color, capital):
     icon.reparentTo(root)
     root.setLightOff()
     return root
+
+
+def make_road_ribbon(name, pts, half_w, color, radius):
+    """A road as REAL surface geometry: a triangle strip of fixed
+    WORLD width riding the sphere at the given radius. Fixed world
+    size means it scales with zoom exactly like the terrain, and real
+    geometry means the day/night shader can light it like the map."""
+    fmt = GeomVertexFormat.getV3c4()
+    vdata = GeomVertexData(name, fmt, Geom.UHStatic)
+    vw = GeomVertexWriter(vdata, 'vertex')
+    cw = GeomVertexWriter(vdata, 'color')
+    n = len(pts)
+    strip = GeomTristrips(Geom.UHStatic)
+    for i in range(n):
+        p = pts[i]
+        t = pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]
+        t = t - p * t.dot(p)
+        if t.lengthSquared() < 1e-14:
+            t = Vec3(1, 0, 0) - p * p.x
+        t.normalize()
+        side = t.cross(p)
+        a = p + side * half_w
+        b = p - side * half_w
+        a.normalize()
+        b.normalize()
+        vw.addData3(a * radius)
+        cw.addData4(*color)
+        vw.addData3(b * radius)
+        cw.addData4(*color)
+        strip.addVertex(2 * i)
+        strip.addVertex(2 * i + 1)
+    strip.closePrimitive()
+    geom = Geom(vdata)
+    geom.addPrimitive(strip)
+    node = GeomNode(name)
+    node.addGeom(geom)
+    return node
 
 
 def make_bridge_marker(loader):
