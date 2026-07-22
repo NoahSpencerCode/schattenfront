@@ -177,7 +177,8 @@ class MenuScreen:
                      ['host'])
         self._button("[S]  SETTINGS", (0, -0.14), self.show_settings)
         self._button("[Q]  QUIT", (0, -0.30), self._quit)
-        self._text("WAR OFFICE * GENERAL STAFF * FIELD COMMAND EDITION",
+        from config import GAME_VERSION
+        self._text("ALPHA %s" % GAME_VERSION,
                    (0, -0.85), 0.035, SUB_COLOR)
         self.base.accept('n', self.show_country_select, ['new'])
         self.base.accept('h', self.show_country_select, ['host'])

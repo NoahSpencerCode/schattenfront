@@ -3093,7 +3093,6 @@ class WW2RTSGame(ShowBase):
                            % n_legs)
             return
 
-        self.build_mode = None
         if kind == 'bridge':
             near_river = any(
                 min(latlon_dist_deg((lon, lat), seg[0]),
@@ -3106,20 +3105,27 @@ class WW2RTSGame(ShowBase):
                               sender="ENGINEER CORPS")
                 return
         if eng.supply < cost:
+            self.build_mode = None      # the till is empty: stand down
             return
         eng.supply -= cost
+        # the work STAYS ARMED: rapid clicks chain further sites, each
+        # queued behind the last (deselect or ESC stands the party down)
+        chained = any(o.get('kind') == 'build'
+                      for o in ([eng.current_order]
+                                if eng.current_order else [])
+                      + eng.order_queue)
         order = {'kind': 'build', 'what': kind,
                  'site': Vec3(ground), 'from': Vec3(eng.pos),
                  't': build_time, 'cost': cost}
-        eng.give_order(order, queue=shift)
+        eng.give_order(order, queue=shift or chained)
         # the ghost takes station on the site until the works stand
         np_ = self._make_ghost_np(kind, (0.95, 0.82, 0.42, 0.55))
         site_n = Vec3(ground)
         site_n.normalize()
         orient_to_surface(np_, site_n)
         self._works_ghosts.append((eng, order, np_))
-        self.fax_short("%s UNDER CONSTRUCTION -- ENGINEERS EN ROUTE"
-                       % label)
+        self.fax_short("%s UNDER CONSTRUCTION -- CLICK CHAINS THE NEXT, "
+                       "ESC STANDS DOWN" % label)
 
     def _draw_road_plan(self, eng):
         """Yellow survey line: engineer through the planned waypoints."""
