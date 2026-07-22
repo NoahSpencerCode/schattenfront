@@ -3036,6 +3036,15 @@ class WW2RTSGame(ShowBase):
                 np_.removeNode()
         self._works_ghosts = alive
 
+    def _snap_road_point(self, vec):
+        """Snap a survey click onto the existing road network when
+        one lies close, so built roads JOIN it instead of floating
+        beside it."""
+        idx = self.planner.nearest_node(vec, max_deg=0.30)
+        if idx is None:
+            return Vec3(vec)
+        return Vec3(self.planner._nodes[idx][0])
+
     def _order_build(self, ground, shift=False):
         """RMB while a works order is armed: site it.  Roads collect
         shift-clicked waypoints first (yellow survey line), the plain
@@ -3066,31 +3075,36 @@ class WW2RTSGame(ShowBase):
             ground = latlon_to_vec(lat, lon)
 
         if kind == 'road':
-            self.road_plan.append(Vec3(ground))
+            # TWO CLICKS lay a leg: the first sets the starting point
+            # (the party travels there before digging), each further
+            # click chains the next leg on. Ends SNAP to the existing
+            # network so laid roads join it.
+            snapped = self._snap_road_point(Vec3(ground))
+            self.road_plan.append(snapped)
             self._draw_road_plan(eng)
-            if shift:
-                self.fax_short("SURVEY POINT %d SET -- CLICK TO ADD, "
-                               "PLAIN CLICK COMMITS" % len(self.road_plan))
-                return                  # stay in build mode, keep adding
-            points = list(self.road_plan)
-            self.build_mode = None
-            self._clear_road_plan()
-            n_legs = len(points)
-            total_cost = cost + 20 * (n_legs - 1)
-            if eng.supply < total_cost:
+            if len(self.road_plan) == 1:
+                self.fax_short("SURVEY OPEN: STARTING POINT SET -- "
+                               "EACH CLICK LAYS THE NEXT LEG, ESC ENDS")
+                return
+            a, b = self.road_plan[-2], self.road_plan[-1]
+            if eng.supply < cost:
+                self.road_plan.pop()
                 self.fax.post("WORKS REFUSED",
-                              "Stores cannot cover the survey (%s)." %
-                              B("%d LBS" % total_cost),
+                              "Stores cannot cover the leg (%s)." %
+                              B("%d LBS" % cost),
                               sender="ENGINEER CORPS")
                 return
-            eng.supply -= total_cost
+            eng.supply -= cost
+            chained = any(o.get('kind') == 'build'
+                          for o in ([eng.current_order]
+                                    if eng.current_order else [])
+                          + eng.order_queue)
             eng.give_order({'kind': 'build', 'what': 'road',
-                            'site': Vec3(points[0]),
-                            'points': points, 'from': Vec3(eng.pos),
-                            't': build_time + 20.0 * (n_legs - 1),
-                            'cost': total_cost})
-            self.fax_short("ROAD UNDER CONSTRUCTION -- %d LEG(S)"
-                           % n_legs)
+                            'site': Vec3(a), 'points': [Vec3(b)],
+                            'from': Vec3(a), 't': build_time,
+                            'cost': cost}, queue=shift or chained)
+            self.fax_short("ROAD LEG UNDER CONSTRUCTION -- CLICK "
+                           "EXTENDS THE LINE, ESC ENDS THE SURVEY")
             return
 
         if kind == 'bridge':
@@ -3184,18 +3198,22 @@ class WW2RTSGame(ShowBase):
                                        len(self.bridges)))
             self.planner.notify_bridge_change()
         elif kind == 'road':
-            # the laid road is EXACTLY a map road: the same snaking
-            # centre-line generator, the same ink, and the drawn curve
-            # itself becomes fast road edges in the route graph
+            # the laid road is EXACTLY a map road -- but surveyed by
+            # engineers, so its curve is DISCIPLINED (one wobble pass,
+            # not three). Any river it crosses gets its bridge thrown
+            # across automatically, aligned with the roadway.
             pts = order.get('points') or [site]
             chain = [order['from']] + list(pts)
             for a, b in zip(chain[:-1], chain[1:]):
+                if angle_between(a, b) < 1e-7:
+                    continue
                 la1, lo1 = vec_to_latlon(a)
                 la2, lo2 = vec_to_latlon(b)
                 seed = zlib.crc32(("eng:%.3f,%.3f,%.3f,%.3f"
                                    % (la1, lo1, la2, lo2)).encode())
                 curve = self.world._curved_road_points(
-                    la1, lo1, la2, lo2, seed, passes=3)
+                    la1, lo1, la2, lo2, seed, passes=1)
+                self._auto_bridge_curve(curve)
                 poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
                 self.planner.add_custom_road(poly)
                 self._draw_custom_road(poly)
@@ -3205,6 +3223,34 @@ class WW2RTSGame(ShowBase):
                           "%s ready at %s." %
                           (B(label), self._grid_ref(lat, lon)),
                           sender="ENGINEER CORPS")
+
+    def _auto_bridge_curve(self, curve):
+        """Throw a bridge over every river the surveyed road curve
+        crosses, decked ALONG the roadway."""
+        from utils import latlon_dist_deg as _ldd
+        from utils import segment_intersection_point as _sip
+        built = 0
+        for (la1, lo1), (la2, lo2) in zip(curve[:-1], curve[1:]):
+            p1, p2 = (lo1, la1), (lo2, la2)
+            mid = ((lo1 + lo2) / 2.0, (la1 + la2) / 2.0)
+            for seg in self.world.river_segments_near(mid[0], mid[1]):
+                hit = _sip(p1, p2, seg[0], seg[1])
+                if hit is None:
+                    continue
+                if any(_ldd((bb.lon, bb.lat), hit) < 0.12
+                       for bb in self.bridges if bb.alive):
+                    continue        # a span already stands here
+                self.bridges.append(Bridge(
+                    self, {'lat': hit[1], 'lon': hit[0],
+                           'road': (-1, -1),
+                           'seg': (la1, lo1, la2, lo2)},
+                    len(self.bridges)))
+                built += 1
+        if built:
+            self.planner.notify_bridge_change()
+            if self.player_country:
+                self.fax_short("%d BRIDGE(S) THROWN ACROSS THE "
+                               "CROSSINGS" % built)
 
     def _draw_custom_road(self, poly):
         """Ink the built road with the map's own dirt-road colour,

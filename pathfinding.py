@@ -71,15 +71,25 @@ class MovementPlanner:
         total = arc[-1]
         nseg = max(1, int(total / ROAD_NODE_SPACING))
         target = total / nseg
-        prev = len(nodes)
-        nodes.append((vecs[0], *vec_to_latlon(vecs[0])))
+        # ends SNAP onto the existing network so laid roads join it
+        # instead of floating beside it
+        snap_a = self.nearest_node(vecs[0], max_deg=0.30)
+        snap_b = self.nearest_node(vecs[-1], max_deg=0.30)
+        if snap_a is not None:
+            prev = snap_a
+        else:
+            prev = len(nodes)
+            nodes.append((vecs[0], *vec_to_latlon(vecs[0])))
         prev_i, k = 0, 1
         for idx in range(1, len(vecs)):
             last = idx == len(vecs) - 1
             if not last and (arc[idx] < k * target or k >= nseg):
                 continue
-            nn = len(nodes)
-            nodes.append((vecs[idx], *vec_to_latlon(vecs[idx])))
+            if last and snap_b is not None:
+                nn = snap_b
+            else:
+                nn = len(nodes)
+                nodes.append((vecs[idx], *vec_to_latlon(vecs[idx])))
             seg_len = max(1e-6, arc[idx] - arc[prev_i])
             geom = vecs[prev_i + 1:idx] or None
             edges.append((prev, nn, seg_len / ROAD_SPEED_MULTIPLIER,
@@ -87,6 +97,134 @@ class MovementPlanner:
             prev, prev_i = nn, idx
             k += 1
         self._adj_cache = None
+
+    def _stitch(self, nodes, edges, P):
+        """STITCHING: the KNN pass leaves pockets (mountain shadows,
+        coastal strips) and can split a continent -- Vladivostok sat
+        alone, Paris and Moscow lived apart. Components sharing a
+        landmass are sewn by their nearest OVERLAND pairs; where no
+        clean chord exists the FINE MASK walks the corridor and a wild
+        track is laid along it. True islands stay separate. The sewn
+        set is cached: the survey is paid for once."""
+        import os as _os
+        from geodata import CACHE_DIR as _CD
+        base_n = len(nodes)
+        cache = _os.path.join(_CD, 'land_stitch_v1_%d.npz' % base_n)
+        if _os.path.exists(cache):
+            z = np.load(cache)
+            for la, lo in z['pts']:
+                nodes.append((latlon_to_vec(float(la), float(lo)),
+                              float(la), float(lo)))
+            for i, j, c in z['links']:
+                edges.append((int(i), int(j), float(c), False, None,
+                              None))
+            return
+        new_pts = []
+        new_links = []
+        parent = list(range(base_n))
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a, b):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        for e in edges:
+            union(e[0], e[1])
+        refines_left = 40
+        for _round in range(8):
+            comps = {}
+            for i in range(len(parent)):
+                comps.setdefault(find(i), []).append(i)
+            if len(comps) <= 1:
+                break
+            order_c = sorted(comps.values(), key=len, reverse=True)
+            main = order_c[0]
+            main_np = P[np.array([i for i in main if i < base_n])]
+            main_ids = [i for i in main if i < base_n]
+            scored = []
+            for comp in order_c[1:]:
+                ids = [i for i in comp if i < base_n]
+                if not ids:
+                    continue
+                sub = P[np.array(ids)]
+                with np.errstate(all='ignore'):
+                    D = sub @ main_np.T
+                f = int(np.argmax(D))
+                scored.append((float(D.flat[f]), ids[f // len(main_ids)],
+                               main_ids[f % len(main_ids)], ids, D))
+            # NEAREST pockets first: the far ones are usually islands
+            scored.sort(key=lambda t: -t[0])
+            merged = False
+            for _best, _a0, _b0, ids, D in scored:
+                flat = np.argsort(-D, axis=None)[:60]
+                linked = False
+                for f in flat:
+                    ci, mi = int(f // len(main_ids)), int(f % len(main_ids))
+                    a, b = ids[ci], main_ids[mi]
+                    ang = math.acos(max(-1.0, min(1.0, float(D[ci, mi]))))
+                    if math.degrees(ang) > OFFROAD_MAX_ARC_DEG * 1.5:
+                        break
+                    if not self.segment_land_ok(nodes[a][0], nodes[b][0]):
+                        continue
+                    fac = self.world.terrain.offroad_cost_factor(
+                        nodes[a][1], nodes[a][2], nodes[b][1], nodes[b][2])
+                    if fac is None:
+                        fac = 6.0
+                    edges.append((a, b, ang * GLOBE_RADIUS * fac,
+                                  False, None, None))
+                    new_links.append((a, b, ang * GLOBE_RADIUS * fac))
+                    union(a, b)
+                    linked = merged = True
+                    break
+                if linked or not len(flat):
+                    continue
+                ci, mi = int(flat[0] // len(main_ids)), \
+                    int(flat[0] % len(main_ids))
+                a, b = ids[ci], main_ids[mi]
+                ang = math.acos(max(-1.0, min(1.0, float(D[ci, mi]))))
+                if math.degrees(ang) > OFFROAD_MAX_ARC_DEG * 1.5 \
+                        or refines_left <= 0:
+                    continue
+                refines_left -= 1
+                fine = self._refine_land(nodes[a][0], nodes[b][0])
+                if not fine:
+                    continue            # truly cut off: an island
+                prev = a
+                run = 0.0
+                last_v = nodes[a][0]
+                for (wp, _m) in fine:
+                    step_ = angle_between(last_v, wp) * GLOBE_RADIUS
+                    run += step_
+                    last_v = wp
+                    if run < 0.6:
+                        continue
+                    nn = len(nodes)
+                    la_, lo_ = vec_to_latlon(wp)
+                    nodes.append((Vec3(wp), la_, lo_))
+                    parent.append(nn)
+                    edges.append((prev, nn, run * 1.5, False, None,
+                                  None))
+                    new_pts.append((la_, lo_))
+                    new_links.append((prev, nn, run * 1.5))
+                    union(prev, nn)
+                    prev, run = nn, 0.0
+                edges.append((prev, b, max(run, 0.05) * 1.5, False,
+                              None, None))
+                new_links.append((prev, b, max(run, 0.05) * 1.5))
+                union(prev, b)
+                merged = True
+            if not merged:
+                break
+        np.savez(cache,
+                 pts=np.array(new_pts, dtype=np.float64).reshape(-1, 2),
+                 links=np.array(new_links, dtype=np.float64
+                                ).reshape(-1, 3))
 
     # ------------------------------------------------------------ helpers
     def _alive_bridges(self):
@@ -136,6 +274,54 @@ class MovementPlanner:
             run = run + 1 if flag else 0
             worst = max(worst, run)
         return worst <= max_run
+
+    FORD_CLEAR_DEG = 3.0    # a crossing this far from EVERY bridge is
+                            # wild country and may be forded (slowly)
+    FORD_COST_MULT = 3.0
+
+    def river_passage(self, a_vec, b_vec):
+        """Routing verdict for a leg: 1.0 = clear or bridged;
+        FORD_COST_MULT = every crossing is in wild country, ford it;
+        None = an unbridged crossing in bridge country -- blocked, go
+        find the bridge. This is what lets a column cross Siberia
+        without making Europe's bridges optional."""
+        lat_a, lon_a = self._sample_latlon(a_vec, b_vec, RIVER_STEP_DEG)
+        n = len(lat_a) - 1
+        pts = list(zip(lon_a.tolist(), lat_a.tolist()))
+        alive = None
+        mult = 1.0
+        for i in range(n):
+            p1, p2 = pts[i], pts[i + 1]
+            if abs(p1[0] - p2[0]) > 180.0:
+                continue
+            mid = ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0)
+            for seg in self.world.river_segments_near(mid[0], mid[1]):
+                hit = segment_intersection_point(p1, p2, seg[0], seg[1])
+                if hit is None:
+                    continue
+                if alive is None:
+                    alive = self._alive_bridges()
+                dmin = min((latlon_dist_deg((b.lon, b.lat), hit)
+                            for b in alive), default=1e9)
+                if dmin <= BRIDGE_TOLERANCE_DEG:
+                    continue            # crosses ON a bridge
+                if dmin >= self.FORD_CLEAR_DEG:
+                    mult = self.FORD_COST_MULT
+                    continue            # wild country: wade it
+                return None             # bridge country: use the bridge
+        return mult
+
+    def nearest_node(self, vec, max_deg=0.35):
+        """Nearest graph node within max_deg -- for snapping a new
+        road's ends onto the existing network."""
+        if self._static_edges is None:
+            self._build_land_graph()
+        best, best_a = None, math.radians(max_deg)
+        for idx, (v, _la, _lo) in enumerate(self._nodes):
+            a = angle_between(vec, v)
+            if a < best_a:
+                best, best_a = idx, a
+        return best
 
     def segment_river_ok(self, a_vec, b_vec, ignore_all_bridges=False):
         """True if segment doesn't cross a river away from an intact bridge."""
@@ -246,6 +432,29 @@ class MovementPlanner:
         # Candidate search is fully vectorized (the graph is thousands
         # of nodes now); land checks run only on the K best per node.
         n = len(nodes)
+        # WILDERNESS WAYPOINTS: a coarse lattice over the empty
+        # country. Without it the KNN pass only ever links neighbours
+        # inside dense clusters, and no chain of hops could ever span
+        # Siberia, the Sahara or the outback -- routes just died at
+        # the edge of the map's road networks.
+        P0 = np.array([[v.x, v.y, v.z] for (v, _la, _lo) in nodes])
+        n0 = np.linalg.norm(P0, axis=1, keepdims=True)
+        P0 = P0 / np.maximum(n0, 1e-12)
+        cos_dedupe = math.cos(math.radians(2.5))
+        for la in range(-54, 69, 6):
+            step = max(6, int(round(6.0 / max(0.2, math.cos(
+                math.radians(la))))))
+            for lo in range(-180, 180, step):
+                if not self.world.is_land(float(la), float(lo)):
+                    continue
+                v = latlon_to_vec(float(la), float(lo))
+                with np.errstate(all='ignore'):
+                    dmax = float((P0 @ np.array([v.x, v.y, v.z])).max())
+                if dmax > cos_dedupe:
+                    continue        # settled country: nodes exist here
+                nodes.append((v, float(la), float(lo)))
+        n = len(nodes)
+
         P = np.array([[v.x, v.y, v.z] for (v, _la, _lo) in nodes])
         norms = np.linalg.norm(P, axis=1, keepdims=True)
         P = P / np.maximum(norms, 1e-12)
@@ -282,6 +491,8 @@ class MovementPlanner:
                               False, None, None))
                 linked += 1
 
+        self._stitch(nodes, edges, P)
+
         self._nodes = nodes
         self._static_edges = edges
         # river verdicts are checked lazily during A* (the planner runs
@@ -291,10 +502,10 @@ class MovementPlanner:
         key = (min(i, j), max(i, j))
         hit = self._river_ok_cache.get(key)
         if hit is None:
-            hit = self.segment_river_ok(self._nodes[i][0],
-                                        self._nodes[j][0])
-            self._river_ok_cache[key] = hit
-        return hit
+            hit = self.river_passage(self._nodes[i][0],
+                                     self._nodes[j][0])
+            self._river_ok_cache[key] = ('X' if hit is None else hit)
+        return None if hit == 'X' else hit
 
     def _land_edges_usable(self, edge):
         i, j, cost, is_road, bs = edge[:5]
@@ -377,13 +588,13 @@ class MovementPlanner:
         # for edges touching the start/goal
         river_cache = {}
 
-        def river_ok(i, j):
+        def river_mult(i, j):
             if i < n_static and j < n_static:
                 return self._static_river_ok(i, j)
             key = (min(i, j), max(i, j))
             if key not in river_cache:
-                river_cache[key] = self.segment_river_ok(nodes[i][0],
-                                                         nodes[j][0])
+                river_cache[key] = self.river_passage(nodes[i][0],
+                                                      nodes[j][0])
             return river_cache[key]
 
         def h(i):
@@ -413,8 +624,11 @@ class MovementPlanner:
             for (nxt, cost, is_road, geom, fwd) in neigh:
                 if nxt in seen:
                     continue
-                if not is_road and not river_ok(cur, nxt):
-                    continue
+                if not is_road:
+                    rm = river_mult(cur, nxt)
+                    if rm is None:
+                        continue
+                    cost = cost * rm    # fording wild rivers is slow
                 nd = dist[cur] + cost
                 if nd < dist.get(nxt, float('inf')):
                     dist[nxt] = nd

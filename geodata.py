@@ -52,13 +52,14 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 33  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 34  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
 LAND = (205, 191, 156)        # old paper
 BORDER = (110, 99, 82)        # etched border lines
-RIVER = (62, 84, 110)         # river blue-grey
+RIVER = (82, 118, 158)        # bright river blue
+ROAD_EDGE = (170, 143, 104)   # pale verge either side of a road
 ROAD = (122, 96, 62)          # dirt-road brown
 CITY_DOT = (58, 46, 34)
 
@@ -1103,7 +1104,8 @@ class WorldData:
             for i in idx:
                 pts = ring_pts(self.river_line(i), s)
                 draw.line(pts, fill=RIVER,
-                          width=(3 * ss) if self.river_major[i] else ss)
+                          width=int(4.5 * ss) if self.river_major[i]
+                          else max(1, int(1.5 * ss)))
 
         if land_only:
             if ss > 1:
@@ -1125,7 +1127,10 @@ class WorldData:
                     out.append(s)
             return out
 
-        # roads: snaking centre-lines between the cities they link
+        # roads: snaking centre-lines between the cities they link.
+        # TWO passes -- a pale verge first, then every core stroke on
+        # top -- so the light border never overpaints a junction
+        road_lines = []
         road_paths = getattr(self, 'road_paths', {})
         for (i, j) in self.roads:
             path = road_paths.get((i, j))
@@ -1138,9 +1143,7 @@ class WorldData:
             for s in window_shifts(bb):
                 line = [((lo + s - lon0) * sx, (lat1 - la) * sy)
                         for (la, lo) in path]
-                draw.line(line, fill=ROAD, width=road_w, joint='curve')
-
-        # spur roads: city to its airfield and its harbor quay
+                road_lines.append((line, road_w))
         for path in getattr(self, 'spur_paths', []):
             lons = [p[1] for p in path]
             lats = [p[0] for p in path]
@@ -1148,8 +1151,13 @@ class WorldData:
             for s in window_shifts(bb):
                 line = [((lo + s - lon0) * sx, (lat1 - la) * sy)
                         for (la, lo) in path]
-                draw.line(line, fill=ROAD, width=max(2, road_w - 1),
-                          joint='curve')
+                road_lines.append((line, max(2, road_w - 1)))
+        verge = max(2, 2 * ss)
+        for line, w in road_lines:
+            draw.line(line, fill=ROAD_EDGE, width=w + verge,
+                      joint='curve')
+        for line, w in road_lines:
+            draw.line(line, fill=ROAD, width=w, joint='curve')
 
         # cities: aerial-sketch street plan and rooftops, drawn straight
         # onto the map; size and building count scale with population

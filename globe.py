@@ -246,7 +246,7 @@ void main() {
         vec4 fA = texture2D(border_dA, buv);
         vec4 fB = texture2D(border_dB, buv);
         bool land_px = distance(tex.rgb, vec3(0.173, 0.227, 0.310)) > 0.12
-                    && distance(tex.rgb, vec3(0.243, 0.329, 0.431)) > 0.07;
+                    && distance(tex.rgb, vec3(0.322, 0.463, 0.620)) > 0.09;
         float d1 = fA.r; int owner = 0;
         if (fA.g < d1) { d1 = fA.g; owner = 1; }
         if (fA.b < d1) { d1 = fA.b; owner = 2; }
