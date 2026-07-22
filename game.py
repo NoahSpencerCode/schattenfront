@@ -359,6 +359,7 @@ class WW2RTSGame(ShowBase):
         self.road_cuts = []             # bombed-out sections of roadway
         self.road_sections = []         # every section, a live target
         self._glow_section = None       # section under the gunsight
+        self.demolish_mode = False      # armed: roads/works take fire
         self.road_plan = []             # surveyed road waypoints
         self.road_preview = None        # yellow survey line
         self.selected = []
@@ -771,6 +772,7 @@ class WW2RTSGame(ShowBase):
         self._apply_fortnight_budget()
 
         self._make_engineer_button()
+        self._make_demolish_button()
         self._build_road_overlay()
         self._loading_np = loading      # held up through the warm-up
         self._warmup_t0 = globalClock.getFrameTime()
@@ -869,6 +871,56 @@ class WW2RTSGame(ShowBase):
                 return h
         return None
 
+    def _make_demolish_button(self):
+        """Square key beside the bar: arms DEMOLITION. Only while
+        armed do roads, bridges and enemy works take the gunsight --
+        otherwise they never interfere with ordinary orders."""
+        from ui import pill_button
+        from icons import button_assets
+        from direct.gui.OnscreenImage import OnscreenImage
+        if getattr(self, 'demolish_btn', None) is not None:
+            self.demolish_btn.destroy()
+        b = pill_button(self.a2dRightCenter, '',
+                        self._toggle_demolish,
+                        pos=(-0.085, 0, 0.20), hw=0.055, hh=0.055)
+        pic = OnscreenImage(image=get_icon_path('demolish_button',
+                                                'dark'),
+                            parent=b, scale=0.038, pos=(0, 0, 0.002))
+        pic.setTransparency(True)
+        self._demolish_imgs = button_assets('panel', 0.055, 0.055)[0]
+        self.demolish_btn = b
+        b.hide()
+
+    def _toggle_demolish(self):
+        self.demolish_mode = not self.demolish_mode
+        imgs = self._demolish_imgs
+        self.demolish_btn['image'] = ((imgs[1],) * 4
+                                      if self.demolish_mode else imgs)
+        if not self.demolish_mode:
+            self._set_road_glow(None)
+        self.fax_short("DEMOLITION %s" %
+                       ("ARMED -- RMB ROADS, BRIDGES AND WORKS"
+                        if self.demolish_mode else "STOOD DOWN"))
+
+    def _sync_demolish(self):
+        """The key shows only when the selection can wreck things;
+        losing that selection stands the charge down."""
+        able = any(u.country == self.player_country
+                   and u.can_target('bridge')
+                   for u in self.selected)
+        b = getattr(self, 'demolish_btn', None)
+        if b is None:
+            return
+        if able and b.isHidden():
+            b.show()
+        elif not able:
+            if not b.isHidden():
+                b.hide()
+            if self.demolish_mode:
+                self.demolish_mode = False
+                b['image'] = self._demolish_imgs
+                self._set_road_glow(None)
+
     def _make_engineer_button(self):
         """Square key on the right edge: the WORKS CALL. Click picks
         the idle engineer nearest the window centre; the corner tally
@@ -956,7 +1008,9 @@ class WW2RTSGame(ShowBase):
     def on_escape(self):
         if self.game_state != 'playing':
             return
-        if self.build_mode:
+        if self.demolish_mode:
+            self._toggle_demolish()
+        elif self.build_mode:
             self.build_mode = None
             self._clear_road_plan()
             self.fax_short("WORKS ORDER CANCELLED")
@@ -1707,11 +1761,11 @@ class WW2RTSGame(ShowBase):
                    if u.alive and u.country != self.player_country
                    and u.visible_to_player and self._facing_camera(u.pos)]
         target = self._pick_object(mpos, enemies)
-        if target is None:
+        if target is None and self.demolish_mode:
             bridges = [(b, b.pos * GLOBE_RADIUS) for b in self.bridges
                        if self._facing_camera(b.pos)]
             target = self._pick_object(mpos, bridges)
-        if target is None:
+        if target is None and self.demolish_mode:
             rt = self._pick_road_section(mpos)
             if rt is not None:
                 attackers = [u for u in own_selected
@@ -1738,8 +1792,9 @@ class WW2RTSGame(ShowBase):
 
         commandable = own_selected
 
-        # enemy airfields can be demolished like bridges
-        if target is None:
+        # enemy airfields can be demolished like bridges -- but only
+        # under an ARMED demolition order
+        if target is None and self.demolish_mode:
             foe_fields = [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
                           if a.country != self.player_country
                           and self._facing_camera(a.pos)]
@@ -4760,7 +4815,7 @@ void main() {
                      and u.visible_to_player and self._facing_camera(u.pos)]
             target = self._pick_object(mpos, cands)
             kind = target.stats['domain'] if target else None
-            if target is None:
+            if target is None and self.demolish_mode:
                 bl = [(b, b.pos * GLOBE_RADIUS) for b in self.bridges
                       if b.alive and self._facing_camera(b.pos)]
                 bl += [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
@@ -4768,8 +4823,8 @@ void main() {
                        and self._facing_camera(a.pos)]
                 target = self._pick_object(mpos, bl)
                 kind = 'bridge'
-            if target is None and any(u.can_target('bridge')
-                                      for u in shooters):
+            if (target is None and self.demolish_mode
+                    and any(u.can_target('bridge') for u in shooters)):
                 sec = self._pick_road_section(mpos)
                 if sec is not None:
                     self._set_road_glow(sec)
@@ -5003,6 +5058,7 @@ void main() {
         bar.hide_capture()
         bar.hide_exit()
         self._sync_scramble()
+        self._sync_demolish()
         primary = next((u for u in self.selected
                         if u.country == self.player_country), None)
         if primary is not None:

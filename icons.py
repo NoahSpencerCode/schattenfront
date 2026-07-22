@@ -496,6 +496,25 @@ def _draw_red_button_hover(d, ink):
                  edge=(38, 12, 8, 255), glow=(255, 170, 120, 230))
 
 
+def _draw_demolish_button(d, ink):
+    """The demolition order: an aerial bomb over cracked masonry
+    (full-colour, ink ignored)."""
+    # cracked wall block
+    d.rectangle([14, 62, 82, 84], fill=(140, 128, 104, 255),
+                outline=(54, 44, 34, 255), width=4)
+    d.line([(34, 62), (44, 74), (38, 84)], fill=(54, 44, 34, 255),
+           width=3)
+    d.line([(60, 62), (54, 72), (63, 84)], fill=(54, 44, 34, 255),
+           width=3)
+    # the bomb, nose down
+    d.polygon([(48, 58), (40, 40), (40, 22), (56, 22), (56, 40)],
+              fill=(30, 26, 22, 255))
+    d.ellipse([40, 14, 56, 30], fill=(30, 26, 22, 255))
+    d.polygon([(40, 22), (32, 8), (40, 14)], fill=(30, 26, 22, 255))
+    d.polygon([(56, 22), (64, 8), (56, 14)], fill=(30, 26, 22, 255))
+    d.ellipse([44, 50, 52, 58], fill=(30, 26, 22, 255))
+
+
 def _draw_scramble_button(d, ink):
     """The SCRAMBLE control: a dispatch-red rounded pill under a
     smooth top-lit shade (full-colour, ink ignored)."""
@@ -620,6 +639,7 @@ _DRAWERS = {
     'bridge_map': _draw_bridge_map,
     'info_button': _draw_info_button,
     'scramble_button': _draw_scramble_button,
+    'demolish_button': _draw_demolish_button,
     'panel_button': _draw_panel_button,
     'panel_key': _draw_panel_key,
     'panel_key_press': _draw_panel_key_press,
