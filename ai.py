@@ -65,11 +65,18 @@ FORCE_CAP = 48                  # a nation fields at most this many units:
 class NationAI:
     STAGES = 4
 
+    # the diplomatic tempo, in game days
+    WAR_GRACE_DAYS = 8          # the world stays quiet at the start
+    WAR_EVERY_DAYS = (16, 30)   # one declaration per nation per spell
+
     def __init__(self, game, country):
         self.g = game
         self.country = country
         self.timer = random.uniform(2.0, 8.0)   # staggers the nations
         self.stage = 0
+        # each staff opens its first war on its own clock
+        self.war_ok_minutes = (self.WAR_GRACE_DAYS
+                               + random.uniform(2.0, 14.0)) * 1440.0
         self.budget_counts = {}
         self.objective = None       # the city the staff means to take
         self.staging = None         # own city the strike group masses at
@@ -207,32 +214,98 @@ class NationAI:
                 break
 
     # ---- stage 0: the war council picks THE objective ---------------
+    def _war_council(self):
+        """Opportunistic statecraft, heavily throttled. A power with
+        no war to prosecute picks a neighbour and declares -- weak
+        NPC nations are preferred prey, and nobody attacks a bloc
+        overwhelmingly stronger than his own. A power AT war courts
+        co-belligerents into alliance."""
+        g = self.g
+        from config import PLAYABLE
+        me = self.country
+        my_enemies = g.nation_enemies(me)
+        # courtship: bind a nation fighting the same enemy
+        if my_enemies and random.random() < 0.25:
+            for other in list(g.nation_enemies(next(iter(my_enemies)))):
+                if (other != me and not g.at_war(me, other)
+                        and not g.allied(me, other)
+                        and other not in g.eliminated
+                        and g.alliance_answer(other, me)):
+                    g.make_alliance(me, other)
+                    break
+        # declarations: only when the current wars offer no objective
+        if my_enemies and any(
+                g.at_war(me, c.country) for c in g.cities
+                if c.name not in self.unreachable
+                and c.country != me):
+            return
+        if g.clock_minutes < self.war_ok_minutes:
+            return
+        own = [c for c in g.cities if c.country == me]
+        if not own:
+            return
+        centroid = Vec3(0, 0, 0)
+        for c in own:
+            centroid += c.pos
+        centroid.normalize()
+        my_forces = sum(1 for u in g.units
+                        if u.alive and u.country in g._bloc(me))
+        best, best_s = None, 0.0
+        for c in g.cities:
+            nat = c.country
+            if (nat == me or nat in g.eliminated or nat == 'neutral'
+                    or g.at_war(me, nat) or g.allied(me, nat)):
+                continue
+            d = angle_between(centroid, c.pos)
+            if d > 0.5:
+                continue            # wars begin next door
+            pop = min(1500.0, CITY_POPULATION.get(c.name, 120))
+            s = (150.0 + pop) / (0.02 + d) ** 1.7
+            if nat not in PLAYABLE:
+                s *= 1.6            # the weak are eaten first
+            their = sum(1 for u in g.units
+                        if u.alive and u.country in g._bloc(nat))
+            if their > my_forces * 1.5:
+                continue            # nobody duels a stronger bloc
+            if s > best_s:
+                best, best_s = nat, s
+        if best is not None:
+            g.declare_war(me, best)
+            self.war_ok_minutes = g.clock_minutes + random.uniform(
+                *self.WAR_EVERY_DAYS) * 1440.0
+
     def _stage_strategy(self):
         g = self.g
         own = [c for c in g.cities if c.country == self.country]
         if not own:
             return
+        # the council of war sits before the maps come out: if no war
+        # offers an objective, consider STARTING one (throttled), and
+        # consider binding friends against a shared enemy
+        self._war_council()
         if (self.objective is not None
                 and self.objective.country not in (self.country,)
-                and self.objective.country not in g.eliminated):
+                and self.objective.country not in g.eliminated
+                and g.at_war(self.country, self.objective.country)):
             return                  # the current objective stands
         centroid = Vec3(0, 0, 0)
         for c in own:
             centroid += c.pos
         centroid.normalize()
         # nearby prizes first: population counts, but the blitz begins
-        # next door (capped pop influence, steep distance falloff)
+        # next door (capped pop influence, steep distance falloff).
+        # ONLY cities of nations we are AT WAR with are on the maps.
         scored = []
         for c in g.cities:
             if c.country == self.country or c.country in g.eliminated:
+                continue
+            if not g.at_war(self.country, c.country):
                 continue
             if c.name in self.unreachable:
                 continue
             d = angle_between(centroid, c.pos)
             pop = min(1500.0, CITY_POPULATION.get(c.name, 120))
             score = (150.0 + pop) / (0.02 + d) ** 1.7
-            if c.country == 'neutral':
-                score *= 1.35       # cheap growth before the hard war
             scored.append((score, c))
         scored.sort(key=lambda s: -s[0])
         # a land-reachable objective is always preferred; only when the
