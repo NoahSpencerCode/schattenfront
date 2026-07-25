@@ -71,6 +71,7 @@ from utils import (angle_between, find_regular_font_path,
                    find_typewriter_font_path, latlon_dist_deg,
                    latlon_to_vec, north_tangent, vec_to_latlon)
 
+_EMPTY_SET = frozenset()
 MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
           'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 
@@ -379,6 +380,7 @@ class WW2RTSGame(ShowBase):
         self.eliminated = set()
         self.game_over = False
         self.wars = set()
+        self._war_sets = {}
         self.alliances = {c: set() for c in COUNTRIES}
         self.pouches = []
         self.news_queue = []
@@ -486,6 +488,13 @@ class WW2RTSGame(ShowBase):
         self._pending_plans = 0
         self._preplans = {}         # token -> queued order awaiting route
         self._ind_tokens = set()    # plans the player is waiting on
+        # a busy pure-python worker (route planner, border bake) holds
+        # the GIL for the FULL default switch interval (5 ms) at every
+        # handoff -- the main loop stalls mid-frame and the game
+        # hitches. A short interval keeps frames smooth; the workers
+        # lose a little throughput, which async work never notices.
+        import sys as _sys
+        _sys.setswitchinterval(0.0005)
         self._plan_worker = threading.Thread(target=self._plan_loop,
                                              daemon=True)
         self._plan_worker.start()
@@ -662,6 +671,7 @@ class WW2RTSGame(ShowBase):
         self.clock_minutes = 0.0
         # ---- diplomacy: the world begins AT PEACE ----
         self.wars = set()               # frozenset({a, b}) at war
+        self._war_sets = {}             # flat per-nation enemy sets
         self.alliances = {c: set() for c in COUNTRIES}
         self.pouches = []               # diplomatic bags in transit
         self.news_queue = []            # newspapers on the stand
@@ -831,6 +841,8 @@ class WW2RTSGame(ShowBase):
         self._make_demolish_button()
         self._make_diplo_button()
         self._build_road_overlay()
+        from icons import prewarm_button_assets
+        prewarm_button_assets()         # no first-use PIL hitch in play
         self._loading_np = loading      # held up through the warm-up
         self._warmup_t0 = globalClock.getFrameTime()
         self._bind_game_controls()
@@ -3019,12 +3031,13 @@ class WW2RTSGame(ShowBase):
         best, best_d = None, horizon
         night_blind = not self.is_day(unit.pos)   # vs the other domain
         unit_air = unit.is_air()
+        enemies = self._war_sets.get(unit.country)
+        if not enemies:
+            return None         # a nation at peace scans nobody
         for other in self.units:
-            if not other.alive or other.country == unit.country \
+            if not other.alive or other.country not in enemies \
                     or other.carried_by or self.is_embarked(other):
                 continue
-            if not self.at_war(unit.country, other.country):
-                continue        # no state of war: the guns stay quiet
             if not unit.can_target(other.stats['domain']):
                 continue
             if night_blind and other.is_air() != unit_air:
@@ -4398,7 +4411,18 @@ void main() {
     # declaration binds BLOCS: every ally of each side is dragged in.
 
     def at_war(self, a, b):
-        return a != b and frozenset((a, b)) in self.wars
+        return b in self._war_sets.get(a, _EMPTY_SET)
+
+    def _rebuild_war_sets(self):
+        """Flat enemy sets per nation: the hot paths (target
+        acquisition over hundreds of units) do ONE dict lookup and
+        set-membership test instead of hashing a frozenset."""
+        ws = {}
+        for pair in self.wars:
+            a, b = tuple(pair)
+            ws.setdefault(a, set()).add(b)
+            ws.setdefault(b, set()).add(a)
+        self._war_sets = ws
 
     def allied(self, a, b):
         return b in self.alliances.get(a, ())
@@ -4416,8 +4440,7 @@ void main() {
         return seen
 
     def nation_enemies(self, a):
-        return {next(iter(pair - {a}))
-                for pair in self.wars if a in pair}
+        return set(self._war_sets.get(a, _EMPTY_SET))
 
     def declare_war(self, aggressor, defender):
         """The declaration takes effect at once and drags the blocs:
@@ -4437,6 +4460,7 @@ void main() {
         if aggressor == self.player_country:
             self.stats_ledger['wars_declared'] = \
                 self.stats_ledger.get('wars_declared', 0) + 1
+        self._rebuild_war_sets()
         dragged = sorted((bloc_a | bloc_b) - {aggressor, defender})
         deck = "%s and its allies enter the war against %s" % (
             COUNTRIES[aggressor]['name'], COUNTRIES[defender]['name'])
@@ -4483,6 +4507,7 @@ void main() {
             for enemy in list(self.nation_enemies(x)):
                 if enemy != y and not self.at_war(y, enemy):
                     self.wars.add(frozenset((y, enemy)))
+        self._rebuild_war_sets()
         return True
 
     def break_alliance(self, a, b):
@@ -4502,6 +4527,7 @@ void main() {
         if not self.at_war(a, b):
             return False
         self.wars.discard(frozenset((a, b)))
+        self._rebuild_war_sets()
         self.post_news(
             "PEACE BETWEEN %s AND %s" %
             (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
@@ -4764,6 +4790,7 @@ void main() {
                 self.eliminated.add(country)
                 # a fallen nation leaves the diplomatic stage entirely
                 self.wars = {w for w in self.wars if country not in w}
+                self._rebuild_war_sets()
                 for allies in self.alliances.values():
                     allies.discard(country)
                 self.alliances[country] = set()
@@ -4936,30 +4963,62 @@ void main() {
                                if r.country == player]
         self._update_vision_shader()
         for u in self.units:
-            if not u.alive or u.carried_by or u.country == player \
-                    or self.is_embarked(u):
-                if u.alive and u.country == player:
-                    u.visible_to_player = u.in_contact
-                continue
-            target_air = u.is_air()
-            # a submerged boat shows nothing but a periscope feather:
-            # spotted only nearly overhead
-            sub_cap = (0.05 if getattr(u, 'submerged', False) else None)
-            visible = False
-            for (pos, rng, src_air, src_day, los) in friendly:
-                if not src_day and src_air != target_air:
-                    continue        # night: air and surface see nothing
-                                    # of each other
-                if sub_cap is not None:
-                    rng = min(rng, sub_cap)
-                ang = angle_between(u.pos, pos)
-                if ang * GLOBE_RADIUS > rng:
-                    continue
-                if (los is not None and not target_air
-                        and ang > los[self._az_index(pos, u.pos)]):
-                    continue        # the ridge hides them
-                visible = True
-                break
+            if u.alive and u.country == player:
+                u.visible_to_player = u.in_contact
+        targets = [u for u in self.units
+                   if u.alive and not u.carried_by
+                   and u.country != player and not self.is_embarked(u)]
+        if not targets:
+            return
+        if friendly and not TERRAIN_LOS:
+            # vectorized: ONE (targets x sources) angle matrix in
+            # numpy replaces the python double loop that was hitching
+            # the frame with hundreds of units on the map
+            import numpy as np
+            T = np.array([[u.pos.x, u.pos.y, u.pos.z]
+                          for u in targets])
+            F = np.array([[p.x, p.y, p.z]
+                          for (p, r, a, d, l) in friendly])
+            rng = np.array([r for (p, r, a, d, l) in friendly])
+            s_air = np.array([a for (p, r, a, d, l) in friendly],
+                             dtype=bool)
+            s_day = np.array([d for (p, r, a, d, l) in friendly],
+                             dtype=bool)
+            t_air = np.array([u.is_air() for u in targets], dtype=bool)
+            sub = np.array([bool(getattr(u, 'submerged', False))
+                            for u in targets], dtype=bool)
+            ang = np.arccos(np.clip(T @ F.T, -1.0, 1.0)) * GLOBE_RADIUS
+            eff = np.repeat(rng[None, :], len(targets), axis=0)
+            if sub.any():
+                # a submerged boat shows only a periscope feather
+                eff[sub] = np.minimum(eff[sub], 0.05)
+            ok = (ang <= eff) & (s_day[None, :]
+                                 | (s_air[None, :] == t_air[:, None]))
+            vis_flags = ok.any(axis=1)
+        else:
+            vis_flags = []
+            for u in targets:
+                target_air = u.is_air()
+                sub_cap = (0.05 if getattr(u, 'submerged', False)
+                           else None)
+                visible = False
+                for (pos, rng, src_air, src_day, los) in friendly:
+                    if not src_day and src_air != target_air:
+                        continue    # night: air and surface see
+                                    # nothing of each other
+                    if sub_cap is not None:
+                        rng = min(rng, sub_cap)
+                    ang = angle_between(u.pos, pos)
+                    if ang * GLOBE_RADIUS > rng:
+                        continue
+                    if (los is not None and not target_air
+                            and ang > los[self._az_index(pos, u.pos)]):
+                        continue    # the ridge hides them
+                    visible = True
+                    break
+                vis_flags.append(visible)
+        for u, visible in zip(targets, vis_flags):
+            visible = bool(visible)
             if visible != u.visible_to_player:
                 u.visible_to_player = visible
                 if visible:

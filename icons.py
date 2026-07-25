@@ -1399,6 +1399,24 @@ def button_assets(kind, hw, hh, corner=0.42):
              paths['ready']), hw / fx, hh / fz)
 
 
+def prewarm_button_assets():
+    """Paint every key shape the UI is known to use, so no menu or
+    newspaper pays a first-use PIL render mid-game (a several-hundred-
+    millisecond hitch on a cold cache). Runs under the loading screen;
+    already-painted shapes cost one os.path.exists each."""
+    combos = [
+        ('panel', 0.050, 0.050, 0.30), ('panel', 0.048, 0.048, 0.30),
+        ('panel', 0.19, 0.037, 0.42), ('panel', 0.42, 0.058, 0.42),
+        ('panel', 0.13, 0.034, 0.42), ('panel', 0.062, 0.034, 0.42),
+        ('panel', 0.15, 0.038, 0.42), ('panel', 0.17, 0.036, 0.42),
+        ('red', 0.062, 0.034, 0.42), ('red', 0.17, 0.040, 0.42),
+        ('red', 0.17, 0.036, 0.42), ('red', 0.20, 0.038, 0.42),
+        ('red', 0.24, 0.052, 0.42),
+    ]
+    for kind, hw, hh, corner in combos:
+        button_assets(kind, hw, hh, corner=corner)
+
+
 def get_icon_path(unit_type, variant='dark', nation=None):
     """Path to the icon PNG, generating it on first request. Top-down
     unit sprites vary by nation (each power fields its own marks).
