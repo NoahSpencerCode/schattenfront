@@ -195,18 +195,18 @@ class BottomBar:
         self.base = base
         self.frame = DirectFrame(parent=base.a2dBottomCenter,
                                  frameColor=BAR_BG,
-                                 frameSize=(-1.35, 1.35, 0.0, 0.30),
+                                 frameSize=(-1.35, 1.35, 0.0, 0.35),
                                  state=DGG.NORMAL)
         self.title_tn, _ = _make_text(self.frame, base.hud_font,
-                                      (-1.30, 0.240), 0.05, ACCENT)
+                                      (-1.30, 0.290), 0.05, ACCENT)
         self.info_tn, _ = _make_text(self.frame, base.hud_font,
-                                     (-1.30, 0.175), 0.036, BAR_TEXT)
+                                     (-1.30, 0.225), 0.036, BAR_TEXT)
         self.info_tn.setText('')
         # the SIGNALS line rides above the bar: short despatches
         # ("REPORTING FOR DUTY", refused orders) print here and fade,
         # never touching the selection's own info line
         self.signal_tn, _ = _make_text(self.frame, base.hud_font,
-                                       (-1.30, 0.315), 0.034,
+                                       (-1.30, 0.360), 0.034,
                                        (0.95, 0.82, 0.48, 1.0))
         self.signal_tn.setText('')
         self.hint_tn, _ = _make_text(self.frame, base.hud_font,
@@ -221,7 +221,7 @@ class BottomBar:
             image_scale=0.05, relief=None,
             frameColor=(0, 0, 0, 0),
             frameSize=(-0.05, 0.05, -0.05, 0.05),
-            pos=(1.28, 0, 0.235), command=None)
+            pos=(1.28, 0, 0.285), command=None)
         self.info_btn.setTransparency(True)
         add_tooltip(self.info_btn, "UNIT BRIEFING", font=base.hud_font)
         self.info_btn.hide()
@@ -229,13 +229,13 @@ class BottomBar:
         # infantry garrison on it suffices to annex
         # red EXIT key, right end of the bar: stored units walk out
         self.exit_btn = pill_button(
-            self.frame, "EXIT AIRFIELD", None, pos=(0.95, 0, 0.243),
+            self.frame, "EXIT AIRFIELD", None, pos=(0.95, 0, 0.293),
             hw=0.17, hh=0.036, text_scale=0.032,
             text_fg=(0.97, 0.90, 0.80, 1.0), font=base.hud_font,
             kind='red')
         self.exit_btn.hide()
         self.capture_btn = pill_button(
-            self.frame, "++ CAPTURE ++", None, pos=(0.95, 0, 0.243),
+            self.frame, "++ CAPTURE ++", None, pos=(0.95, 0, 0.293),
             hw=0.20, hh=0.038, text_scale=0.038,
             text_fg=(0.97, 0.90, 0.80, 1.0), font=base.hud_font,
             kind='red')
@@ -243,7 +243,7 @@ class BottomBar:
         # red SCRAMBLE button floating ABOVE the bar: launches every
         # selected squadron whose sortie plan is on the plotting board
         self.scramble_btn = pill_button(
-            self.frame, "SCRAMBLE", None, pos=(0, 0, 0.415),
+            self.frame, "SCRAMBLE", None, pos=(0, 0, 0.465),
             hw=0.24, hh=0.052, text_scale=0.036,
             text_fg=(0.97, 0.90, 0.80, 1.0), font=base.hud_font,
             kind='red')
@@ -307,21 +307,21 @@ class BottomBar:
         self.clear_buttons()
         self.set_hint('')
         per_row = 16
-        side = 0.0385
+        side = 0.050
         for i, entry in enumerate(entries[:32]):
             label, command, args = entry[0], entry[1], entry[2]
             icon = entry[3] if len(entry) > 3 else None
             selected = entry[4] if len(entry) > 4 else False
             tip = entry[5] if len(entry) > 5 else label
             row, col = divmod(i, per_row)
-            x = -1.155 + col * 0.089
-            y = 0.128 - row * 0.083
+            x = -1.19 + col * 0.112
+            y = 0.166 - row * 0.112
             if selected:
                 # white halo behind the key = selected indicator
                 border = DirectFrame(parent=self.frame,
                                      frameColor=(1, 1, 1, 1),
-                                     frameSize=(-side - 0.006, side + 0.006,
-                                                -side - 0.006, side + 0.006),
+                                     frameSize=(-side - 0.007, side + 0.007,
+                                                -side - 0.007, side + 0.007),
                                      relief=DGG.FLAT, pos=(x, 0, y))
                 self.buttons.append(border)
             btn = pill_button(self.frame, '', command,
@@ -330,20 +330,20 @@ class BottomBar:
                               font=self.base.hud_font)
             if icon:
                 pic = OnscreenImage(image=icon, parent=btn,
-                                    scale=0.034, pos=(0, 0, 0.009))
+                                    scale=0.044, pos=(0, 0, 0.012))
                 pic.setTransparency(True)
                 if label and len(label) <= 8:
                     # short caption (hp, cost) on a paper chip at the
                     # key's foot, so it stays legible over the larger
                     # pictogram
-                    chw = 0.31 * 0.0125 * len(label) + 0.004
+                    chw = 0.31 * 0.016 * len(label) + 0.005
                     chip = DirectFrame(parent=btn,
                                        frameColor=(0.80, 0.75, 0.60,
                                                    0.96),
                                        frameSize=(-chw, chw,
-                                                  -0.0085, 0.0105),
+                                                  -0.011, 0.0135),
                                        relief=DGG.FLAT,
-                                       pos=(0, 0, -0.0265))
+                                       pos=(0, 0, -0.0335))
                     cap = TextNode('cap')
                     cap.setAlign(TextNode.ACenter)
                     if self.base.hud_font:
@@ -351,18 +351,18 @@ class BottomBar:
                     cap.setTextColor(*INK)
                     cap.setText(label)
                     np_ = chip.attachNewNode(cap)
-                    np_.setScale(0.0125)
-                    np_.setPos(0, 0, -0.004)
+                    np_.setScale(0.016)
+                    np_.setPos(0, 0, -0.005)
             else:
                 # no icon supplied: the label itself sits on the key
                 fit = (2.0 * side * 0.92) / (0.62 * max(1, len(label)))
                 btn['text'] = label
-                btn['text_scale'] = min(0.024, fit)
-                btn['text_pos'] = (0, -0.008)
+                btn['text_scale'] = min(0.030, fit)
+                btn['text_pos'] = (0, -0.010)
             if tip:
                 # the slip clears the key's top edge, riding over the
                 # info line rather than the bar title
-                add_tooltip(btn, tip, font=self.base.hud_font, dy=0.068)
+                add_tooltip(btn, tip, font=self.base.hud_font, dy=0.082)
             self.buttons.append(btn)
 
     def destroy(self):
@@ -376,9 +376,10 @@ class _Toast:
 
     SLIDE_TIME = 0.22
     HOLD_TIME = 11.0
-    # letter-paper proportions (8.5 x 11)
-    WIDTH = 0.56
-    HEIGHT = 0.56 * 11.0 / 8.5
+    # letter-paper proportions (8.5 x 11), trimmed so two stacked
+    # sheets still clear both bars now the bottom bar sits taller
+    WIDTH = 0.54
+    HEIGHT = 0.54 * 11.0 / 8.5
 
     def __init__(self, panel, subject, body_lines, sender, stamp):
         self.panel = panel
@@ -417,7 +418,7 @@ class _Toast:
 
     def _slot_y(self):
         # stacked above the bottom bar, lowest slot first
-        return 0.36 + sum(t.height + 0.03 for t in
+        return 0.40 + sum(t.height + 0.012 for t in
                           self.panel.toasts[:self.panel.toasts.index(self)])
 
     def _place(self, rise):

@@ -891,15 +891,15 @@ class WW2RTSGame(ShowBase):
             self.demolish_btn.destroy()
         b = pill_button(self.bottom_bar.frame, '',
                         self._toggle_demolish,
-                        pos=(1.17, 0, 0.235), hw=0.045, hh=0.045,
+                        pos=(1.17, 0, 0.285), hw=0.050, hh=0.050,
                         corner=0.30)
         pic = OnscreenImage(image=get_icon_path('demolish_button',
                                                 'dark'),
-                            parent=b, scale=0.032, pos=(0, 0, 0.002))
+                            parent=b, scale=0.036, pos=(0, 0, 0.002))
         pic.setTransparency(True)
         add_tooltip(b, "DEMOLITION -- ARM TO TARGET ROADS, BRIDGES "
                        "AND WORKS", font=self.hud_font)
-        self._demolish_imgs = button_assets('panel', 0.045, 0.045,
+        self._demolish_imgs = button_assets('panel', 0.050, 0.050,
                                             corner=0.30)[0]
         self.demolish_btn = b
         b.hide()
