@@ -185,9 +185,8 @@ class Airfield(Structure):
 
 
 class Harbor(Structure):
-    """Fleet yard on the water. New hulls wait here as READY until the
-    player launches them -- a one-way event: once in the water a ship
-    never returns to the yard."""
+    """Fleet yard on the water. New hulls take the water the moment
+    they are finished, anchoring at some scatter off the yard."""
 
     ICON = 'harbor'
     FIXED_SCALE = 0.045
@@ -197,14 +196,13 @@ class Harbor(Structure):
 
     def __init__(self, game, lat, lon, country, name, city=None):
         self.city = city
-        self.ready = []                 # unit types awaiting launch
         self.production = []            # hulls on the ways: [type, time]
         self.stock = 0.0                # the quayside supply cache
         import zlib as _zlib
         self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
         Structure.__init__(self, game, lat, lon, country, name)
 
-        # ready-hull badge (ship pictogram + count)
+        # ways badge (ship pictogram + count of hulls building)
         c = COUNTRIES[country]['color']
         self.badge = self.holder.attachNewNode('hull_badge')
         pill = make_flat_disc('pill', 0.46, (c[0], c[1], c[2], 0.96),

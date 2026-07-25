@@ -496,6 +496,80 @@ def _draw_red_button_hover(d, ink):
                  edge=(38, 12, 8, 255), glow=(255, 170, 120, 230))
 
 
+def _draw_unload_button(d, ink):
+    """Disembark: a crate lowered onto the ground line."""
+    d.rectangle([32, 12, 64, 36], fill=ink)
+    d.line([(40, 18), (56, 30)], fill=_WHITE, width=2)
+    d.line([(48, 42), (48, 62)], fill=ink, width=6)
+    d.polygon([(34, 58), (62, 58), (48, 78)], fill=ink)
+    d.line([(12, 86), (84, 86)], fill=ink, width=5)
+
+
+def _draw_paradrop_button(d, ink):
+    """A parachute canopy, shrouds and the swinging load."""
+    d.pieslice([14, 8, 82, 72], 180, 360, fill=ink)
+    d.line([(18, 40), (48, 72)], fill=ink, width=3)
+    d.line([(48, 40), (48, 72)], fill=ink, width=3)
+    d.line([(78, 40), (48, 72)], fill=ink, width=3)
+    d.rectangle([40, 70, 56, 86], fill=ink)
+
+
+def _wave_line(d, ink, y):
+    for x0 in range(8, 84, 19):
+        d.arc([x0, y - 7, x0 + 19, y + 7], 200, 340, fill=ink, width=5)
+
+
+def _draw_submerge_button(d, ink):
+    """Down the ladder: an arrow diving beneath the swell."""
+    _wave_line(d, ink, 24)
+    d.line([(48, 34), (48, 64)], fill=ink, width=7)
+    d.polygon([(32, 60), (64, 60), (48, 86)], fill=ink)
+
+
+def _draw_surface_button(d, ink):
+    """Blow the tanks: an arrow breaking up through the swell."""
+    _wave_line(d, ink, 72)
+    d.line([(48, 62), (48, 32)], fill=ink, width=7)
+    d.polygon([(32, 36), (64, 36), (48, 10)], fill=ink)
+
+
+def _draw_repair_button(d, ink):
+    """The works order: an open-end spanner on the diagonal."""
+    d.line([(30, 30), (76, 76)], fill=ink, width=11)
+    d.arc([8, 8, 46, 46], 270, 180, fill=ink, width=11)
+    d.ellipse([64, 64, 90, 90], fill=ink)
+    d.ellipse([72, 72, 82, 82], fill=_WHITE)
+
+
+def _draw_road_build(d, ink):
+    """A road receding ahead: two edges and the dashed crown."""
+    d.line([(28, 88), (42, 8)], fill=ink, width=5)
+    d.line([(68, 88), (54, 8)], fill=ink, width=5)
+    for y0, y1 in ((82, 70), (60, 50), (42, 34), (27, 21)):
+        d.line([(48, y0), (48, y1)], fill=ink, width=4)
+
+
+def _blimp_side(d, ink, y0=14, y1=40):
+    d.ellipse([10, y0, 74, y1], fill=ink)
+    d.polygon([(68, y0 + 4), (88, y0 - 2), (88, y1 + 2), (68, y1 - 4)],
+              fill=ink)
+    d.rectangle([34, y1 - 2, 50, y1 + 8], fill=ink)
+
+
+def _draw_blimp_raise_button(d, ink):
+    """Up she goes: the airship over a rising arrow."""
+    _blimp_side(d, ink)
+    d.line([(44, 88), (44, 68)], fill=ink, width=6)
+    d.polygon([(30, 72), (58, 72), (44, 54)], fill=ink)
+
+
+def _draw_blimp_lower_button(d, ink):
+    """Winch down: the airship over a falling arrow."""
+    _blimp_side(d, ink)
+    d.line([(44, 54), (44, 74)], fill=ink, width=6)
+    d.polygon([(30, 70), (58, 70), (44, 88)], fill=ink)
+
+
 def _draw_demolish_button(d, ink):
     """The demolition order: an aerial bomb over cracked masonry
     (full-colour, ink ignored)."""
@@ -640,6 +714,14 @@ _DRAWERS = {
     'info_button': _draw_info_button,
     'scramble_button': _draw_scramble_button,
     'demolish_button': _draw_demolish_button,
+    'unload_button': _draw_unload_button,
+    'paradrop_button': _draw_paradrop_button,
+    'submerge_button': _draw_submerge_button,
+    'surface_button': _draw_surface_button,
+    'repair_button': _draw_repair_button,
+    'road_build': _draw_road_build,
+    'blimp_raise_button': _draw_blimp_raise_button,
+    'blimp_lower_button': _draw_blimp_lower_button,
     'panel_button': _draw_panel_button,
     'panel_key': _draw_panel_key,
     'panel_key_press': _draw_panel_key_press,
@@ -1167,7 +1249,7 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 14   # bump when drawings change to invalidate the cache
+ICON_VERSION = 15   # bump when drawings change to invalidate the cache
 
 
 class _ScaledDraw:

@@ -75,6 +75,39 @@ def pill_button(parent, text, command, extraArgs=(), pos=(0, 0, 0),
     return b
 
 
+def add_tooltip(btn, text, font=None, dy=0.085, left=None):
+    """A hover slip naming the control: paper label that appears above
+    the button (or, with left=<button half-width>, off its left edge
+    for controls hugging the screen's right side)."""
+    scale = 0.026
+    hw = 0.31 * scale * len(text) + 0.014
+    pos = ((-(left + hw + 0.015), 0, 0) if left is not None
+           else (0, 0, dy))
+    f = DirectFrame(parent=btn, frameColor=PAPER,
+                    frameSize=(-hw, hw, -0.020, 0.032),
+                    relief=DGG.FLAT, pos=pos)
+    edge = DirectFrame(parent=f, frameColor=PAPER_EDGE,
+                       frameSize=(-hw - 0.004, hw + 0.004,
+                                  -0.024, 0.036), relief=DGG.FLAT)
+    edge.setBin('gui-popup', 0)
+    f.setBin('gui-popup', 1)
+    tn = TextNode('tip')
+    tn.setAlign(TextNode.ACenter)
+    if font:
+        tn.setFont(font)
+    tn.setTextColor(*INK)
+    tn.setText(text)
+    np_ = f.attachNewNode(tn)
+    np_.setPos(0, 0, -0.008)
+    np_.setScale(scale)
+    np_.setBin('gui-popup', 2)
+    f.hide()
+    btn.bind(DGG.WITHIN, lambda e, f=f: f.show())
+    btn.bind(DGG.WITHOUT, lambda e, f=f: f.hide())
+    btn._tip = f
+    return f
+
+
 class TopBar:
     """Main stats strip: each stat is a titled column, value beneath."""
 
@@ -168,6 +201,13 @@ class BottomBar:
         self.info_tn, _ = _make_text(self.frame, base.hud_font,
                                      (-1.30, 0.175), 0.036, BAR_TEXT)
         self.info_tn.setText('')
+        # the SIGNALS line rides above the bar: short despatches
+        # ("REPORTING FOR DUTY", refused orders) print here and fade,
+        # never touching the selection's own info line
+        self.signal_tn, _ = _make_text(self.frame, base.hud_font,
+                                       (-1.30, 0.315), 0.034,
+                                       (0.95, 0.82, 0.48, 1.0))
+        self.signal_tn.setText('')
         self.hint_tn, _ = _make_text(self.frame, base.hud_font,
                                      (-1.30, 0.035), 0.033,
                                      (0.62, 0.60, 0.52, 1.0))
@@ -182,6 +222,7 @@ class BottomBar:
             frameSize=(-0.05, 0.05, -0.05, 0.05),
             pos=(1.28, 0, 0.235), command=None)
         self.info_btn.setTransparency(True)
+        add_tooltip(self.info_btn, "UNIT BRIEFING", font=base.hud_font)
         self.info_btn.hide()
         # red CAPTURE button: appears on an enemy city's menu when the
         # infantry garrison on it suffices to annex
@@ -245,6 +286,9 @@ class BottomBar:
     def set_info(self, text):
         self.info_tn.setText(text)
 
+    def set_signal(self, text):
+        self.signal_tn.setText(text)
+
     def set_hint(self, text):
         self.hint_tn.setText(text)
 
@@ -254,41 +298,60 @@ class BottomBar:
         self.buttons = []
 
     def add_buttons(self, entries):
-        """entries: (label, command, extraArgs[, icon_path[, selected]]).
-        With an icon the button shows the unit pictogram beside the
-        label; a truthy 'selected' draws a white border. Two rows of 9."""
+        """entries: (label, command, extraArgs[, icon_path[, selected
+        [, tip]]]).  Every control is a SQUARE console key bearing an
+        icon; the full name rides a hover tooltip and a short label
+        (an hp readout, a cost) prints as a caption under the icon.
+        A truthy 'selected' draws a white halo. Two rows of 16."""
         self.clear_buttons()
         self.set_hint('')
-        per_row = 9
-        for i, entry in enumerate(entries[:18]):
+        per_row = 16
+        side = 0.0385
+        for i, entry in enumerate(entries[:32]):
             label, command, args = entry[0], entry[1], entry[2]
             icon = entry[3] if len(entry) > 3 else None
             selected = entry[4] if len(entry) > 4 else False
+            tip = entry[5] if len(entry) > 5 else label
             row, col = divmod(i, per_row)
-            x = -1.30 + 0.145 + col * 0.295
-            y = 0.105 - row * 0.075
+            x = -1.155 + col * 0.089
+            y = 0.128 - row * 0.083
             if selected:
-                # white halo behind the button = selected indicator
+                # white halo behind the key = selected indicator
                 border = DirectFrame(parent=self.frame,
                                      frameColor=(1, 1, 1, 1),
-                                     frameSize=(-0.152, 0.152,
-                                                -0.036, 0.050),
+                                     frameSize=(-side - 0.006, side + 0.006,
+                                                -side - 0.006, side + 0.006),
                                      relief=DGG.FLAT, pos=(x, 0, y))
                 self.buttons.append(border)
-            if len(label) > 26:
-                label = label[:25] + '.'
-            btn = pill_button(self.frame, label, command,
-                              extraArgs=args, pos=(x, 0, y + 0.007),
-                              hw=0.145, hh=0.033,
+            btn = pill_button(self.frame, '', command,
+                              extraArgs=args, pos=(x, 0, y),
+                              hw=side, hh=side,
                               font=self.base.hud_font)
             if icon:
-                # the pictogram rides the left end of the key
                 pic = OnscreenImage(image=icon, parent=btn,
-                                    scale=0.024, pos=(-0.108, 0, 0.0))
+                                    scale=0.026, pos=(0, 0, 0.007))
                 pic.setTransparency(True)
-                btn['text_scale'] = 0.026
-                btn['text_pos'] = (-0.082, -0.009)
-                btn['text_align'] = TextNode.ALeft
+                if label and len(label) <= 8:
+                    # short caption (hp, cost) under the pictogram
+                    cap = TextNode('cap')
+                    cap.setAlign(TextNode.ACenter)
+                    if self.base.hud_font:
+                        cap.setFont(self.base.hud_font)
+                    cap.setTextColor(*INK)
+                    cap.setText(label)
+                    np_ = btn.attachNewNode(cap)
+                    np_.setScale(0.0145)
+                    np_.setPos(0, 0, -0.030)
+            else:
+                # no icon supplied: the label itself sits on the key
+                fit = (2.0 * side * 0.92) / (0.62 * max(1, len(label)))
+                btn['text'] = label
+                btn['text_scale'] = min(0.024, fit)
+                btn['text_pos'] = (0, -0.008)
+            if tip:
+                # the slip clears the key's top edge, riding over the
+                # info line rather than the bar title
+                add_tooltip(btn, tip, font=self.base.hud_font, dy=0.068)
             self.buttons.append(btn)
 
     def destroy(self):

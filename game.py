@@ -426,17 +426,36 @@ class WW2RTSGame(ShowBase):
         self.cursor_tex = {}
         self.cursor_mode = 'default'
         # interface audio: every DirectButton clicks like a console
-        # key, and the FAX machine clatters on delivery
+        # key, and the FAX machine clatters on delivery. OpenAL can
+        # miss the output device on a cold launch, which used to fail
+        # silently and leave the whole session mute -- so the manager
+        # is checked, retried once, and any failure is reported.
+        self.click_snd = self.fax_snd = None
         try:
             from audio import get_sound_path
-            self.click_snd = self.loader.loadSfx(get_sound_path('click'))
-            self.fax_snd = self.loader.loadSfx(get_sound_path('fax'))
-            self.click_snd.setVolume(0.55)
-            self.fax_snd.setVolume(0.5)
-            import direct.gui.DirectGuiGlobals as _DGG
-            _DGG.setDefaultClickSound(self.click_snd)
-        except Exception:
-            self.click_snd = self.fax_snd = None
+            mgr = (self.sfxManagerList[0]
+                   if self.sfxManagerList else None)
+            if (mgr is not None and not mgr.isValid()
+                    and type(mgr).__name__ != 'NullAudioManager'):
+                from panda3d.core import AudioManager
+                retry = AudioManager.createAudioManager()
+                if retry.isValid():
+                    self.addSfxManager(retry)
+                    mgr = retry
+                else:
+                    print("WARNING: interface audio device failed to "
+                          "open; the session will be silent")
+            if mgr is not None:
+                # a null/no-op manager still hands out playable stubs,
+                # keeping every sound code path alive
+                self.click_snd = mgr.getSound(get_sound_path('click'))
+                self.fax_snd = mgr.getSound(get_sound_path('fax'))
+                self.click_snd.setVolume(0.55)
+                self.fax_snd.setVolume(0.5)
+                import direct.gui.DirectGuiGlobals as _DGG
+                _DGG.setDefaultClickSound(self.click_snd)
+        except Exception as exc:
+            print("WARNING: interface audio failed to start: %r" % exc)
         self._build_cursor()
         self.hover_glow = None          # built lazily (needs no loader)
         self._vision_units = []
@@ -445,6 +464,7 @@ class WW2RTSGame(ShowBase):
         self._los_cache = {}            # (lat,lon,rng) -> radii profile
         self._los_budget = 12
         self._last_click = (0.0, None)  # double-click bookkeeping
+        self._signal_ttl = 0.0          # SIGNALS line fade timer
         self.unload_mode = False        # armed: next RMB sites the drop
         self._vision_timer = 0.0
         self._capture_timer = 0.0
@@ -772,7 +792,7 @@ class WW2RTSGame(ShowBase):
             country, self.funds[country])
         self._apply_fortnight_budget()
 
-        self._make_engineer_button()
+        self._make_idle_roster()
         self._make_demolish_button()
         self._build_road_overlay()
         self._loading_np = loading      # held up through the warm-up
@@ -800,25 +820,12 @@ class WW2RTSGame(ShowBase):
                             seed=20 + i)
         harbor = next((c for c in cities if c.harbor), None)
         if harbor:
+            # every power's fleet rides at anchor, scattered off its
+            # home harbor -- there is no launching ceremony
             wl, wo = self.world.harbor_sites[harbor.name]
-            if faction == self.player_country:
-                # the fleet begins ON THE WAYS: the player launches
-                # each hull deliberately, nothing floats unbidden
-                h = next((x for x in self.harbors
-                          if x.city is not None
-                          and x.city.name == harbor.name), None)
-                if h is not None:
-                    h.ready.extend(STARTING_NAVY)
-                    h.set_count(len(h.ready))
-                else:
-                    for i, ut in enumerate(STARTING_NAVY):
-                        self.spawn_unit(ut, faction, wl, wo,
-                                        jitter=0.04, seed=30 + i,
-                                        water=True)
-            else:
-                for i, ut in enumerate(STARTING_NAVY):
-                    self.spawn_unit(ut, faction, wl, wo, jitter=0.04,
-                                    seed=30 + i, water=True)
+            for i, ut in enumerate(STARTING_NAVY):
+                self.spawn_unit(ut, faction, wl, wo, jitter=0.25,
+                                seed=30 + i, water=True)
 
     def spawn_unit(self, unit_type, faction, lat, lon, jitter=0.0, seed=0,
                    water=False, base=None):
@@ -873,22 +880,25 @@ class WW2RTSGame(ShowBase):
         return None
 
     def _make_demolish_button(self):
-        """Square key beside the bar: arms DEMOLITION. Only while
-        armed do roads, bridges and enemy works take the gunsight --
-        otherwise they never interfere with ordinary orders."""
-        from ui import pill_button
+        """Square key on the bar, beside the briefing 'i': arms
+        DEMOLITION. Only while armed do roads, bridges and enemy
+        works take the gunsight -- otherwise they never interfere
+        with ordinary orders."""
+        from ui import pill_button, add_tooltip
         from icons import button_assets
         from direct.gui.OnscreenImage import OnscreenImage
         if getattr(self, 'demolish_btn', None) is not None:
             self.demolish_btn.destroy()
-        b = pill_button(self.a2dRightCenter, '',
+        b = pill_button(self.bottom_bar.frame, '',
                         self._toggle_demolish,
-                        pos=(-0.085, 0, 0.20), hw=0.055, hh=0.055)
+                        pos=(1.17, 0, 0.235), hw=0.045, hh=0.045)
         pic = OnscreenImage(image=get_icon_path('demolish_button',
                                                 'dark'),
-                            parent=b, scale=0.038, pos=(0, 0, 0.002))
+                            parent=b, scale=0.032, pos=(0, 0, 0.002))
         pic.setTransparency(True)
-        self._demolish_imgs = button_assets('panel', 0.055, 0.055)[0]
+        add_tooltip(b, "DEMOLITION -- ARM TO TARGET ROADS, BRIDGES "
+                       "AND WORKS", font=self.hud_font)
+        self._demolish_imgs = button_assets('panel', 0.045, 0.045)[0]
         self.demolish_btn = b
         b.hide()
 
@@ -922,60 +932,92 @@ class WW2RTSGame(ShowBase):
                 b['image'] = self._demolish_imgs
                 self._set_road_glow(None)
 
-    def _make_engineer_button(self):
-        """Square key on the right edge: the WORKS CALL. Click picks
-        the idle engineer nearest the window centre; the corner tally
-        counts the idle hands."""
-        from ui import pill_button
+    # ------------------------------------------------ the idle roster
+    # A column of square keys down the right edge, one per unit TYPE
+    # with idle hands: the tally counts them, a click selects the one
+    # nearest the window centre, a double click musters the whole
+    # idle pool of that type.
+
+    IDLE_ROSTER_MAX = 10
+
+    def _make_idle_roster(self):
+        if getattr(self, 'idle_btns', None):
+            for b, _tn in self.idle_btns.values():
+                b.destroy()
+        self.idle_btns = {}          # unit_type -> (button, tally tn)
+        self._idle_click = (0.0, None)
+
+    def _idle_units(self):
+        by_type = {}
+        for u in self.units:
+            if (self._commandable(u) and not u.carried_by
+                    and not self.is_parked(u)
+                    and not u.current_order and not u.order_queue
+                    and not getattr(u, 'plan_pending', None)):
+                by_type.setdefault(u.unit_type, []).append(u)
+        return by_type
+
+    def _idle_roster_button(self, ut):
+        from ui import pill_button, add_tooltip
         from direct.gui.OnscreenImage import OnscreenImage
-        if getattr(self, 'eng_btn', None) is not None:
-            self.eng_btn.destroy()
-        b = pill_button(self.a2dRightCenter, '',
-                        self._select_idle_engineer,
-                        pos=(-0.085, 0, 0.34), hw=0.055, hh=0.055)
-        pic = OnscreenImage(image=get_icon_path('engineer', 'dark'),
-                            parent=b, scale=0.036, pos=(-0.004, 0, 0.002))
+        b = pill_button(self.a2dRightCenter, '', self._idle_clicked,
+                        extraArgs=[ut], pos=(-0.075, 0, 0.40),
+                        hw=0.048, hh=0.048)
+        pic = OnscreenImage(image=get_icon_path(ut, 'dark'),
+                            parent=b, scale=0.032, pos=(0, 0, 0.004))
         pic.setTransparency(True)
-        tn = TextNode('idle_eng')
+        tn = TextNode('idle_' + ut)
         tn.setAlign(TextNode.ACenter)
         if self.hud_font:
             tn.setFont(self.hud_font)
         tn.setTextColor(0.13, 0.11, 0.09, 1)
-        self._eng_count_tn = tn
         np_ = b.attachNewNode(tn)
-        np_.setScale(0.026)
-        np_.setPos(0.033, 0, -0.047)
-        self.eng_btn = b
-        b.hide()
+        np_.setScale(0.024)
+        np_.setPos(0.028, 0, -0.042)
+        lbl = UNIT_TYPES[ut]['label'].upper()
+        add_tooltip(b, "IDLE %s -- CLICK: NEAREST, DOUBLE: ALL" % lbl,
+                    font=self.hud_font, left=0.048)
+        return b, tn
 
-    def _idle_engineers(self):
-        return [u for u in self.units
-                if self._commandable(u) and u.stats.get('engineer')
-                and not u.current_order and not u.order_queue
-                and not getattr(u, 'plan_pending', None)]
-
-    def _tick_engineer_button(self):
-        if getattr(self, 'eng_btn', None) is None:
+    def _tick_idle_roster(self):
+        if getattr(self, 'idle_btns', None) is None:
             return
-        idle = self._idle_engineers()
-        if idle:
-            self._eng_count_tn.setText(str(len(idle)))
-            if self.eng_btn.isHidden():
-                self.eng_btn.show()
-        elif not self.eng_btn.isHidden():
-            self.eng_btn.hide()
+        idle = self._idle_units()
+        shown = 0
+        for ut in UNIT_TYPES:
+            pool = idle.get(ut)
+            entry = self.idle_btns.get(ut)
+            if pool and shown < self.IDLE_ROSTER_MAX:
+                if entry is None:
+                    entry = self._idle_roster_button(ut)
+                    self.idle_btns[ut] = entry
+                b, tn = entry
+                tn.setText(str(len(pool)))
+                b.setPos(-0.075, 0, 0.40 - shown * 0.108)
+                if b.isHidden():
+                    b.show()
+                shown += 1
+            elif entry is not None and not entry[0].isHidden():
+                entry[0].hide()
 
-    def _select_idle_engineer(self):
-        idle = self._idle_engineers()
-        if not idle:
+    def _idle_clicked(self, ut):
+        pool = self._idle_units().get(ut, [])
+        if not pool:
             return
-        centre = latlon_to_vec(self.cam_lat, self.cam_lon)
-        eng = min(idle, key=lambda u: angle_between(u.pos, centre))
+        now = globalClock.getFrameTime()
+        t0, last = self._idle_click
+        self._idle_click = (now, ut)
+        if last == ut and now - t0 < 0.45:
+            picks = list(pool)       # double click: the whole pool
+        else:
+            centre = latlon_to_vec(self.cam_lat, self.cam_lon)
+            picks = [min(pool,
+                         key=lambda u: angle_between(u.pos, centre))]
         self.clear_selection()
-        self.selected = [eng]
-        eng.set_selected(True)
+        self.selected = picks
+        for u in picks:
+            u.set_selected(True)
         self._refresh_selection_ui()
-        self.fax_short("ENGINEER COMPANY ANSWERS THE WORKS CALL")
 
     # ==================================================== input binding
     def _bind_game_controls(self):
@@ -1866,8 +1908,13 @@ class WW2RTSGame(ShowBase):
         north = north_tangent(ground)
         east = north.cross(ground)
         # fixed spacing: deterministic regardless of the viewer's zoom
-        # (a server and every client must compute identical goals)
-        spacing = FORMATION_SPACING
+        # (a server and every client must compute identical goals),
+        # opened out to the largest pictogram marching -- a battle
+        # line of capital ships needs sea room an infantry column
+        # does not
+        spacing = max(FORMATION_SPACING,
+                      UNIT_SPRITE_SCALE * 1.3 *
+                      max(u.stats['sprite_size'] for u in units))
         goals = []
         idx = 0
         ring = 0
@@ -2521,7 +2568,7 @@ class WW2RTSGame(ShowBase):
             transport = order['target']
             if not transport.alive:
                 return True
-            if unit.dist_to(transport.pos) < 0.6:
+            if unit.dist_to(transport.pos) < 0.25:
                 if len(transport.cargo) < transport.stats['capacity']:
                     self._load_unit(transport, unit)
                 return True
@@ -2796,10 +2843,12 @@ class WW2RTSGame(ShowBase):
             if airborne_jump and unit.unit_type != 'infantry':
                 kept += 1           # no parachute fits a lorry
                 continue
-            la, lo = self.world.nearest_land(lat + random.uniform(-.4, .4),
-                                             lon + random.uniform(-.4, .4))
+            # a tight scatter: the party forms up BESIDE the transport,
+            # not half a province away
+            la, lo = self.world.nearest_land(lat + random.uniform(-.1, .1),
+                                             lon + random.uniform(-.1, .1))
             d = latlon_to_vec(la, lo)
-            if not para and angle_between(d, transport.pos) * GLOBE_RADIUS > 2.2:
+            if not para and angle_between(d, transport.pos) * GLOBE_RADIUS > 1.0:
                 continue
             transport.cargo.remove(unit)
             unit.carried_by = None
@@ -4145,9 +4194,8 @@ void main() {
                     self.funds[city.country] += \
                         stats_for(unit_type, city.country)['cost']
                     continue
-                # new hulls go to the fleet yard and wait for LAUNCH
-                # (the player's one-way launching ceremony; AI powers
-                # put theirs straight into the water)
+                # new hulls take the water at once, anchoring at some
+                # scatter off the yard -- no launching ceremony
                 if UNIT_TYPES[unit_type]['domain'] == 'sea':
                     # a hull with no quay is refunded, never beached
                     h = self.harbor_of_city(city)
@@ -4155,21 +4203,16 @@ void main() {
                         self.funds[city.country] += \
                             stats_for(unit_type, city.country)['cost']
                         continue
-                    if city.country == self.player_country:
-                        h.ready.append(unit_type)
-                        h.set_count(len(h.ready))
-                        self.fortnight_delivered[unit_type] = \
-                            self.fortnight_delivered.get(unit_type, 0) + 1
-                        lbl = stats_for(unit_type, city.country)['label']
-                        self.fax_short("%s READY FOR LAUNCH AT %s" %
-                                       (lbl.upper(), h.name))
-                        if self.selected_harbor is h:
-                            self._refresh_harbor_ui(h)
-                    else:
-                        self.spawn_unit(unit_type, city.country,
-                                        h.lat, h.lon, jitter=0.04,
+                    u = self.spawn_unit(unit_type, city.country,
+                                        h.lat, h.lon, jitter=0.25,
                                         seed=random.randrange(9999),
                                         water=True)
+                    if city.country == self.player_country:
+                        self.fortnight_delivered[unit_type] = \
+                            self.fortnight_delivered.get(unit_type, 0) + 1
+                        self.fax_short("%s JOINS THE FLEET OFF %s" %
+                                       (u.stats['label'].upper(),
+                                        h.name))
                     continue
                 u = self.spawn_unit(unit_type, city.country, city.lat,
                                     city.lon, jitter=0.7,
@@ -4215,26 +4258,27 @@ void main() {
 
     def _tick_harbor_production(self, dt):
         for h in self.harbors:
+            # the quayside badge tallies hulls on the ways
+            n = len(h.production)
+            if n != getattr(h, '_ways_n', -1):
+                h._ways_n = n
+                h.set_count(n)
             if not h.production:
                 continue
             h.production[0][1] -= dt * self.game_speed
             if h.production[0][1] > 0:
                 continue
             unit_type, _ = h.production.pop(0)
+            u = self.spawn_unit(unit_type, h.country, h.lat, h.lon,
+                                jitter=0.25, seed=random.randrange(9999),
+                                water=True)
             if h.country == self.player_country:
-                h.ready.append(unit_type)
-                h.set_count(len(h.ready))
                 self.fortnight_delivered[unit_type] = \
                     self.fortnight_delivered.get(unit_type, 0) + 1
-                lbl = stats_for(unit_type, h.country)['label']
-                self.fax_short("%s READY FOR LAUNCH AT %s" %
-                               (lbl.upper(), h.name))
+                self.fax_short("%s JOINS THE FLEET OFF %s" %
+                               (u.stats['label'].upper(), h.name))
                 if self.selected_harbor is h:
                     self._refresh_harbor_ui(h)
-            else:
-                self.spawn_unit(unit_type, h.country, h.lat, h.lon,
-                                jitter=0.04, seed=random.randrange(9999),
-                                water=True)
 
     # ====================================================== capture
     def _capture_garrison(self, city, country):
@@ -4320,8 +4364,6 @@ void main() {
             # airfields: surviving yards inherit, else a refund
             self._relocate_works(hb, old, self.harbors)
             hb.country = new_owner
-            hb.ready = []
-            hb.set_count(0)
             hb.refresh_marker()
         field = self.airfield_of_city(city)
         if field is not None:
@@ -5093,8 +5135,11 @@ void main() {
             self._path_viz.setDepthOffset(4)
 
     def fax_short(self, line):
+        """Short despatches print on the SIGNALS line above the bar
+        and fade; the info line belongs to the selection alone."""
         if self.bottom_bar:
-            self.bottom_bar.set_info(line)
+            self.bottom_bar.set_signal(line)
+            self._signal_ttl = 8.0
 
     def _refresh_selection_ui(self):
         if not self.bottom_bar:
@@ -5132,8 +5177,9 @@ void main() {
                 self._set_city_info(city)
                 if not city.annexing:
                     bar.add_buttons([
-                        ("TAX DECREE", self.open_tax_fax, [city],
-                         get_icon_path('tax_button', 'dark'))])
+                        ("", self.open_tax_fax, [city],
+                         get_icon_path('tax_button', 'dark'), False,
+                         "TAX DECREE -- SET THE CITY'S RATE")])
                     bar.set_hint("SET THE CITY'S TAX RATE -- IT BINDS "
                                  "FROM THE NEXT FORTNIGHT")
                 else:
@@ -5212,11 +5258,18 @@ void main() {
                          int(self._base_stock(base))))
                     entries = []
                     if u.cargo:
-                        entries.append(("++ UNLOAD HERE ++",
-                                        self._unload_parked, [u]))
+                        entries.append(("", self._unload_parked, [u],
+                                        get_icon_path('unload_button',
+                                                      'dark'), False,
+                                        "UNLOAD THE HOLD ONTO THE "
+                                        "FIELD"))
                     entries += [("%d/%d" % (int(p.hp), p.max_hp),
                                  self._noop, [],
-                                 get_icon_path(p.unit_type, 'dark'))
+                                 get_icon_path(p.unit_type, 'dark'),
+                                 False,
+                                 "%s -- STRENGTH %d/%d" %
+                                 (p.stats['label'].upper(),
+                                  int(p.hp), p.max_hp))
                                 for p in u.cargo]
                     bar.add_buttons(entries)
                     bar.set_hint(
@@ -5268,17 +5321,29 @@ void main() {
                           else "  [MOBILE]")
             bar.set_info("STRENGTH %d/%d%s" % (int(u.hp), u.max_hp, extra))
             if u.unit_type == 'submarine':
+                down = getattr(u, 'submerged', False)
                 bar.add_buttons([
-                    ("++ SURFACE ++" if getattr(u, 'submerged', False)
-                     else "++ SUBMERGE ++", self.toggle_submerge, [u])])
+                    ("", self.toggle_submerge, [u],
+                     get_icon_path('surface_button' if down
+                                   else 'submerge_button', 'dark'),
+                     False,
+                     "BLOW TANKS AND SURFACE" if down
+                     else "DIVE -- NEAR-INVISIBLE, SLOW, DOUBLE "
+                          "STORES BURN")])
                 bar.set_hint("SUBMERGED: NEAR-INVISIBLE BUT SLOW ON THE "
                              "BATTERIES -- SHE SURFACES HERSELF WHEN "
                              "STORES RUN OUT")
                 return
             if u.unit_type == 'blimp':
+                up = getattr(u, 'deployed', False)
                 bar.add_buttons([
-                    ("++ WINCH DOWN ++" if getattr(u, 'deployed', False)
-                     else "++ RAISE BLIMP ++", self.toggle_blimp, [u])])
+                    ("", self.toggle_blimp, [u],
+                     get_icon_path('blimp_lower_button' if up
+                                   else 'blimp_raise_button', 'dark'),
+                     False,
+                     "WINCH DOWN TO MOVE THE STATION" if up
+                     else "RAISE THE BLIMP -- ON STATION SHE "
+                          "OUT-SEES ANY AIRCRAFT")])
                 bar.set_hint("ON STATION SHE STANDS FAST AND OUT-SEES "
                              "ANY AIRCRAFT -- WINCH DOWN TO MOVE THE "
                              "STATION")
@@ -5286,12 +5351,18 @@ void main() {
             if u.cargo:
                 entries = [("%d/%d" % (int(p.hp), p.max_hp),
                             self._noop, [],
-                            get_icon_path(p.unit_type, 'dark'))
+                            get_icon_path(p.unit_type, 'dark'), False,
+                            "%s -- STRENGTH %d/%d" %
+                            (p.stats['label'].upper(),
+                             int(p.hp), p.max_hp))
                            for p in u.cargo]
-                verb = ("PARADROP" if u.stats.get('paradrop')
-                        else "UNLOAD")
-                entries.insert(0, ("++ %s: RMB SITE ++" % verb,
-                                   self._arm_unload, []))
+                para = u.stats.get('paradrop')
+                entries.insert(0, (
+                    "", self._arm_unload, [],
+                    get_icon_path('paradrop_button' if para
+                                  else 'unload_button', 'dark'), False,
+                    "%s -- ARM, THEN RMB THE SITE" %
+                    ("PARADROP" if para else "UNLOAD")))
                 bar.add_buttons(entries)
         else:
             counts = {}
@@ -5312,36 +5383,20 @@ void main() {
     def _refresh_harbor_ui(self, harbor):
         bar = self.bottom_bar
         bar.set_title("%s -- FLEET YARD" % harbor.name)
-        bar.set_info("READY HULLS %d   SUPPLY CACHE %s / %s LBS   "
-                     "LAUNCHING IS ONE-WAY" %
-                     (len(harbor.ready),
-                      "{:,}".format(int(harbor.stock)),
-                      "{:,}".format(int(harbor.STOCK_CAP))))
+        bar.set_info("SUPPLY CACHE %s / %s LBS   HULLS ON THE WAYS %d"
+                     % ("{:,}".format(int(harbor.stock)),
+                        "{:,}".format(int(harbor.STOCK_CAP)),
+                        len(harbor.production)))
         entries = []
-        for i, ut in enumerate(harbor.ready[:17]):
+        for ut, t_left in harbor.production[:16]:
             s = stats_for(ut, harbor.country)
-            entries.append(("LAUNCH %s" % s['label'][:14].upper(),
-                            self.launch_ship, [harbor, i],
-                            get_icon_path(ut, 'dark')))
+            entries.append(("%ds" % max(0, int(t_left)), self._noop, [],
+                            get_icon_path(ut, 'dark'), False,
+                            "%s -- %d S TO COMMISSIONING" %
+                            (s['label'].upper(), max(0, int(t_left)))))
         bar.add_buttons(entries)
-        bar.set_hint("NEW HULLS ARRIVE HERE FROM THE FORTNIGHT BUDGET"
-                     if not harbor.ready else
-                     "CLICK A HULL TO PUT HER IN THE WATER")
-
-    def launch_ship(self, harbor, index):
-        """Slide a ready hull down the ways: a one-time event."""
-        if (harbor.country != self.player_country
-                or index >= len(harbor.ready)):
-            return
-        ut = harbor.ready.pop(index)
-        harbor.set_count(len(harbor.ready))
-        u = self.spawn_unit(ut, harbor.country, harbor.lat, harbor.lon,
-                            jitter=0.04, seed=random.randrange(9999),
-                            water=True)
-        self.fax_short("%s SLIDES DOWN THE WAYS AT %s" %
-                       (u.stats['label'].upper(), harbor.name))
-        if self.selected_harbor is harbor:
-            self._refresh_harbor_ui(harbor)
+        bar.set_hint("NEW HULLS TAKE THE WATER OFF THE YARD THE "
+                     "MOMENT THEY ARE FINISHED")
 
     def _unload_parked(self, transport):
         """Disembark a parked transport's load onto the apron."""
@@ -5394,13 +5449,17 @@ void main() {
             entries = [("%d/%d" % (int(p.hp), p.max_hp),
                         self._select_embarked, [p],
                         get_icon_path(p.unit_type, 'dark'),
-                        p in self.selected)
+                        p in self.selected,
+                        "%s -- STRENGTH %d/%d" %
+                        (p.stats['label'].upper(), int(p.hp), p.max_hp))
                        for p in wing]
             # section two: the land garrison stored on the field
             entries += [("%d/%d" % (int(u.hp), u.max_hp),
                          self._select_garrison, [u],
                          get_icon_path(u.unit_type, 'dark'),
-                         u in self.garrison_sel)
+                         u in self.garrison_sel,
+                         "%s (STORED) -- STRENGTH %d/%d" %
+                         (u.stats['label'].upper(), int(u.hp), u.max_hp))
                         for u in garrison]
             planned = [p for p in wing
                        if p in self.selected and p.sortie_plan]
@@ -5455,10 +5514,17 @@ void main() {
         bar.set_title("ENGINEER COMPANY -- WORKS DETAIL")
         bar.set_info("STRENGTH %d/%d   SUPPLY %d LBS" %
                      (int(eng.hp), eng.max_hp, int(eng.supply)))
-        entries = [("%s %dLB" % (label, cost), self.begin_build_mode,
-                    [kind])
+        work_icon = {'bridge': 'bridge_map', 'road': 'road_build',
+                     'depot': 'depot', 'bunker': 'bunker',
+                     'airfield': 'airfield', 'harbor': 'harbor',
+                     'radar': 'radar'}
+        entries = [("%dLB" % cost, self.begin_build_mode, [kind],
+                    get_icon_path(work_icon.get(kind, 'depot'), 'dark'),
+                    False, "%s -- %d LB OF STORES" % (label, cost))
                    for kind, (label, cost, _t) in self.BUILD_WORKS.items()]
-        entries.append(("REPAIR: RMB BRIDGE", self._noop, []))
+        entries.append(("", self._noop, [],
+                        get_icon_path('repair_button', 'dark'), False,
+                        "REPAIR -- RMB A WRECKED BRIDGE"))
         bar.add_buttons(entries)
         bar.set_hint("ARM A WORK, THEN CLICK ITS SITE (GHOST: GREEN "
                      "GOOD, RED FORBIDDEN) -- SHIFT-CLICK QUEUES IT "
@@ -5738,9 +5804,13 @@ void main() {
             self._tick_cursor_mode()
             self._tick_hover_glow()
             self._tick_works_ghosts()
-            self._tick_engineer_button()
+            self._tick_idle_roster()
         if self.fax:
             self.fax.update(dt)
+        if self._signal_ttl > 0.0:
+            self._signal_ttl -= dt
+            if self._signal_ttl <= 0.0 and self.bottom_bar:
+                self.bottom_bar.set_signal('')
 
         if not self.is_paused and not self.game_over:
             gdt = dt * self.game_speed
