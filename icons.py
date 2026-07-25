@@ -1319,7 +1319,7 @@ _BTN_STATES = {
 }
 
 
-def _paint_button(w, h, top, bot, edge, glow=None, ss=3):
+def _paint_button(w, h, top, bot, edge, glow=None, ss=3, corner=0.42):
     """Paint one physical key AT ITS OWN ASPECT: fixed corner radius
     relative to height, smooth vertical shade hugging the arcs, drop
     shadow, bezel, optional hover glow. Supersampled for clean edges."""
@@ -1329,7 +1329,7 @@ def _paint_button(w, h, top, bot, edge, glow=None, ss=3):
     d = ImageDraw.Draw(img)
     m = H * 0.15
     x0, y0, x1, y1 = m, m, W - m, H - m
-    r = (y1 - y0) * 0.42
+    r = (y1 - y0) * corner
     d.rounded_rectangle([x0 + H * 0.045, y0 + H * 0.06,
                          x1 + H * 0.045, y1 + H * 0.06],
                         radius=r, fill=(20, 16, 12, 95))
@@ -1359,11 +1359,13 @@ def _paint_button(w, h, top, bot, edge, glow=None, ss=3):
     return img.resize((w, h), Image.LANCZOS)
 
 
-def button_assets(kind, hw, hh):
+def button_assets(kind, hw, hh, corner=0.42):
     """Per-ASPECT physical-key textures: (ready, press, hover,
     disabled) paths plus the image_scale halves that lay the pill at
     exactly (hw x hh). Curves are drawn for the button's own shape --
-    never stretched from a square master."""
+    never stretched from a square master. corner= is the radius as a
+    fraction of key height (the square menu keys sit less rounded
+    than the long command pills)."""
     os.makedirs(ICON_DIR, exist_ok=True)
     pal = 'red' if kind == 'red' else 'panel'
     aq = max(0.5, min(14.0, round((hw / max(1e-6, hh)) * 4) / 4.0))
@@ -1371,13 +1373,14 @@ def button_assets(kind, hw, hh):
     W = int(round(H * aq))
     paths = {}
     for state in ('ready', 'press', 'hover'):
-        fname = 'btn_%s_%s_a%s_v%d.png' % (
-            pal, state, ('%.2f' % aq).replace('.', '_'), BUTTON_VERSION)
+        fname = 'btn_%s_%s_a%s_r%s_v%d.png' % (
+            pal, state, ('%.2f' % aq).replace('.', '_'),
+            ('%.2f' % corner).replace('.', '_'), BUTTON_VERSION)
         path = os.path.join(ICON_DIR, fname)
         if not os.path.exists(path):
             top, bot, glow = _BTN_STATES[pal][state]
             _paint_button(W, H, top, bot, _BTN_EDGE[pal],
-                          glow).save(path)
+                          glow, corner=corner).save(path)
         paths[state] = path
     m = H * 0.15
     fx = (W - 2.0 * m) / W

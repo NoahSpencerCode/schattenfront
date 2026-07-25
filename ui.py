@@ -48,13 +48,14 @@ def B(text):
 
 def pill_button(parent, text, command, extraArgs=(), pos=(0, 0, 0),
                 hw=0.14, hh=0.033, text_scale=0.030, text_fg=INK,
-                font=None, kind='panel', latched=False, **extra):
+                font=None, kind='panel', latched=False, corner=0.42,
+                **extra):
     """A physical WW2 console key: rounded, shaded, glows on hover
     and sits down when pressed. The art is painted FOR this button's
     aspect, so the corner curves are true at every size. latched=True
     keeps it pressed in (an engaged toggle)."""
     from icons import button_assets
-    imgs, sx, sz = button_assets(kind, hw, hh)
+    imgs, sx, sz = button_assets(kind, hw, hh, corner=corner)
     if latched:
         imgs = (imgs[1],) * 4
     # long labels shrink to stay inside the key instead of spilling
@@ -325,23 +326,33 @@ class BottomBar:
                 self.buttons.append(border)
             btn = pill_button(self.frame, '', command,
                               extraArgs=args, pos=(x, 0, y),
-                              hw=side, hh=side,
+                              hw=side, hh=side, corner=0.30,
                               font=self.base.hud_font)
             if icon:
                 pic = OnscreenImage(image=icon, parent=btn,
-                                    scale=0.026, pos=(0, 0, 0.007))
+                                    scale=0.034, pos=(0, 0, 0.009))
                 pic.setTransparency(True)
                 if label and len(label) <= 8:
-                    # short caption (hp, cost) under the pictogram
+                    # short caption (hp, cost) on a paper chip at the
+                    # key's foot, so it stays legible over the larger
+                    # pictogram
+                    chw = 0.31 * 0.0125 * len(label) + 0.004
+                    chip = DirectFrame(parent=btn,
+                                       frameColor=(0.80, 0.75, 0.60,
+                                                   0.96),
+                                       frameSize=(-chw, chw,
+                                                  -0.0085, 0.0105),
+                                       relief=DGG.FLAT,
+                                       pos=(0, 0, -0.0265))
                     cap = TextNode('cap')
                     cap.setAlign(TextNode.ACenter)
                     if self.base.hud_font:
                         cap.setFont(self.base.hud_font)
                     cap.setTextColor(*INK)
                     cap.setText(label)
-                    np_ = btn.attachNewNode(cap)
-                    np_.setScale(0.0145)
-                    np_.setPos(0, 0, -0.030)
+                    np_ = chip.attachNewNode(cap)
+                    np_.setScale(0.0125)
+                    np_.setPos(0, 0, -0.004)
             else:
                 # no icon supplied: the label itself sits on the key
                 fit = (2.0 * side * 0.92) / (0.62 * max(1, len(label)))
