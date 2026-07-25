@@ -394,6 +394,7 @@ class WW2RTSGame(ShowBase):
         self.budget_fax = None
         self.briefing_fax = None
         self.tax_fax = None
+        self.diplo_fax = None
 
         # input state
         self.drag_start = None
@@ -620,6 +621,7 @@ class WW2RTSGame(ShowBase):
         self.budget_fax = None
         self.briefing_fax = None
         self.tax_fax = None
+        self.diplo_fax = None
         self.budget_lock_until = None
         self.budget_counts = {}
         self.fortnight_start = 0.0
@@ -812,6 +814,7 @@ class WW2RTSGame(ShowBase):
 
         self._make_idle_roster()
         self._make_demolish_button()
+        self._make_diplo_button()
         self._build_road_overlay()
         self._loading_np = loading      # held up through the warm-up
         self._warmup_t0 = globalClock.getFrameTime()
@@ -986,6 +989,24 @@ class WW2RTSGame(ShowBase):
 
     IDLE_ROSTER_MAX = 10
 
+    def _make_diplo_button(self):
+        """Square key at the top of the right edge: opens the
+        Foreign Office ledger."""
+        from ui import pill_button, add_tooltip
+        from direct.gui.OnscreenImage import OnscreenImage
+        if getattr(self, 'diplo_btn', None) is not None:
+            self.diplo_btn.destroy()
+        b = pill_button(self.a2dRightCenter, '', self.open_diplomacy,
+                        pos=(-0.075, 0, 0.54), hw=0.048, hh=0.048,
+                        corner=0.30)
+        pic = OnscreenImage(image=get_icon_path('diplomacy_button',
+                                                'dark'),
+                            parent=b, scale=0.032, pos=(0, 0, 0.002))
+        pic.setTransparency(True)
+        add_tooltip(b, "DIPLOMACY LEDGER -- WARS, PACTS AND PEACE",
+                    font=self.hud_font, left=0.048)
+        self.diplo_btn = b
+
     def _make_idle_roster(self):
         if getattr(self, 'idle_btns', None):
             for b, _tn in self.idle_btns.values():
@@ -1110,6 +1131,8 @@ class WW2RTSGame(ShowBase):
             self._close_briefing()
         elif self.tax_fax:
             self._tax_discard()
+        elif self.diplo_fax:
+            self._close_diplomacy()
         elif self.budget_fax:
             self._budget_discard()
         elif self.pause_frame:
@@ -4415,6 +4438,8 @@ void main() {
                 sender="FOREIGN OFFICE")
         for ai in self._nation_ais.values():
             ai.on_ownership_change()
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
         return True
 
     def make_alliance(self, a, b):
@@ -4431,6 +4456,8 @@ void main() {
             (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
             "The two powers bind their wars together: an attack upon "
             "one is now an attack upon both.")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
         # the pact inherits each partner's standing wars at once
         for x, y in ((a, b), (b, a)):
             for enemy in list(self.nation_enemies(x)):
@@ -4460,6 +4487,8 @@ void main() {
             (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
             "Guns fall silent along the whole frontier under a peace "
             "signed without indemnity or annexation.")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
         return True
 
     def alliance_answer(self, nation, suitor):
@@ -4500,6 +4529,91 @@ void main() {
         if forces_n < forces_s * 0.5:
             return True
         return random.random() < 0.25
+
+    # ---- the player's fax diplomacy: pouches with a courier delay ----
+
+    def pouch_pending(self, to):
+        return next((p for p in self.pouches if p['to'] == to), None)
+
+    def dispatch_pouch(self, kind, to):
+        """kind: 'war' | 'alliance' | 'peace'. The bag travels for
+        some game-hours; the answer (or the declaration's effect)
+        arrives by return fax."""
+        if self.pouch_pending(to) or to in self.eliminated:
+            return False
+        hours = random.uniform(4.0, 10.0)
+        self.pouches.append({'due': self.clock_minutes + hours * 60.0,
+                             'kind': kind, 'to': to})
+        verb = {'war': "a DECLARATION OF WAR",
+                'alliance': "an OFFER OF ALLIANCE",
+                'peace': "TERMS OF PEACE"}[kind]
+        self.fax.post(
+            "DISPATCH SENT",
+            "The bag carries %s to %s. The courier is expected in "
+            "about %d hours." %
+            (B(verb), B(COUNTRIES[to]['name']), round(hours)),
+            sender="FOREIGN OFFICE")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+        return True
+
+    def _tick_pouches(self):
+        """Deliver diplomatic bags whose couriers have arrived."""
+        if not self.pouches:
+            return
+        due = [p for p in self.pouches if p['due'] <= self.clock_minutes]
+        if not due:
+            return
+        me = self.player_country
+        for p in due:
+            self.pouches.remove(p)
+            to, kind = p['to'], p['kind']
+            if to in self.eliminated:
+                continue
+            name = COUNTRIES[to]['name']
+            if kind == 'war':
+                self.declare_war(me, to)
+            elif kind == 'alliance':
+                if self.alliance_answer(to, me):
+                    self.make_alliance(me, to)
+                else:
+                    self.fax.post(
+                        "OFFER DECLINED",
+                        "%s presents its compliments and declines the "
+                        "proposed pact. Its neutrality (or its own "
+                        "counsel) stands." % B(name),
+                        sender="FOREIGN OFFICE")
+            elif kind == 'peace':
+                if self.peace_answer(to, me):
+                    self.make_peace(me, to)
+                else:
+                    self.fax.post(
+                        "TERMS REJECTED",
+                        "%s rejects the offered terms. The war "
+                        "continues." % B(name),
+                        sender="FOREIGN OFFICE")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+
+    def open_diplomacy(self):
+        if self.game_state != 'playing' or self.diplo_fax:
+            return
+        from ui import DiplomacyLedger
+        self.diplo_fax = DiplomacyLedger(self, self._close_diplomacy)
+
+    def _close_diplomacy(self):
+        if self.diplo_fax:
+            self.diplo_fax.destroy()
+            self.diplo_fax = None
+
+    def _diplo_action(self, kind, nation):
+        """A ledger key pressed: the dispatch goes into the bag."""
+        self.dispatch_pouch(kind, nation)
+
+    def _diplo_break(self, nation):
+        self.break_alliance(self.player_country, nation)
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
 
     def post_news(self, headline, deck):
         """An edition goes to the stand; the reader (phase: newspapers)
@@ -5072,7 +5186,8 @@ void main() {
         mw = self.mouseWatcherNode
         if (self.game_state == 'playing' and mw and mw.hasMouse()
                 and not self.pause_frame and not self.budget_fax
-                and not self.briefing_fax and not self.tax_fax):
+                and not self.briefing_fax and not self.tax_fax
+                and not self.diplo_fax):
             if self.unload_mode:
                 mode = 'disembark'
             elif self.build_mode:
@@ -6056,6 +6171,8 @@ void main() {
             self._tick_idle_roster()
         if self.fax:
             self.fax.update(dt)
+        if not self.is_paused and not self.game_over:
+            self._tick_pouches()
         if self._signal_ttl > 0.0:
             self._signal_ttl -= dt
             if self._signal_ttl <= 0.0 and self.bottom_bar:

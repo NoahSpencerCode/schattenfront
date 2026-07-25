@@ -570,6 +570,15 @@ def _draw_blimp_lower_button(d, ink):
     d.polygon([(30, 70), (58, 70), (44, 88)], fill=ink)
 
 
+def _draw_diplomacy_button(d, ink):
+    """The Foreign Office: two courier flags crossed at the staff."""
+    d.line([(26, 86), (56, 12)], fill=ink, width=5)
+    d.line([(70, 86), (40, 12)], fill=ink, width=5)
+    d.polygon([(56, 12), (86, 20), (58, 32)], fill=ink)
+    d.polygon([(40, 12), (10, 20), (38, 32)], fill=ink)
+    d.line([(20, 88), (76, 88)], fill=ink, width=4)
+
+
 def _draw_demolish_button(d, ink):
     """The demolition order: an aerial bomb over cracked masonry
     (full-colour, ink ignored)."""
@@ -714,6 +723,7 @@ _DRAWERS = {
     'info_button': _draw_info_button,
     'scramble_button': _draw_scramble_button,
     'demolish_button': _draw_demolish_button,
+    'diplomacy_button': _draw_diplomacy_button,
     'unload_button': _draw_unload_button,
     'paradrop_button': _draw_paradrop_button,
     'submerge_button': _draw_submerge_button,

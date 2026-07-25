@@ -173,7 +173,7 @@ NPC_NATIONS = {
                     'adjective': 'Indian'},
     'fareast':     {'color': (0.42, 0.55, 0.52), 'name': 'British Far East',
                     'adjective': 'Malayan'},
-    'australia':   {'color': (0.38, 0.58, 0.45), 'name': 'Commonwealth of Australia',
+    'australia':   {'color': (0.38, 0.58, 0.45), 'name': 'Australia',
                     'adjective': 'Australian'},
 }
 COUNTRIES.update(NPC_NATIONS)
