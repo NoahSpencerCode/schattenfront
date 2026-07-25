@@ -755,14 +755,20 @@ class WW2RTSGame(ShowBase):
         self.research_pct = {c: (0 if c == country else 15)
                              for c in COUNTRIES}
         self.tech_fax = None
-        # every computer power gets a general staff playing by the
-        # player's own rules (budget, production, orders, annexation)
-        self._nation_ais = {c: NationAI(self, c) for c in COUNTRIES
-                            if c != country and c != 'neutral'}
+        # every computer POWER gets a general staff playing by the
+        # player's own rules (budget, production, orders, annexation);
+        # the NPC nations field a standing home-defense garrison only
+        from config import PLAYABLE
+        self._nation_ais = {c: NationAI(self, c) for c in PLAYABLE
+                            if c != country}
 
         for faction in COUNTRIES:
-            if faction != 'neutral':
+            if faction == 'neutral':
+                continue
+            if faction in PLAYABLE:
                 self._spawn_starting_forces(faction)
+            else:
+                self._spawn_npc_garrison(faction)
 
         self._update_borders()
         cap = self.capital_of(country)
@@ -827,6 +833,30 @@ class WW2RTSGame(ShowBase):
                 self.spawn_unit(ut, faction, wl, wo, jitter=0.25,
                                 seed=30 + i, water=True)
 
+    def _spawn_npc_garrison(self, faction):
+        """An NPC nation's standing army: a home-defense garrison
+        posted AT its cities, sized by the town. It never marches and
+        never grows -- the auto-acquire law makes it fight anyone who
+        brings a war to its soil."""
+        from geodata import CITY_POPULATION
+        for c in self.cities:
+            if c.home_country != faction:
+                continue
+            pop = CITY_POPULATION.get(c.name, 200)
+            n_inf = max(1, min(4, 1 + pop // 900))
+            for i in range(n_inf):
+                u = self.spawn_unit('infantry', faction, c.lat, c.lon,
+                                    jitter=0.25, seed=100 + i)
+                u.supply = u.stats['supply_cap']
+            if c.capital or pop >= 1500:
+                u = self.spawn_unit('tank', faction, c.lat, c.lon,
+                                    jitter=0.2, seed=140)
+                u.supply = u.stats['supply_cap']
+            if pop >= 900:
+                u = self.spawn_unit('aa_artillery', faction, c.lat,
+                                    c.lon, jitter=0.2, seed=150)
+                u.supply = u.stats['supply_cap']
+
     def spawn_unit(self, unit_type, faction, lat, lon, jitter=0.0, seed=0,
                    water=False, base=None):
         rng = random.Random(hash((faction, unit_type, seed)))
@@ -868,9 +898,11 @@ class WW2RTSGame(ShowBase):
         ownership (capture or completed annexation)."""
         if not self.globe:
             return
+        from globe import ANNEX_IDX, NEUTRAL_IDX
         idx = {k: i for i, k in enumerate(NAT_ORDER)}
         self.globe.set_borders(
-            [(c.pos, 6 if c.annexing else idx.get(c.country, 5))
+            [(c.pos, ANNEX_IDX if c.annexing
+              else idx.get(c.country, NEUTRAL_IDX))
              for c in self.cities])
 
     def harbor_of_city(self, city):
