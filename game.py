@@ -395,6 +395,8 @@ class WW2RTSGame(ShowBase):
         self.briefing_fax = None
         self.tax_fax = None
         self.diplo_fax = None
+        self.newspaper = None
+        self._news_cooldown = 0.0
 
         # input state
         self.drag_start = None
@@ -563,6 +565,17 @@ class WW2RTSGame(ShowBase):
         month %= 12
         return "%02d%02d HRS  %d %s %d" % (hh, mm, day, MONTHS[month], year)
 
+    def campaign_date_text(self, minutes=None):
+        """The dateline alone (no clock), for mastheads."""
+        y, mo, d, h, mi = CAMPAIGN_START
+        total = mi + h * 60 + (d - 1) * 1440 + \
+            (self.clock_minutes if minutes is None else minutes)
+        days = int(total) // 1440
+        month = mo - 1 + days // 30
+        day = days % 30 + 1
+        year = y + month // 12
+        return "%d %s %d" % (day, MONTHS[month % 12], year)
+
     # ========================================================== states
     def show_menu(self):
         self.game_state = 'menu'
@@ -622,6 +635,8 @@ class WW2RTSGame(ShowBase):
         self.briefing_fax = None
         self.tax_fax = None
         self.diplo_fax = None
+        self.newspaper = None
+        self._news_cooldown = 0.0
         self.budget_lock_until = None
         self.budget_counts = {}
         self.fortnight_start = 0.0
@@ -874,6 +889,9 @@ class WW2RTSGame(ShowBase):
 
     def spawn_unit(self, unit_type, faction, lat, lon, jitter=0.0, seed=0,
                    water=False, base=None):
+        if faction == self.player_country:
+            self.stats_ledger['units_raised'] = \
+                self.stats_ledger.get('units_raised', 0) + 1
         rng = random.Random(hash((faction, unit_type, seed)))
         la = lat + rng.uniform(-jitter, jitter)
         lo = lon + rng.uniform(-jitter, jitter)
@@ -4416,8 +4434,9 @@ void main() {
                     self.wars.add(frozenset((x, y)))
                     self.alliances[x].discard(y)
                     self.alliances[y].discard(x)
-        self.stats_ledger['wars_declared'] = \
-            self.stats_ledger.get('wars_declared', 0) + 1
+        if aggressor == self.player_country:
+            self.stats_ledger['wars_declared'] = \
+                self.stats_ledger.get('wars_declared', 0) + 1
         dragged = sorted((bloc_a | bloc_b) - {aggressor, defender})
         deck = "%s and its allies enter the war against %s" % (
             COUNTRIES[aggressor]['name'], COUNTRIES[defender]['name'])
@@ -4449,8 +4468,9 @@ void main() {
             return False
         self.alliances[a].add(b)
         self.alliances[b].add(a)
-        self.stats_ledger['allies_made'] = \
-            self.stats_ledger.get('allies_made', 0) + 1
+        if self.player_country in (a, b):
+            self.stats_ledger['allies_made'] = \
+                self.stats_ledger.get('allies_made', 0) + 1
         self.post_news(
             "%s AND %s SIGN PACT OF ALLIANCE" %
             (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
@@ -4682,6 +4702,9 @@ void main() {
                                   sender="FIELD COMMAND")
 
     def _capture_city(self, city, new_owner):
+        if new_owner == self.player_country:
+            self.stats_ledger['cities_taken'] = \
+                self.stats_ledger.get('cities_taken', 0) + 1
         old = city.country
         city.country = new_owner
         city.capture_progress = 0.0
@@ -4767,21 +4790,66 @@ void main() {
                 self.game_over = True
                 self._show_final_paper(True)
 
+    def _tick_news(self, dt):
+        """The press: one edition at a time from the stand, with a
+        breath between editions so a busy day still reads."""
+        if self._news_cooldown > 0.0:
+            self._news_cooldown -= dt
+            return
+        if self.newspaper is not None or not self.news_queue:
+            return
+        ed = self.news_queue.pop(0)
+        from ui import Newspaper
+
+        def filed():
+            self.newspaper = None
+            self._news_cooldown = 4.0
+        self.newspaper = Newspaper(
+            self, ed['headline'], ed['deck'],
+            self.campaign_date_text(ed['minutes']), filed)
+
     def _show_final_paper(self, victory):
-        """The war's final edition (the full newspaper lands with the
-        press phase; the fax carries the news meanwhile)."""
+        """The war's LAST edition: the full statistical record."""
+        from ui import Newspaper
+        from config import PLAYABLE
+        if self.newspaper is not None:
+            self.newspaper.destroy()
+            self.newspaper = None
+        me = self.player_country
+        days = int(self.clock_minutes // 1440)
+        led = self.stats_ledger
+        stats = [
+            ("THE WAR RAN", "%d DAYS" % days),
+            ("CITIES UNDER THE FLAG",
+             str(sum(1 for c in self.cities if c.country == me))),
+            ("CITIES TAKEN BY ARMS", str(led.get('cities_taken', 0))),
+            ("ENEMY UNITS DESTROYED", str(self.kills)),
+            ("OWN UNITS LOST", str(self.losses)),
+            ("UNITS RAISED", str(led.get('units_raised', 0))),
+            ("WARS DECLARED", str(led.get('wars_declared', 0))),
+            ("PACTS SIGNED", str(led.get('allies_made', 0))),
+            ("TREASURY AT THE END",
+             "$%d" % int(self.funds.get(me, 0))),
+        ]
         if victory:
-            self.fax.post("TOTAL VICTORY",
-                          "%s. Church bells ring at home -- press %s "
-                          "for headquarters." %
-                          (B("ALL FIVE GREAT CAPITALS ARE OURS"),
-                           B("ESC")), sender="SUPREME HQ")
+            allies = sorted(self.alliances.get(me, ()))
+            head = "TOTAL VICTORY -- THE WAR IS WON"
+            deck = ("All five great capitals stand under %s's flag%s. "
+                    "Church bells ring across the homeland." %
+                    (COUNTRIES[me]['name'],
+                     (" and its allies' (%s)" % ", ".join(
+                         COUNTRIES[a]['name'] for a in allies))
+                     if allies else ""))
         else:
-            self.fax.post("DEFEAT",
-                          "The government has %s. The war is over -- "
-                          "press %s for headquarters." %
-                          (B("SURRENDERED"), B("ESC")),
-                          sender="SUPREME HQ")
+            head = "%s CAPITULATES" % COUNTRIES[me]['name'].upper()
+            deck = ("With its last city fallen the government signs "
+                    "the instrument of surrender. The war is over.")
+
+        def filed():
+            self.newspaper = None
+        self.newspaper = Newspaper(
+            self, head, deck, self.campaign_date_text(), filed,
+            final='victory' if victory else 'defeat', stats=stats)
 
     # =========================================== vision & communications
     def _tick_vision_comm(self):
@@ -6173,6 +6241,7 @@ void main() {
             self.fax.update(dt)
         if not self.is_paused and not self.game_over:
             self._tick_pouches()
+        self._tick_news(dt)
         if self._signal_ttl > 0.0:
             self._signal_ttl -= dt
             if self._signal_ttl <= 0.0 and self.bottom_bar:

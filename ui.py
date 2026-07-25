@@ -370,6 +370,92 @@ class BottomBar:
         self.frame.destroy()
 
 
+NEWSPRINT = (0.89, 0.87, 0.80, 0.99)
+
+
+class Newspaper:
+    """A broadsheet on the stand: masthead, dateline, banner headline
+    and the deck beneath, in the manner of the wire-service extras.
+    Click anywhere on the sheet (or the corner key) to file it away.
+    The FINAL edition -- victory or capitulation -- carries the full
+    statistical record of the war and stays up until dismissed."""
+
+    MAST = "THE WORLD CHRONICLE"
+
+    def __init__(self, base, headline, deck, dateline, on_dismiss,
+                 final=None, stats=()):
+        self.base = base
+        self.on_dismiss = on_dismiss
+        tall = 0.48 if final is None else 0.86
+        self.frame = DirectFrame(parent=base.aspect2d,
+                                 frameColor=NEWSPRINT,
+                                 frameSize=(-0.98, 0.98, -tall, tall),
+                                 state=DGG.NORMAL, pos=(0, 0, 0.06))
+        edge = DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                           frameSize=(-0.99, 0.99, -tall - 0.012,
+                                      -tall))
+        y = tall - 0.11
+
+        def text(t, ty, scale, color=INK, align=TextNode.ACenter,
+                 wordwrap=None):
+            tn = TextNode('news')
+            tn.setAlign(align)
+            if base.hud_font:
+                tn.setFont(base.hud_font)
+            tn.setTextColor(*color)
+            if wordwrap:
+                tn.setWordwrap(wordwrap)
+            tn.setText(t)
+            np_ = self.frame.attachNewNode(tn)
+            np_.setPos(0 if align == TextNode.ACenter else -0.88,
+                       0, ty)
+            np_.setScale(scale)
+            return tn, np_
+
+        text(self.MAST, y, 0.085)
+        y -= 0.055
+        text("%s  *  LATE WAR EXTRA  *  ONE PENNY" % dateline,
+             y, 0.026, INK_FAINT)
+        y -= 0.045
+        for ry in (y + 0.012, y + 0.002):
+            rule = DirectFrame(parent=self.frame, frameColor=INK,
+                               frameSize=(-0.90, 0.90, ry, ry + 0.004))
+        y -= 0.10
+        # the banner headline wraps and shrinks to fit the broadsheet
+        size = 0.075 if len(headline) < 38 else 0.058
+        tn, _ = text(headline, y, size, wordwrap=24.0)
+        y -= 0.075 * (1 + headline.count(' ') // 12)
+        y -= 0.075
+        text(deck, y, 0.034, wordwrap=46.0)
+        if final is not None:
+            y -= 0.30
+            text("++ %s ++" % ("TOTAL VICTORY" if final == 'victory'
+                               else "CAPITULATION"), y, 0.045)
+            y -= 0.075
+            for label, value in stats:
+                text("%-28s %s" % (label, value), y, 0.030,
+                     align=TextNode.ALeft)
+                y -= 0.055
+        self.frame.bind(DGG.B1PRESS, lambda e: self.dismiss())
+        pill_button(self.frame, "FILE AWAY",
+                    lambda: self.dismiss(),
+                    pos=(0.76, 0, -tall + 0.075), hw=0.15, hh=0.038,
+                    font=base.hud_font)
+        snd = getattr(base, 'fax_snd', None)
+        if snd is not None:
+            snd.play()
+
+    def dismiss(self):
+        cb = self.on_dismiss
+        self.on_dismiss = None
+        self.destroy()
+        if cb:
+            cb()
+
+    def destroy(self):
+        self.frame.destroy()
+
+
 class DiplomacyLedger:
     """The Foreign Office ledger: every nation of the world on one
     sheet -- stance, standing, and the keys that move the bags.

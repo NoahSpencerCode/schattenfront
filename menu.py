@@ -173,15 +173,16 @@ class MenuScreen:
                    SUB_COLOR)
         self._button("[N]  NEW GAME", (0, 0.18), self.show_country_select,
                      ['new'])
-        self._button("[H]  HOST GAME", (0, 0.02), self.show_country_select,
-                     ['host'])
+        # multiplayer is not in this build: the key sits dark and dead
+        mp = self._button("MULTIPLAYER  (COMING SOON)", (0, 0.02), None)
+        mp['state'] = DGG.DISABLED
+        mp.setColorScale(0.55, 0.55, 0.55, 0.75)
         self._button("[S]  SETTINGS", (0, -0.14), self.show_settings)
         self._button("[Q]  QUIT", (0, -0.30), self._quit)
         from config import GAME_VERSION
         self._text("ALPHA %s" % GAME_VERSION,
                    (0, -0.85), 0.035, SUB_COLOR)
         self.base.accept('n', self.show_country_select, ['new'])
-        self.base.accept('h', self.show_country_select, ['host'])
         self.base.accept('s', self.show_settings)
         self.base.accept('q', self._quit)
 
