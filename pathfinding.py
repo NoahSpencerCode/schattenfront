@@ -94,8 +94,10 @@ class MovementPlanner:
                 nodes.append((vecs[idx], *vec_to_latlon(vecs[idx])))
             seg_len = max(1e-6, arc[idx] - arc[prev_i])
             geom = vecs[prev_i + 1:idx] or None
-            edges.append((prev, nn, seg_len / ROAD_SPEED_MULTIPLIER,
-                          flag, [], geom))
+            # rails carry a routing preference: same true speed, but a
+            # column that CAN ride the line should (it burns nothing)
+            rate = ROAD_SPEED_MULTIPLIER * (1.15 if rail else 1.0)
+            edges.append((prev, nn, seg_len / rate, flag, [], geom))
             prev, prev_i = nn, idx
             k += 1
         self._adj_cache = None

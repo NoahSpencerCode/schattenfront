@@ -1318,8 +1318,10 @@ class WorldData:
                 if d > 40.0:
                     continue        # no ocean-spanning main lines
                 seed = zlib.crc32(("rail:%s:%s" % (a[0], b[0])).encode())
-                curve = self._curved_road_points(
-                    a[2], a[3], b[2], b[3], seed, passes=2, amp=0.02)
+                coarse = self._curved_road_points(
+                    a[2], a[3], b[2], b[3], seed, smooth=False)
+                curve = [tuple(pt) for pt in
+                         smooth_polyline(np.array(coarse))]
                 self.rail_paths.append(curve)
 
     def _build_city_plans(self):

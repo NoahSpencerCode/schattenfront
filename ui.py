@@ -77,26 +77,34 @@ def pill_button(parent, text, command, extraArgs=(), pos=(0, 0, 0),
 
 
 def add_tooltip(btn, text, font=None, dy=0.085, left=None):
-    """A hover slip naming the control: paper label that appears above
-    the button (or, with left=<button half-width>, off its left edge
-    for controls hugging the screen's right side)."""
+    """A hover slip naming the control: WHITE text on a dark plate
+    above the button (or, with left=<button half-width>, off its left
+    edge for controls hugging the screen's right side). The slip is
+    DEAD to the mouse -- an interactive tooltip near the cursor
+    steals the hover and flickers."""
     scale = 0.026
     hw = 0.31 * scale * len(text) + 0.014
     pos = ((-(left + hw + 0.015), 0, 0) if left is not None
            else (0, 0, dy))
-    f = DirectFrame(parent=btn, frameColor=PAPER,
+    f = DirectFrame(parent=btn, frameColor=(0.10, 0.09, 0.08, 0.94),
                     frameSize=(-hw, hw, -0.020, 0.032),
-                    relief=DGG.FLAT, pos=pos)
-    edge = DirectFrame(parent=f, frameColor=PAPER_EDGE,
-                       frameSize=(-hw - 0.004, hw + 0.004,
-                                  -0.024, 0.036), relief=DGG.FLAT)
+                    relief=DGG.FLAT, state=DGG.DISABLED, pos=pos)
+    edge = DirectFrame(parent=f, frameColor=(0.55, 0.48, 0.34, 1.0),
+                       frameSize=(-hw - 0.003, hw + 0.003,
+                                  -0.023, 0.035), relief=DGG.FLAT,
+                       state=DGG.DISABLED)
     edge.setBin('gui-popup', 0)
     f.setBin('gui-popup', 1)
+    for w in (f, edge):
+        try:
+            w.guiItem.setActive(False)
+        except Exception:
+            pass
     tn = TextNode('tip')
     tn.setAlign(TextNode.ACenter)
     if font:
         tn.setFont(font)
-    tn.setTextColor(*INK)
+    tn.setTextColor(0.96, 0.94, 0.88, 1.0)
     tn.setText(text)
     np_ = f.attachNewNode(tn)
     np_.setPos(0, 0, -0.008)

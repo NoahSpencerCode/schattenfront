@@ -382,7 +382,7 @@ def make_rail_node(name, pts, R):
     rail_hw = 0.000014      # each rail's half-width
     tie_hl = 0.000062       # tie half-length (spans past the rails)
     tie_hw = 0.000016       # tie half-width along the track
-    tie_gap = 0.00050       # radians of arc between tie centres
+    tie_gap = 0.000167      # radians of arc between tie centres
     silver = (0.72, 0.74, 0.78, 1.0)
     brown = (0.30, 0.22, 0.14, 1.0)
 

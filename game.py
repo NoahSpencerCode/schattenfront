@@ -926,17 +926,31 @@ class WW2RTSGame(ShowBase):
         return self.cities[0]
 
     def _spawn_starting_forces(self, faction):
+        """The opening order of battle under the enlistment law: only
+        ENLISTED stand in the open; every vehicle -- army, air and
+        sea alike -- waits at its station as a shell. Nothing is ever
+        scattered loose about the map."""
         cities = [c for c in self.cities if c.home_country == faction]
         cap = cities[0]
-        for i, ut in enumerate(STARTING_ARMY):
-            self.spawn_unit(ut, faction, cap.lat, cap.lon, jitter=0.9, seed=i)
-        for i, ut in enumerate(STARTING_AIR):
-            self.spawn_unit(ut, faction, cap.lat, cap.lon, jitter=1.2,
-                            seed=10 + i)
         second = cities[1]
-        for i, ut in enumerate(['infantry', 'tank']):
-            self.spawn_unit(ut, faction, second.lat, second.lon, jitter=0.8,
-                            seed=20 + i)
+        posts = [p_ for p_ in self.armyposts if p_.country == faction]
+        fields = [a for a in self.airfields if a.country == faction]
+        for i, ut in enumerate(STARTING_ARMY):
+            if ut == 'infantry':
+                u = self.spawn_unit(ut, faction, cap.lat, cap.lon,
+                                    jitter=0.5, seed=i)
+                u.supply = u.stats['supply_cap']
+            elif posts:
+                p_ = posts[i % len(posts)]
+                p_.shells.append(ut)
+                self._refresh_station_badge(p_)
+        for i, ut in enumerate(STARTING_AIR):
+            if fields:
+                fields[i % len(fields)].shells.append(ut)
+        for i, ut in enumerate(['infantry', 'infantry']):
+            u = self.spawn_unit(ut, faction, second.lat, second.lon,
+                                jitter=0.4, seed=20 + i)
+            u.supply = u.stats['supply_cap']
         # the fleet waits IN the yards as shells, and the opening
         # stations each hold a small standing crew pool
         yards = [h for h in self.harbors if h.country == faction]
@@ -1319,21 +1333,28 @@ class WW2RTSGame(ShowBase):
         types = [ut for ut in NATION_UNIT_STATS[country]
                  if ut != 'infantry'
                  and (UNIT_TYPES[ut]['domain'] != 'sea' or has_harbor)]
+        # a balanced opening slate: no line deeper than SIX pieces
+        # (an even dollar split buys walls of the cheap types), and
+        # whatever the ceiling leaves unspent carries forward
+        CAP = 6
         counts = {ut: 0 for ut in types}
         share = funds / max(1, len(types))
         spent = 0
         for ut in types:
             cost = stats_for(ut, country)['cost']
-            counts[ut] = int(share // cost)
+            counts[ut] = min(CAP, int(share // cost))
             spent += counts[ut] * cost
-        # spend the remainder on the cheapest lines: the budget maxes out
         rest = funds - spent
-        for ut in sorted(types, key=lambda t: stats_for(t, country)['cost']):
-            cost = stats_for(ut, country)['cost']
-            n = int(rest // cost)
-            if n > 0:
-                counts[ut] += n
-                rest -= n * cost
+        order = sorted(types, key=lambda t: stats_for(t, country)['cost'])
+        progress_made = True
+        while rest > 0 and progress_made:
+            progress_made = False
+            for ut in order:
+                cost = stats_for(ut, country)['cost']
+                if rest >= cost and counts[ut] < CAP:
+                    counts[ut] += 1
+                    rest -= cost
+                    progress_made = True
         return counts
 
     def _apply_fortnight_budget(self):
@@ -1936,6 +1957,8 @@ class WW2RTSGame(ShowBase):
         self.selected = []
         self.roster_base = None
         self.garrison_sel = []
+        self._station_page = 0
+        self._roster_page = 0
         self._select_city(None)
         self._select_airfield(None)
         self._select_harbor(None)
@@ -3752,9 +3775,7 @@ class WW2RTSGame(ShowBase):
                 seed = zlib.crc32(("eng:%.3f,%.3f,%.3f,%.3f"
                                    % (la1, lo1, la2, lo2)).encode())
                 curve = self.world._curved_road_points(
-                    la1, lo1, la2, lo2, seed,
-                    passes=2 if is_rail else 5,
-                    amp=0.02 if is_rail else 0.04)
+                    la1, lo1, la2, lo2, seed, passes=5, amp=0.04)
                 healed = [c for c in self.road_cuts
                           if any(angle_between(
                               latlon_to_vec(cla, clo), c)
@@ -6342,6 +6363,31 @@ void main() {
                                  "VEHICLE", "RMB THE POST WITH "
                                  "ENLISTED SELECTED TO STATION CREWS")
 
+    def _paged_entries(self, entries, page_attr):
+        """A menu holding more keys than the bar carries: slice into
+        pages, with < and > keys at the ends of the visible run."""
+        per = 24
+        n = len(entries)
+        if n <= per:
+            return entries
+        pages = (n + per - 1) // per
+        page = max(0, min(getattr(self, page_attr, 0), pages - 1))
+        setattr(self, page_attr, page)
+        out = list(entries[page * per:(page + 1) * per])
+        if page > 0:
+            out.insert(0, ("<", self._flip_page, [page_attr, -1],
+                           None, False,
+                           "PREVIOUS PAGE (%d OF %d)" % (page, pages)))
+        if page < pages - 1:
+            out.append((">", self._flip_page, [page_attr, 1],
+                        None, False,
+                        "NEXT PAGE (%d OF %d)" % (page + 2, pages)))
+        return out
+
+    def _flip_page(self, page_attr, d):
+        setattr(self, page_attr, getattr(self, page_attr, 0) + d)
+        self._refresh_selection_ui()
+
     def _refresh_station_ui(self, st, kind_label, noun, crew_hint):
         """Shared harbor/army-post menu: shells dispatch under the
         crews on station; production counts down beside them."""
@@ -6353,7 +6399,7 @@ void main() {
                "{:,}".format(int(st.stock)),
                "{:,}".format(int(st.STOCK_CAP))))
         entries = []
-        for i, ut in enumerate(st.shells[:12]):
+        for i, ut in enumerate(st.shells):
             info = stats_for(ut, st.country)
             entries.append((
                 "" if st.crews else "NO CREW",
@@ -6362,7 +6408,7 @@ void main() {
                 ("DISPATCH %s -- ONE CREW SIGNS ABOARD"
                  % info['label'].upper()) if st.crews else
                 "%s -- NO CREWS ON STATION" % info['label'].upper()))
-        for ut, t_left in st.production[:8]:
+        for ut, t_left in st.production:
             info = stats_for(ut, st.country)
             entries.append(("%ds" % max(0, int(t_left)), self._noop,
                             [], get_icon_path(ut, 'dark'), False,
@@ -6375,7 +6421,8 @@ void main() {
                             False,
                             "MUSTER OUT -- %d CREW(S) WALK OUT AS "
                             "ENLISTED" % st.crews))
-        bar.add_buttons(entries)
+        bar.add_buttons(self._paged_entries(entries,
+                                                '_station_page'))
         bar.set_hint(("CLICK A %s TO CREW AND DISPATCH IT -- %s"
                       % (noun, crew_hint)) if st.shells
                      else crew_hint)
@@ -6459,10 +6506,11 @@ void main() {
                          "%s -- MARCH ENLISTED INTO THE FIELD TO "
                          "CREW IT"
                          % stats_for(ut, base.country)['label'].upper())
-                        for i, ut in enumerate(shells[:8])]
+                        for i, ut in enumerate(shells)]
             planned = [p for p in wing
                        if p in self.selected and p.sortie_plan]
-            bar.add_buttons(entries)
+            bar.add_buttons(self._paged_entries(entries,
+                                                '_roster_page'))
             n = sum(1 for p in wing if p in self.selected)
             if planned:
                 lead = planned[0]
