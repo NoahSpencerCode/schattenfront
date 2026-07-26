@@ -6,9 +6,15 @@ whatever the file holds, save() writes the whole dict back.
 
 import json
 import os
+import sys
 
-SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             'settings.json')
+# A frozen (shipped) build has no source directory: the settings live
+# in the game folder, which main.py makes the working directory.
+if getattr(sys, 'frozen', False):
+    SETTINGS_PATH = os.path.abspath('settings.json')
+else:
+    SETTINGS_PATH = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'settings.json')
 
 DEFAULTS = {
     # MSAA sample count: 0 (off), 2, 4 or 8

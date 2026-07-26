@@ -8,8 +8,18 @@ import os
 import sys
 
 # Run from the game directory so relative asset paths work when the
-# launcher is double-clicked from elsewhere.
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+# launcher is double-clicked from elsewhere. A FROZEN build (the
+# shipped .app/.exe) anchors on the executable instead: game data
+# sits beside the binary, or in Resources inside a mac bundle.
+if getattr(sys, 'frozen', False):
+    _base = os.path.dirname(os.path.abspath(sys.executable))
+    for _cand in (_base, os.path.join(os.path.dirname(_base),
+                                      'Resources')):
+        if os.path.isdir(os.path.join(_cand, 'assets')):
+            os.chdir(_cand)
+            break
+else:
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 from panda3d.core import loadPrcFileData
 
@@ -39,6 +49,18 @@ if SHOW_FPS_METER:
 if '--offscreen' in sys.argv:
     # Headless smoke-test mode used by developers / CI.
     loadPrcFileData('', 'window-type offscreen')
+
+if getattr(sys, 'frozen', False):
+    # surface the TRUE cause of a numpy import failure in the field
+    try:
+        import numpy                                    # noqa: F401
+    except ImportError as _e:
+        import traceback
+        print("numpy import failed; underlying cause:", file=sys.stderr)
+        cause = _e.__cause__ or _e
+        traceback.print_exception(type(cause), cause,
+                                  cause.__traceback__)
+        sys.exit(1)
 
 from game import WW2RTSGame
 
