@@ -380,10 +380,12 @@ def make_rail_node(name, pts, R):
                               GeomVertexWriter)
     gauge = 0.000042        # half-distance between the two rails, rad
     rail_hw = 0.000014      # each rail's half-width
-    tie_hl = 0.000062       # tie half-length (spans past the rails)
+    verge_hw = 0.000026     # dark verge under each rail, wider
+    tie_hl = 0.000090       # ties POKE OUT past the outer rail edges
     tie_hw = 0.000016       # tie half-width along the track
     tie_gap = 0.000167      # radians of arc between tie centres
     silver = (0.72, 0.74, 0.78, 1.0)
+    verge_c = (0.24, 0.19, 0.14, 1.0)
     brown = (0.30, 0.22, 0.14, 1.0)
 
     fmt = GeomVertexFormat.getV3c4()
@@ -405,15 +407,6 @@ def make_rail_node(name, pts, R):
         tris.addVertices(vcount, vcount + 1, vcount + 2)
         tris.addVertices(vcount, vcount + 2, vcount + 3)
         vcount += 4
-
-    # the two running rails: quad strips segment by segment
-    for off in (-gauge, gauge):
-        for i in range(len(pts) - 1):
-            s0, s1 = sides[i], sides[i + 1]
-            a = Vec3(pts[i]) + s0 * off
-            b = Vec3(pts[i + 1]) + s1 * off
-            quad(a - s0 * rail_hw, a + s0 * rail_hw,
-                 b + s1 * rail_hw, b - s1 * rail_hw, silver)
 
     # the ties: even arc spacing along the WHOLE section (segments
     # are far shorter than a tie interval, so the walk must carry
@@ -451,6 +444,17 @@ def make_rail_node(name, pts, R):
              mid + side * tie_hl - fwd * tie_hw,
              mid + side * tie_hl + fwd * tie_hw,
              mid - side * tie_hl + fwd * tie_hw, brown)
+
+    # the running rails ride OVER the ties: dark verge under each,
+    # silver on top
+    for off in (-gauge, gauge):
+        for hw_, col in ((verge_hw, verge_c), (rail_hw, silver)):
+            for i in range(len(pts) - 1):
+                s0, s1 = sides[i], sides[i + 1]
+                a = Vec3(pts[i]) + s0 * off
+                b = Vec3(pts[i + 1]) + s1 * off
+                quad(a - s0 * hw_, a + s0 * hw_,
+                     b + s1 * hw_, b - s1 * hw_, col)
 
     geom = Geom(vdata)
     geom.addPrimitive(tris)

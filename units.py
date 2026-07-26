@@ -13,7 +13,7 @@ from panda3d.core import Vec3
 from panda3d.core import TextNode
 
 from config import (AIR_VISION_MULT, COMM_RADIUS_FACTOR, COUNTRIES,
-                    RAIL_LEG_MULT,
+                    RAIL_LEG_MULT, RAIL_TRAIN_SPEED,
                     GLOBE_RADIUS, LIFT_AIR, LIFT_GROUND,
                     NIGHT_VISION_FACTOR, UNIT_SPEED_FACTOR,
                     UNIT_SPRITE_SCALE, VISION_SCALE)
@@ -842,7 +842,14 @@ class Unit:
             self.attack_target = self.sortie_targets.pop(0)
         self._combat(dt)
 
-        if self.current_order and not self.path:
+        # arrival-by-proximity orders complete the moment the unit is
+        # close enough, even with path legs left (a section that runs
+        # dry AT the gate still signs on); everything else completes
+        # when its path is walked out
+        near_kinds = ('station', 'garrison', 'board')
+        if self.current_order and (
+                not self.path
+                or self.current_order.get('kind') in near_kinds):
             done = self.game.order_finished(self, self.current_order)
             # order_finished may destroy this unit (e.g. an aircraft with
             # nowhere left to land); stop touching it if so
@@ -850,6 +857,7 @@ class Unit:
                 return
             if done:
                 self.current_order = None
+                self.path = []
         if moved:
             self.update_visual()
 
@@ -857,13 +865,20 @@ class Unit:
         if not self.path:
             return False
         target, speed_mult = self.path[0]
-        # on a road leg the ROUTING mult is only a flag: each chassis
-        # brings its own paved-road factor (feet gain little, wheels a
-        # lot), so column speeds stay true to life
-        eff_mult = (self.stats.get('road_mult', 3.0)
-                    if speed_mult > 1.001 else speed_mult)
-        speed = (self.stats['speed'] * UNIT_SPEED_FACTOR * eff_mult *
-                 self.game.game_speed)
+        on_rail = abs(speed_mult - RAIL_LEG_MULT) < 1e-6
+        if on_rail:
+            # the TRAIN sets the pace: every unit aboard -- marching
+            # Enlisted included -- rides at a lorry's road speed
+            speed = (RAIL_TRAIN_SPEED * UNIT_SPEED_FACTOR *
+                     self.game.game_speed)
+        else:
+            # on a road leg the ROUTING mult is only a flag: each
+            # chassis brings its own paved-road factor (feet gain
+            # little, wheels a lot), so column speeds stay true to life
+            eff_mult = (self.stats.get('road_mult', 3.0)
+                        if speed_mult > 1.001 else speed_mult)
+            speed = (self.stats['speed'] * UNIT_SPEED_FACTOR *
+                     eff_mult * self.game.game_speed)
         # the climb bites: off-road land movement pays the real grade
         # (roads are engineered and exempt; one sample per leg)
         if self.stats['domain'] == 'land' and speed_mult <= 1.001:
@@ -888,7 +903,6 @@ class Unit:
             # the fuel odometer: what a retasking mid-air may still ask
             # of the tanks is endurance minus this
             self._flown = getattr(self, '_flown', 0.0) + moved_wu
-        on_rail = abs(speed_mult - RAIL_LEG_MULT) < 1e-6
         if self.stats['supply_cap'] > 0 and not on_rail:
             # the ORIGINAL harsh economy, by design: the column burns
             # stores every second it is under way, and no advance

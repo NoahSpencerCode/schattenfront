@@ -2677,7 +2677,7 @@ class WW2RTSGame(ShowBase):
             unit.attack_target = order['target']
             self._approach_target(unit, order['target'],
                                   indicate=order.pop('indicate', False))
-        elif kind in ('board', 'repair', 'garrison'):
+        elif kind in ('board', 'repair', 'garrison', 'station'):
             self._approach_target(unit, order['target'])
 
     def _legal_goal(self, unit, goal):
@@ -2882,22 +2882,26 @@ class WW2RTSGame(ShowBase):
                 if len(transport.cargo) < transport.stats['capacity']:
                     self._load_unit(transport, unit)
                 return True
+            if unit.path or getattr(unit, 'plan_pending', None):
+                return False        # the march is under way
             if not self._replan_ready(unit):
                 return False
             self._approach_target(unit, transport)
-            return not unit.path
+            return False
         if kind == 'station':
             st = order['target']
             if not getattr(st, 'alive', False):
                 return True
-            reach = 0.55 if st in self.harbors else 0.35
+            reach = 0.30 if st in self.harbors else 0.18
             if unit.dist_to(st.pos) < reach:
                 self._station_crew(st, unit)
                 return True
+            if unit.path or getattr(unit, 'plan_pending', None):
+                return False        # the march is under way
             if not self._replan_ready(unit):
                 return False
             self._approach_target(unit, st)
-            return not unit.path
+            return False
         if kind == 'garrison':
             field = order['target']
             if not getattr(field, 'alive', False):
@@ -2905,10 +2909,12 @@ class WW2RTSGame(ShowBase):
             if unit.dist_to(field.pos) < 0.5:
                 self._store_in_field(field, unit)
                 return True
+            if unit.path or getattr(unit, 'plan_pending', None):
+                return False        # the march is under way
             if not self._replan_ready(unit):
                 return False
             self._approach_target(unit, field)
-            return not unit.path
+            return False
         if kind == 'build':
             # the engineers must actually be standing on the site before
             # the first shovel goes in
@@ -2932,8 +2938,10 @@ class WW2RTSGame(ShowBase):
                 bridge.repair(BRIDGE_REPAIR_RATE * self.game_speed *
                               globalClock.getDt())
                 return False
+            if unit.path or getattr(unit, 'plan_pending', None):
+                return False        # the march is under way
             self._approach_target(unit, bridge)
-            return not unit.path
+            return False
         if kind == 'unload':
             self._unload_cargo(unit)
             return True
@@ -5861,6 +5869,17 @@ void main() {
                           and self._facing_camera(u.pos)]
             if self._pick_object(mpos, transports) is not None:
                 return 'embark'
+            if any(u.unit_type == 'infantry' for u in landers):
+                stations = [(h, h.pos * GLOBE_RADIUS)
+                            for h in self.harbors
+                            if h.country == self.player_country
+                            and self._facing_camera(h.pos)]
+                stations += [(p_, p_.pos * GLOBE_RADIUS)
+                             for p_ in self.armyposts
+                             if p_.country == self.player_country
+                             and self._facing_camera(p_.pos)]
+                if self._pick_object(mpos, stations) is not None:
+                    return 'embark'
             fields = [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
                       if a.country == self.player_country
                       and self._facing_camera(a.pos)]
