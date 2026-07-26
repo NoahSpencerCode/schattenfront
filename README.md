@@ -86,6 +86,16 @@ Every declaration, pact, peace, capitulation — anywhere on the globe —
 prints an edition of **THE WORLD CHRONICLE**; the war's end prints the
 final edition with the full statistical record.
 
+### Saving and Loading
+
+**ESC → SAVE CAMPAIGN** files the whole situation map — every unit
+with its orders and cargo, every war, pact and courier bag in flight,
+every engineer work down to the road cuts — as one timestamped case
+in `saves/` (or under `~/Documents/Schattenfront/saves` when the
+install directory is read-only). **LOAD GAME** at the main menu lists
+the filed campaigns, newest first; one click resumes the war exactly
+where it stood.
+
 ### The Fortnight Budget
 
 Units are raised **only** through the budget. Press **[B]** (or the
@@ -273,7 +283,6 @@ the deep-zoom tile cache rebuilds itself lazily in play.
 ## Known Limitations / Roadmap
 
 - Multiplayer is not implemented; the menu key sits dark.
-- No save/load yet; campaigns are one sitting.
 - macOS builds are ad-hoc signed, not notarized: right-click → Open on
   first launch. If macOS still refuses (or the app misbehaves after a
   download), clear the quarantine flag once:

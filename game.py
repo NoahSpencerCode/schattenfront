@@ -675,6 +675,15 @@ class WW2RTSGame(ShowBase):
         if self.globe:
             self.globe.destroy()
             self.globe = None
+        # the right-edge keys are parented to the aspect corners, not
+        # the bars: without this they haunt the main menu
+        if getattr(self, 'idle_btns', None):
+            for b, _tn in self.idle_btns.values():
+                b.destroy()
+            self.idle_btns = None
+        if getattr(self, 'diplo_btn', None) is not None:
+            self.diplo_btn.destroy()
+            self.diplo_btn = None
         self.selected = []
         self.selected_city = None
         self.groups = {}
@@ -747,7 +756,11 @@ class WW2RTSGame(ShowBase):
         set_status("DRAWING UP MAPS...")
         return root, set_status
 
-    def start_game(self, country):
+    def start_game(self, country, snapshot=None):
+        """A fresh campaign -- or, with a snapshot dict from
+        saveload, the resumption of a saved one: the world is built
+        the same either way, but a loaded game restores its state
+        instead of spawning the opening forces."""
         self._assert_game_root()        # belt and braces before I/O
         loading, progress = self._loading_screen()
         if self.world is None:
@@ -817,15 +830,15 @@ class WW2RTSGame(ShowBase):
         self._nation_ais = {c: NationAI(self, c) for c in PLAYABLE
                             if c != country}
 
-        for faction in COUNTRIES:
-            if faction == 'neutral':
-                continue
-            if faction in PLAYABLE:
-                self._spawn_starting_forces(faction)
-            else:
-                self._spawn_npc_garrison(faction)
+        if snapshot is None:
+            for faction in COUNTRIES:
+                if faction == 'neutral':
+                    continue
+                if faction in PLAYABLE:
+                    self._spawn_starting_forces(faction)
+                else:
+                    self._spawn_npc_garrison(faction)
 
-        self._update_borders()
         cap = self.capital_of(country)
         self.cam_lat = self.cam_lat_target = cap.lat
         self.cam_lon = self.cam_lon_target = cap.lon
@@ -838,25 +851,38 @@ class WW2RTSGame(ShowBase):
         self.bottom_bar.set_title("ALL QUIET")
         self.bottom_bar.set_hint(CONTROLS_HINT)
         self.fax = FaxPanel(self)
-        self.fax.post(
-            "ASSUMPTION OF COMMAND",
-            "You command the %s forces. The first fortnight budget is "
-            "already committed. Press %s to amend the next one. "
-            "Good hunting." %
-            (B(COUNTRIES[country]['adjective']), B("[B]")),
-            sender="WAR OFFICE")
+        if snapshot is None:
+            self.fax.post(
+                "ASSUMPTION OF COMMAND",
+                "You command the %s forces. The first fortnight budget "
+                "is already committed. Press %s to amend the next one. "
+                "Good hunting." %
+                (B(COUNTRIES[country]['adjective']), B("[B]")),
+                sender="WAR OFFICE")
 
-        # the first fortnight budget is in effect from the opening gun:
-        # the treasury maxed out, split equally across the order of battle
-        self.fortnight_start = 0.0
-        self.budget_counts = self._default_budget_counts(
-            country, self.funds[country])
-        self._apply_fortnight_budget()
+            # the first fortnight budget is in effect from the opening
+            # gun: the treasury maxed out, split across the order of
+            # battle
+            self.fortnight_start = 0.0
+            self.budget_counts = self._default_budget_counts(
+                country, self.funds[country])
+            self._apply_fortnight_budget()
 
         self._make_idle_roster()
         self._make_demolish_button()
         self._make_diplo_button()
-        self._build_road_overlay()
+        if snapshot is not None:
+            progress("RESTORING THE SITUATION MAP...")
+            import saveload
+            saveload.restore(self, snapshot)
+            self.fax.post(
+                "RESUMPTION OF COMMAND",
+                "The situation map stands as you left it, %s. "
+                "The war goes on." % B(self.campaign_date_text()),
+                sender="WAR OFFICE")
+        else:
+            self._build_road_overlay()
+        self._update_borders()
         from icons import prewarm_button_assets
         prewarm_button_assets()         # no first-use PIL hitch in play
         self._loading_np = loading      # held up through the warm-up
@@ -1206,6 +1232,7 @@ class WW2RTSGame(ShowBase):
         np_.setPos(0, 0, 0.25)
         for i, (label, cmd) in enumerate([
                 ("RESUME OPERATIONS", self._close_pause_menu),
+                ("SAVE CAMPAIGN", self.save_game),
                 ("ABANDON CAMPAIGN", self.show_menu),
                 ("QUIT TO BARRACKS", self.userExit)]):
             DirectButton(parent=self.pause_frame, text=label,
@@ -1217,7 +1244,7 @@ class WW2RTSGame(ShowBase):
                                      (0.3, 0.3, 0.3, 0.4)),
                          frameSize=(-0.5, 0.5, -0.045, 0.07),
                          relief=DGG.FLAT, command=cmd,
-                         pos=(0, 0, 0.08 - i * 0.16))
+                         pos=(0, 0, 0.14 - i * 0.15))
 
     def _close_pause_menu(self):
         if self.pause_frame:
@@ -5636,9 +5663,44 @@ void main() {
             self._path_viz.setLightOff()
             self._path_viz.setDepthOffset(4)
 
+    # ====================================================== save/load
+    def save_game(self):
+        """The whole campaign into one dispatch case in saves/."""
+        if self.game_state != 'playing' or self.game_over:
+            return
+        import saveload
+        try:
+            path = saveload.write_save(self)
+            self.fax.post(
+                "CAMPAIGN FILED",
+                "The situation map is archived as %s. Resume it from "
+                "LOAD GAME at headquarters." %
+                B(os.path.basename(path)),
+                sender="RECORDS SECTION")
+        except Exception as exc:
+            self.fax.post(
+                "FILING FAILED",
+                "The archive clerk reports: %s" % B(str(exc)),
+                sender="RECORDS SECTION")
+        self._close_pause_menu()
+
+    def load_game(self, path):
+        """Resume a filed campaign from headquarters."""
+        import json
+        import saveload as _sl
+        try:
+            with open(path, 'r', encoding='utf-8') as fh:
+                data = json.load(fh)
+        except Exception as exc:
+            print("could not read save:", exc)
+            return
+        self.start_game(data['player'], snapshot=data)
+
     def fax_short(self, line):
         """Short despatches print on the SIGNALS line above the bar
         and fade; the info line belongs to the selection alone."""
+        if getattr(self, '_loading_save', False):
+            return                      # the restore works in silence
         if self.bottom_bar:
             self.bottom_bar.set_signal(line)
             self._signal_ttl = 8.0

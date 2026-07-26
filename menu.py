@@ -161,7 +161,7 @@ class MenuScreen:
         for w in self.widgets:
             w.destroy() if hasattr(w, 'destroy') else w.removeNode()
         self.widgets = []
-        for key in ('n', 'h', 'q', 'b', 's', 'escape',
+        for key in ('n', 'h', 'l', 'q', 'b', 's', 'escape',
                     '1', '2', '3', '4', '5', '6'):
             self.base.ignore(key)
 
@@ -171,20 +171,95 @@ class MenuScreen:
         self._text("SCHATTENFRONT", (0, 0.62), 0.15, TITLE_COLOR)
         self._text("A WORLD AT WAR  *  1939 - 1945", (0, 0.50), 0.05,
                    SUB_COLOR)
-        self._button("[N]  NEW GAME", (0, 0.18), self.show_country_select,
+        self._button("[N]  NEW GAME", (0, 0.24), self.show_country_select,
                      ['new'])
+        self._button("[L]  LOAD GAME", (0, 0.08), self.show_load_page)
         # multiplayer is not in this build: the key sits dark and dead
-        mp = self._button("MULTIPLAYER  (COMING SOON)", (0, 0.02), None)
+        mp = self._button("MULTIPLAYER  (COMING SOON)", (0, -0.08), None)
         mp['state'] = DGG.DISABLED
         mp.setColorScale(0.55, 0.55, 0.55, 0.75)
-        self._button("[S]  SETTINGS", (0, -0.14), self.show_settings)
-        self._button("[Q]  QUIT", (0, -0.30), self._quit)
+        self._button("[S]  SETTINGS", (0, -0.24), self.show_settings)
+        self._button("[Q]  QUIT", (0, -0.40), self._quit)
         from config import GAME_VERSION
         self._text("ALPHA %s" % GAME_VERSION,
                    (0, -0.85), 0.035, SUB_COLOR)
         self.base.accept('n', self.show_country_select, ['new'])
+        self.base.accept('l', self.show_load_page)
         self.base.accept('s', self.show_settings)
         self.base.accept('q', self._quit)
+
+    def show_load_page(self):
+        """Filed campaigns, newest first, as a records-office fax."""
+        import saveload
+        self._clear()
+        frame = DirectFrame(parent=self.root, frameColor=PAPER,
+                            frameSize=(-0.95, 0.95, -0.78, 0.78),
+                            state=DGG.NORMAL)
+        self.widgets.append(frame)
+        top = DirectFrame(parent=frame, frameColor=PAPER_EDGE,
+                          frameSize=(-0.95, 0.95, 0.755, 0.78))
+        self.widgets.append(top)
+
+        def paper_text(text, pos, scale, color=INK,
+                       align=TextNode.ACenter):
+            tn = TextNode('paper_text')
+            tn.setText(text)
+            tn.setAlign(align)
+            if self.base.hud_font:
+                tn.setFont(self.base.hud_font)
+            tn.setTextColor(*color)
+            np_ = frame.attachNewNode(tn)
+            np_.setPos(pos[0], 0, pos[1])
+            np_.setScale(scale)
+            self.widgets.append(np_)
+
+        paper_text("*** INCOMING FAX ***", (0, 0.68), 0.045)
+        paper_text("FROM : WAR OFFICE, RECORDS SECTION",
+                   (-0.85, 0.60), 0.037, INK, TextNode.ALeft)
+        paper_text("RE   : FILED CAMPAIGNS -- RESUMPTION OF COMMAND",
+                   (-0.85, 0.545), 0.037, INK, TextNode.ALeft)
+        paper_text("-" * 52, (0, 0.50), 0.04)
+        saves = saveload.list_saves()[:8]
+        if not saves:
+            paper_text("THE ARCHIVE DRAWER IS EMPTY.  SAVE FROM THE",
+                       (0, 0.30), 0.037)
+            paper_text("FIELD ORDERS MENU (ESC) DURING A CAMPAIGN.",
+                       (0, 0.25), 0.037)
+        y = 0.40
+        from config import COUNTRIES as _C
+        import time as _t
+        for meta in saves:
+            nation = _C.get(meta.get('nation', ''), {}).get(
+                'name', meta.get('nation', '?'))
+            stamp = _t.strftime('%d %b %Y %H:%M',
+                                _t.localtime(meta.get('saved_at', 0)))
+            label = "%s  --  %s  (%d CITIES, %d UNITS)" % (
+                nation.upper(), meta.get('campaign_date', '?'),
+                meta.get('cities', 0), meta.get('forces', 0))
+            btn = DirectButton(
+                parent=frame, text=label,
+                text_scale=0.036, text_fg=INK,
+                text_align=TextNode.ALeft,
+                text_font=self.base.hud_font,
+                frameColor=((0.86, 0.82, 0.68, 0.0),
+                            (0.80, 0.74, 0.55, 1.0),
+                            (0.70, 0.66, 0.54, 0.9),
+                            (0.5, 0.5, 0.5, 0.3)),
+                frameSize=(-0.06, 1.60, -0.035, 0.055),
+                relief=DGG.FLAT,
+                command=self.base.load_game,
+                extraArgs=[meta['path']],
+                pos=(-0.80, 0, y))
+            self.widgets.append(btn)
+            paper_text("FILED %s" % stamp.upper(),
+                       (-0.78, y - 0.042), 0.026, INK_FAINT,
+                       TextNode.ALeft)
+            y -= 0.13
+        paper_text("++ MESSAGE ENDS ++", (0, -0.67), 0.035)
+        self._button("[B]  BACK", (0, -0.92), self.show_main, width=0.3,
+                     scale=0.04)
+        self.base.accept('b', self.show_main)
+        self.base.accept('escape', self.show_main)
 
     def show_country_select(self, mode='new'):
         self._clear()
