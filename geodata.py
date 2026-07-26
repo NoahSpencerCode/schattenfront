@@ -936,6 +936,7 @@ class WorldData:
         which is also where new hulls take to the sea."""
         self.airfield_sites = {}
         self.harbor_sites = {}
+        self.armypost_sites = {}
         self.airfield_spurs = {}        # name -> the DRAWN polyline; the
         self.harbor_spurs = {}          # route graph follows it exactly
         self.spur_paths = []
@@ -954,24 +955,28 @@ class WorldData:
         by_country = {}
         for entry in self.cities:
             by_country.setdefault(entry[1], []).append(entry)
-        air_ok, harbor_ok = set(), set()
+        air_ok, harbor_ok, post_ok = set(), set(), set()
+        from config import PLAYABLE
         for country, group in by_country.items():
-            if country == 'neutral':
-                for (name, _c, _la, _lo) in group:
-                    if popk(name) >= 1000:
-                        air_ok.add(name)
-                        if name in coastal:
-                            harbor_ok.add(name)
-                continue
             ranked = sorted(group, key=lambda g: -popk(g[0]))
-            # airfields: the capital always flies, plus the biggest towns
-            picks = [g for g in ranked if g[0] in CAPITALS][:1]
-            picks += [g for g in ranked if g not in picks]
-            for g in picks[:3]:
-                air_ok.add(g[0])
-            sea = [g for g in ranked if g[0] in coastal]
-            for g in sea[:3]:
-                harbor_ok.add(g[0])
+            if country in PLAYABLE:
+                # the great powers: TWO of everything, at the biggest
+                # towns (harbors at the biggest COASTAL towns)
+                for g in ranked[:2]:
+                    air_ok.add(g[0])
+                    post_ok.add(g[0])
+                sea = [g for g in ranked if g[0] in coastal]
+                for g in sea[:2]:
+                    harbor_ok.add(g[0])
+            else:
+                # NPC nations: one field at the seat of government and
+                # one quay at the biggest coastal town
+                cap = next((g for g in ranked if g[0] in CAPITALS),
+                           ranked[0])
+                air_ok.add(cap[0])
+                sea = [g for g in ranked if g[0] in coastal]
+                if sea:
+                    harbor_ok.add(sea[0][0])
 
         for (name, country, lat, lon) in self.cities:
             if name in air_ok:
@@ -1001,6 +1006,25 @@ class WorldData:
                     lat, lon, wl, wo,
                     zlib.crc32(('spur:hb:' + name).encode()), passes=3)
                 self.harbor_spurs[name] = spur
+                self.spur_paths.append(spur)
+            if name in post_ok:
+                rng = np.random.RandomState(
+                    zlib.crc32(('armypost:' + name).encode())
+                    & 0xffffffff)
+                site = None
+                for b in rng.permutation(range(0, 360, 30)):
+                    la = lat + 0.55 * math.sin(math.radians(b))
+                    lo = lon + 0.55 * math.cos(math.radians(b)) / \
+                        max(0.2, math.cos(math.radians(lat)))
+                    if self.is_land(la, lo):
+                        site = (float(la), float(lo))
+                        break
+                if site is None:
+                    site = self.nearest_land(lat, lon - 0.6)
+                self.armypost_sites[name] = site
+                spur = self._curved_road_points(
+                    lat, lon, site[0], site[1],
+                    zlib.crc32(('spur:ap:' + name).encode()), passes=3)
                 self.spur_paths.append(spur)
 
     # ================================================== base texture

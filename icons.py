@@ -570,6 +570,15 @@ def _draw_blimp_lower_button(d, ink):
     d.polygon([(30, 70), (58, 70), (44, 88)], fill=ink)
 
 
+def _draw_enlist_button(d, ink):
+    """The recruiting office: a muster rank of helmeted heads."""
+    for cx in (26, 48, 70):
+        d.ellipse([cx - 12, 30, cx + 12, 54], fill=ink)      # helmet
+        d.line([(cx - 15, 48), (cx + 15, 48)], fill=ink, width=4)
+        d.rectangle([cx - 7, 56, cx + 7, 70], fill=ink)      # shoulders
+    d.line([(12, 82), (84, 82)], fill=ink, width=4)          # the line
+
+
 def _draw_diplomacy_button(d, ink):
     """The Foreign Office: two courier flags crossed at the staff."""
     d.line([(26, 86), (56, 12)], fill=ink, width=5)
@@ -702,6 +711,18 @@ def _draw_battleship(d, ink):
     d.line([(76, 52), (62, 46)], fill=ink, width=5)
 
 
+def _draw_army_post(d, ink):
+    """A garrison camp from above: tent rows round a parade square,
+    the colours flying at the gate."""
+    d.rectangle([32, 38, 64, 60], outline=ink, width=3)
+    for y0 in (12, 68):
+        for x in (12, 38, 64):
+            d.polygon([(x, y0 + 16), (x + 20, y0 + 16), (x + 10, y0)],
+                      fill=ink)
+    d.line([(48, 38), (48, 22)], fill=ink, width=3)
+    d.polygon([(48, 22), (62, 26), (48, 31)], fill=ink)
+
+
 def _draw_radar(d, ink):
     d.line([(48, 88), (48, 44)], fill=ink, width=6)
     d.line([(30, 88), (66, 88)], fill=ink, width=5)
@@ -724,6 +745,7 @@ _DRAWERS = {
     'scramble_button': _draw_scramble_button,
     'demolish_button': _draw_demolish_button,
     'diplomacy_button': _draw_diplomacy_button,
+    'enlist_button': _draw_enlist_button,
     'unload_button': _draw_unload_button,
     'paradrop_button': _draw_paradrop_button,
     'submerge_button': _draw_submerge_button,
@@ -771,6 +793,7 @@ _DRAWERS = {
     'submarine': _draw_submarine,
     'battleship': _draw_battleship,
     'radar': _draw_radar,
+    'army_post': _draw_army_post,
 }
 
 

@@ -60,7 +60,7 @@ from models import (make_bridge_marker, make_flat_ring, make_icon_quad,
                     make_hit_flash_template, set_marker_layer,
                     LAYER_BRIDGE, LAYER_FLASH, LAYER_HOVER, LAYER_STRUCT)
 from pathfinding import MovementPlanner
-from structures import (Airfield, Bunker, Depot, Harbor,
+from structures import (Airfield, ArmyPost, Bunker, Depot, Harbor,
                         AIRFIELD_STOCK_CAP,
                         BUNKER_RADIUS, DEPOT_STOCK_CAP, SORTIE_COST)
 from ui import (TopBar, BottomBar, FaxPanel, BudgetFax, BriefingFax,
@@ -110,6 +110,9 @@ class City:
         self.pending_tax = None
         self.industry = 100.0           # industrial health, percent
         self.annexing = False           # captured, not yet taxable
+        # the fortnight draft: citizens standing ready to enlist.
+        # Manpower is never bought -- it walks in from the towns.
+        self.draft_pool = self.draft_rate()
         self.lat, self.lon = lat, lon
         self.pos = latlon_to_vec(lat, lon)
         self.capture_progress = 0.0
@@ -181,6 +184,11 @@ class City:
         """Garrison needed to annex: one division per million souls."""
         return max(1, int(math.ceil(
             self.population / 1e6 * CAPTURE_INFANTRY_PER_MILLION)))
+
+    def draft_rate(self):
+        """Citizens who come forward each fortnight: one per 400,000
+        souls; the smallest town still yields one volunteer."""
+        return max(1, self.population // 400000)
 
     def cleanup(self):
         self.root.removeNode()
@@ -366,6 +374,7 @@ class WW2RTSGame(ShowBase):
         self.harbors = []
         self.depots = []
         self.bunkers = []
+        self.armyposts = []
         self.custom_roads = []          # engineer-built road nodepaths
         self.build_mode = None          # engineer works: kind awaiting site
         self._build_ghost = None        # the mouse-following site ghost
@@ -384,6 +393,7 @@ class WW2RTSGame(ShowBase):
         self.selected_airfield = None
         self.selected_harbor = None
         self.selected_depot = None
+        self.selected_armypost = None
         self.roster_base = None          # airfield/carrier whose menu is up
         self.garrison_sel = []           # stored land units picked to lift
         self.groups = {}
@@ -616,13 +626,14 @@ class WW2RTSGame(ShowBase):
             c.cleanup()
         self.cities = []
         for group in (self.airfields, self.harbors, self.depots,
-                      self.bunkers):
+                      self.bunkers, self.armyposts):
             for s in group:
                 s.cleanup()
         self.airfields = []
         self.harbors = []
         self.depots = []
         self.bunkers = []
+        self.armyposts = []
         for np_ in self.custom_roads:
             np_.removeNode()
         self.custom_roads = []
@@ -636,6 +647,7 @@ class WW2RTSGame(ShowBase):
         self._clear_road_plan()
         self.selected_airfield = None
         self.selected_depot = None
+        self.selected_armypost = None
         self.roster_base = None
         self.garrison_sel = []
         for b in self.bridges:
@@ -812,6 +824,13 @@ class WW2RTSGame(ShowBase):
         self.depots = []
         self.bunkers = []
         self.radars = []
+        self.armyposts = []
+        for c in self.cities:
+            aps = self.world.armypost_sites.get(c.name)
+            if aps is not None:
+                self.armyposts.append(
+                    ArmyPost(self, aps[0], aps[1], c.country,
+                             "%s POST" % c.name.upper(), city=c))
         self._pending_ai_orders = []
 
         self.funds = {c: (STARTING_FUNDS if c == country else
@@ -908,14 +927,19 @@ class WW2RTSGame(ShowBase):
         for i, ut in enumerate(['infantry', 'tank']):
             self.spawn_unit(ut, faction, second.lat, second.lon, jitter=0.8,
                             seed=20 + i)
-        harbor = next((c for c in cities if c.harbor), None)
-        if harbor:
-            # every power's fleet rides at anchor, scattered off its
-            # home harbor -- there is no launching ceremony
-            wl, wo = self.world.harbor_sites[harbor.name]
-            for i, ut in enumerate(STARTING_NAVY):
-                self.spawn_unit(ut, faction, wl, wo, jitter=0.25,
-                                seed=30 + i, water=True)
+        # the fleet waits IN the yards as shells, and the opening
+        # stations each hold a small standing crew pool
+        yards = [h for h in self.harbors if h.country == faction]
+        for i, ut in enumerate(STARTING_NAVY):
+            if yards:
+                y = yards[i % len(yards)]
+                y.shells.append(ut)
+        for y in yards:
+            y.crews = 2
+            self._refresh_station_badge(y)
+        for p_ in self.armyposts:
+            if p_.country == faction:
+                p_.crews = 2
 
     def _spawn_npc_garrison(self, faction):
         """An NPC nation's standing army: a home-defense garrison
@@ -991,6 +1015,12 @@ class WW2RTSGame(ShowBase):
             [(c.pos, ANNEX_IDX if c.annexing
               else idx.get(c.country, NEUTRAL_IDX))
              for c in self.cities])
+
+    def armypost_of_city(self, city):
+        for p_ in self.armyposts:
+            if p_.city is city:
+                return p_
+        return None
 
     def harbor_of_city(self, city):
         for h in self.harbors:
@@ -1275,8 +1305,10 @@ class WW2RTSGame(ShowBase):
         equally across every unit type on the books."""
         has_harbor = any(c.harbor and c.country == country
                          for c in self.cities)
+        # manpower is enlisted from the towns, never bought
         types = [ut for ut in NATION_UNIT_STATS[country]
-                 if UNIT_TYPES[ut]['domain'] != 'sea' or has_harbor]
+                 if ut != 'infantry'
+                 and (UNIT_TYPES[ut]['domain'] != 'sea' or has_harbor)]
         counts = {ut: 0 for ut in types}
         share = funds / max(1, len(types))
         spent = 0
@@ -1348,6 +1380,11 @@ class WW2RTSGame(ShowBase):
             if not city.annexing:
                 city.industry = max(5.0, min(100.0, city.industry +
                                              city.industry_drift()))
+                # the draft rolls replenish; unclaimed citizens wait,
+                # but the pool never holds more than three fortnights
+                city.draft_pool = min(city.draft_rate() * 3,
+                                      city.draft_pool
+                                      + city.draft_rate())
             if city.annexing:
                 city.annexing = False
                 if city.country == self.player_country:
@@ -1368,6 +1405,8 @@ class WW2RTSGame(ShowBase):
                 B("$%d" % take[self.player_country]),
                 sender="EXCHEQUER")
         self._apply_fortnight_budget()
+        self._ai_enlist()
+        self._ai_crews()
 
     def projected_revenue(self, country):
         """What the cities will remit at the next fortnight under the
@@ -1428,6 +1467,49 @@ class WW2RTSGame(ShowBase):
     def _capture_clicked(self, city):
         if self.attempt_capture(city, self.player_country):
             self._select_city(city)     # reopen as our own municipality
+
+    def enlist_city(self, city):
+        """The recruiting office: every citizen standing ready walks
+        out of the town as an Enlisted section. Free -- manpower is
+        the one thing money never buys."""
+        if (self.game_state != 'playing' or city.annexing
+                or city.country != self.player_country):
+            return
+        n = city.draft_pool
+        if n <= 0:
+            self.fax_short("THE ROLLS ARE EMPTY AT %s -- NEW NAMES "
+                           "EACH FORTNIGHT" % city.name.upper())
+            return
+        city.draft_pool = 0
+        for _ in range(n):
+            u = self.spawn_unit('infantry', city.country, city.lat,
+                                city.lon, jitter=0.3,
+                                seed=random.randrange(99999))
+            u.supply = u.stats['supply_cap']
+        self.fax_short("%d ENLISTED MUSTER AT %s"
+                       % (n, city.name.upper()))
+        self._refresh_selection_ui()
+
+    def _ai_enlist(self):
+        """The computer powers work their recruiting offices at each
+        rollover; a staff already at its force ceiling lets the rolls
+        wait."""
+        from ai import FORCE_CAP
+        for country in self._nation_ais:
+            forces = sum(1 for u in self.units
+                         if u.alive and u.country == country)
+            if forces >= FORCE_CAP * 1.5:
+                continue
+            for c in self.cities:
+                if (c.country != country or c.annexing
+                        or c.draft_pool <= 0):
+                    continue
+                for _ in range(c.draft_pool):
+                    u = self.spawn_unit('infantry', country, c.lat,
+                                        c.lon, jitter=0.3,
+                                        seed=random.randrange(99999))
+                    u.supply = u.stats['supply_cap']
+                c.draft_pool = 0
 
     def open_tax_fax(self, city):
         if (self.game_state != 'playing' or self.tax_fax
@@ -1501,7 +1583,7 @@ class WW2RTSGame(ShowBase):
         """The nation's roster as gated by its research."""
         allowed = unlocked_units(country, self.researched[country])
         return {ut: s for ut, s in NATION_UNIT_STATS[country].items()
-                if ut in allowed}
+                if ut in allowed and ut != 'infantry'}
 
     def research_tier(self, country, branch):
         """Spend RP on the next tier of a branch (instant). Returns
@@ -1724,6 +1806,16 @@ class WW2RTSGame(ShowBase):
             self.clear_selection()
             self._select_harbor(harbor)
             return
+        own_posts = [(p_, p_.pos * GLOBE_RADIUS)
+                     for p_ in self.armyposts
+                     if p_.country == self.player_country
+                     and self._facing_camera(p_.pos)]
+        post = self._pick_object(mpos, own_posts,
+                                 radius=CLICK_RADIUS * 1.9)
+        if post:
+            self.clear_selection()
+            self._select_armypost(post)
+            return
         own_depots = [(d, d.pos * GLOBE_RADIUS) for d in self.depots
                       if d.country == self.player_country
                       and self._facing_camera(d.pos)]
@@ -1838,6 +1930,7 @@ class WW2RTSGame(ShowBase):
         self._select_airfield(None)
         self._select_harbor(None)
         self._select_depot(None)
+        self._select_armypost(None)
         self._refresh_selection_ui()
 
     def _select_city(self, city):
@@ -1862,6 +1955,14 @@ class WW2RTSGame(ShowBase):
         self.selected_harbor = harbor
         if harbor:
             harbor.sel_ring.show()
+        self._refresh_selection_ui()
+
+    def _select_armypost(self, post):
+        if self.selected_armypost:
+            self.selected_armypost.sel_ring.hide()
+        self.selected_armypost = post
+        if post:
+            post.sel_ring.show()
         self._refresh_selection_ui()
 
     def _select_depot(self, depot):
@@ -1992,6 +2093,30 @@ class WW2RTSGame(ShowBase):
                         u.give_order({'kind': 'attack',
                                       'target': foe_field}, queue=shift)
                     self.fax_short("STRIKE ON %s ORDERED" % foe_field.name)
+                    return
+
+        # right-click an own harbor or army post with Enlisted
+        # selected: they march in and STATION as crews
+        if target is None:
+            riflemen = [u for u in commandable
+                        if u.unit_type == 'infantry']
+            if riflemen:
+                stations = [(h, h.pos * GLOBE_RADIUS)
+                            for h in self.harbors
+                            if h.country == self.player_country
+                            and self._facing_camera(h.pos)]
+                stations += [(p_, p_.pos * GLOBE_RADIUS)
+                             for p_ in self.armyposts
+                             if p_.country == self.player_country
+                             and self._facing_camera(p_.pos)]
+                st = self._pick_object(mpos, stations)
+                if st is not None:
+                    for u in riflemen:
+                        u.give_order({'kind': 'station', 'target': st},
+                                     queue=shift)
+                    self.fax_short(
+                        "%d ENLISTED ORDERED TO STATION AT %s"
+                        % (len(riflemen), st.name))
                     return
 
         # right-click an own airfield: land units march in and join
@@ -2727,6 +2852,18 @@ class WW2RTSGame(ShowBase):
             if not self._replan_ready(unit):
                 return False
             self._approach_target(unit, transport)
+            return not unit.path
+        if kind == 'station':
+            st = order['target']
+            if not getattr(st, 'alive', False):
+                return True
+            reach = 0.55 if st in self.harbors else 0.35
+            if unit.dist_to(st.pos) < reach:
+                self._station_crew(st, unit)
+                return True
+            if not self._replan_ready(unit):
+                return False
+            self._approach_target(unit, st)
             return not unit.path
         if kind == 'garrison':
             field = order['target']
@@ -3924,6 +4061,8 @@ void main() {
                 self._auto_shuttle(u)
         if self.selected_depot is not None:
             self._refresh_depot_ui(self.selected_depot)
+        if self.selected_armypost is not None:
+            self._refresh_armypost_ui(self.selected_armypost)
 
         # 6) idle personnel trucks run a taxi service for the infantry
         self._tick_ferry()
@@ -4340,6 +4479,194 @@ void main() {
             truck._ferry = None
 
     # ====================================================== economy
+    def _deliver_shell(self, unit_type, country, near_pos=None,
+                       home=None):
+        """A finished vehicle arrives as an EMPTY SHELL at the right
+        kind of station -- hulls to a harbor, airframes to a field,
+        vehicles to an army post -- and waits there for an Enlisted
+        crew. A power with no station of the right kind left gets a
+        refund instead: nothing is ever delivered onto open ground."""
+        if unit_type == 'infantry':
+            # men are never shells: any stray production order for
+            # manpower musters straight out as Enlisted
+            la, lo = vec_to_latlon(near_pos) if near_pos is not None \
+                else (home.lat, home.lon)
+            u = self.spawn_unit('infantry', country, la, lo,
+                                jitter=0.3,
+                                seed=random.randrange(99999))
+            u.supply = u.stats['supply_cap']
+            return None
+        domain = UNIT_TYPES[unit_type]['domain']
+        if domain == 'sea':
+            fleet = [h for h in self.harbors if h.country == country]
+        elif domain == 'air':
+            fleet = [a for a in self.airfields
+                     if a.country == country and a.alive]
+        else:
+            fleet = [p_ for p_ in self.armyposts
+                     if p_.country == country]
+        if not fleet:
+            self.funds[country] += stats_for(unit_type, country)['cost']
+            return None
+        if home is not None and home in fleet:
+            st = home
+        elif near_pos is not None:
+            st = min(fleet, key=lambda x: angle_between(x.pos,
+                                                        near_pos))
+        else:
+            st = fleet[0]
+        st.shells.append(unit_type)
+        self._refresh_station_badge(st)
+        if country == self.player_country:
+            self.fortnight_delivered[unit_type] = \
+                self.fortnight_delivered.get(unit_type, 0) + 1
+            self.fax_short(
+                "%s DELIVERED TO %s -- AWAITING CREW" %
+                (stats_for(unit_type, country)['label'].upper(),
+                 st.name))
+            self._refresh_station_menu(st)
+        return st
+
+    def _refresh_station_badge(self, st):
+        """Harbor and army-post badges tally shells awaiting crews;
+        the airfield's badges belong to its wing and garrison."""
+        if isinstance(st, Airfield):
+            return
+        if hasattr(st, 'set_count'):
+            st.set_count(len(st.shells))
+
+    def _refresh_station_menu(self, st):
+        if isinstance(st, Airfield):
+            if self.roster_base is st or self.selected_airfield is st:
+                self._refresh_air_roster(st)
+        elif self.selected_harbor is st or \
+                getattr(self, 'selected_armypost', None) is st:
+            self._refresh_selection_ui()
+
+    def _station_crew(self, st, unit):
+        """An Enlisted section walks through the gate and signs on:
+        the unit leaves the map and becomes a crew on station."""
+        st.crews = getattr(st, 'crews', 0) + 1
+        unit.alive = False
+        if unit in self.selected:
+            self._deselect_unit(unit)
+        unit.cleanup()
+        if unit in self.units:
+            self.units.remove(unit)
+        if unit.country == self.player_country:
+            self.fax_short("CREW SIGNED ON AT %s (%d STANDING)"
+                           % (st.name, st.crews))
+            self._refresh_station_menu(st)
+
+    def _dispatch_shell(self, st, index=0):
+        """Marry a stationed crew to a stored shell and roll it out.
+        Returns the new unit or None. At airfields the crew pool IS
+        the Enlisted garrison; harbors and posts keep a counter."""
+        if index >= len(st.shells):
+            return None
+        if isinstance(st, Airfield):
+            pool = [u for u in st.garrison
+                    if u.alive and u.unit_type == 'infantry']
+            if not pool:
+                return None
+            crew = pool[0]
+            st.garrison.remove(crew)
+            crew.alive = False
+            crew.cleanup()
+            if crew in self.units:
+                self.units.remove(crew)
+            if hasattr(st, 'set_garrison_count'):
+                st.set_garrison_count(len(st.garrison))
+        else:
+            if getattr(st, 'crews', 0) <= 0:
+                return None
+            st.crews -= 1
+        ut = st.shells.pop(index)
+        if isinstance(st, Airfield):
+            u = self.spawn_unit(ut, st.country, st.lat, st.lon,
+                                seed=random.randrange(9999), base=st)
+        elif st in self.harbors:
+            u = self.spawn_unit(ut, st.country, st.lat, st.lon,
+                                jitter=0.15,
+                                seed=random.randrange(9999), water=True)
+        else:
+            u = self.spawn_unit(ut, st.country, st.lat, st.lon,
+                                jitter=0.12,
+                                seed=random.randrange(9999))
+        u.supply = u.stats.get('supply_cap', 0) or u.supply
+        self._refresh_station_badge(st)
+        return u
+
+    def dispatch_clicked(self, st, index):
+        """A shell key pressed in a station's menu."""
+        if st.country != self.player_country or \
+                index >= len(st.shells):
+            return
+        u = self._dispatch_shell(st, index)
+        if u is None:
+            self.fax_short("NO CREWS AT %s -- MARCH ENLISTED IN"
+                           % st.name)
+            return
+        self.fax_short("%s CREWED AND DISPATCHED FROM %s"
+                       % (u.stats['label'].upper(), st.name))
+        self._refresh_station_menu(st)
+        if isinstance(st, Airfield):
+            self._refresh_air_base(st)
+
+    def muster_out(self, st):
+        """Stand the station's crews down: they walk out as
+        Enlisted again."""
+        if st.country != self.player_country:
+            return
+        n = getattr(st, 'crews', 0)
+        if n <= 0:
+            return
+        st.crews = 0
+        for _ in range(n):
+            u = self.spawn_unit('infantry', st.country, st.lat,
+                                st.lon, jitter=0.2,
+                                seed=random.randrange(99999))
+            u.supply = u.stats['supply_cap']
+        self.fax_short("%d CREW(S) MUSTER OUT OF %s" % (n, st.name))
+        self._refresh_station_menu(st)
+
+    def _ai_crews(self):
+        """The computer powers keep their stations manned: crews
+        dispatch every shell they cover, and idle Enlisted nearby are
+        ordered in when shells outnumber crews."""
+        for country in self._nation_ais:
+            stations = [h for h in self.harbors
+                        if h.country == country]
+            stations += [p_ for p_ in self.armyposts
+                         if p_.country == country]
+            for st in stations:
+                while st.shells and getattr(st, 'crews', 0) > 0:
+                    self._dispatch_shell(st, 0)
+                need = len(st.shells) - getattr(st, 'crews', 0)
+                if need > 0:
+                    self._ai_send_crews(country, st, need, 'station')
+            for f in self.airfields:
+                if f.country != country or not f.shells:
+                    continue
+                while f.shells and any(
+                        u.alive and u.unit_type == 'infantry'
+                        for u in f.garrison):
+                    self._dispatch_shell(f, 0)
+                if f.shells:
+                    self._ai_send_crews(country, f, len(f.shells),
+                                        'garrison')
+
+    def _ai_send_crews(self, country, st, need, kind):
+        idle = [u for u in self.units
+                if u.alive and u.country == country
+                and u.unit_type == 'infantry' and not u.carried_by
+                and not self.is_parked(u) and not u.current_order
+                and not u.order_queue
+                and u.dist_to(st.pos) < 6.0]
+        idle.sort(key=lambda u: u.dist_to(st.pos))
+        for u in idle[:need]:
+            u.give_order({'kind': kind, 'target': st})
+
     def _tick_production(self, dt):
         for city in self.cities:
             if not city.production:
@@ -4347,43 +4674,8 @@ void main() {
             city.production[0][1] -= dt * self.game_speed
             if city.production[0][1] <= 0:
                 unit_type, _ = city.production.pop(0)
-                # no airfield to receive a finished aircraft: refund it
-                # rather than delivering it onto open ground
-                if (UNIT_TYPES[unit_type]['domain'] == 'air'
-                        and not self.airfields_of(city.country)):
-                    self.funds[city.country] += \
-                        stats_for(unit_type, city.country)['cost']
-                    continue
-                # new hulls take the water at once, anchoring at some
-                # scatter off the yard -- no launching ceremony
-                if UNIT_TYPES[unit_type]['domain'] == 'sea':
-                    # a hull with no quay is refunded, never beached
-                    h = self.harbor_of_city(city)
-                    if h is None:
-                        self.funds[city.country] += \
-                            stats_for(unit_type, city.country)['cost']
-                        continue
-                    u = self.spawn_unit(unit_type, city.country,
-                                        h.lat, h.lon, jitter=0.25,
-                                        seed=random.randrange(9999),
-                                        water=True)
-                    if city.country == self.player_country:
-                        self.fortnight_delivered[unit_type] = \
-                            self.fortnight_delivered.get(unit_type, 0) + 1
-                        self.fax_short("%s JOINS THE FLEET OFF %s" %
-                                       (u.stats['label'].upper(),
-                                        h.name))
-                    continue
-                u = self.spawn_unit(unit_type, city.country, city.lat,
-                                    city.lon, jitter=0.7,
-                                    seed=random.randrange(9999),
-                                    base=self.airfield_of_city(city))
-                if city.country == self.player_country:
-                    self.fortnight_delivered[unit_type] = \
-                        self.fortnight_delivered.get(unit_type, 0) + 1
-                    self.fax_short("%s REPORTING FOR DUTY AT %s" %
-                                   (u.stats['label'].upper(),
-                                    city.name.upper()))
+                self._deliver_shell(unit_type, city.country,
+                                    near_pos=city.pos)
 
     def _relocate_works(self, structure, owner, fleet):
         """A production site is lost: unfinished work moves to a
@@ -4408,37 +4700,17 @@ void main() {
             if f.production[0][1] > 0:
                 continue
             unit_type, _ = f.production.pop(0)
-            u = self.spawn_unit(unit_type, f.country, f.lat, f.lon,
-                                seed=random.randrange(9999), base=f)
-            if f.country == self.player_country:
-                self.fortnight_delivered[unit_type] = \
-                    self.fortnight_delivered.get(unit_type, 0) + 1
-                self.fax_short("%s REPORTING FOR DUTY AT %s" %
-                               (u.stats['label'].upper(), f.name))
+            self._deliver_shell(unit_type, f.country, home=f)
 
     def _tick_harbor_production(self, dt):
         for h in self.harbors:
-            # the quayside badge tallies hulls on the ways
-            n = len(h.production)
-            if n != getattr(h, '_ways_n', -1):
-                h._ways_n = n
-                h.set_count(n)
             if not h.production:
                 continue
             h.production[0][1] -= dt * self.game_speed
             if h.production[0][1] > 0:
                 continue
             unit_type, _ = h.production.pop(0)
-            u = self.spawn_unit(unit_type, h.country, h.lat, h.lon,
-                                jitter=0.25, seed=random.randrange(9999),
-                                water=True)
-            if h.country == self.player_country:
-                self.fortnight_delivered[unit_type] = \
-                    self.fortnight_delivered.get(unit_type, 0) + 1
-                self.fax_short("%s JOINS THE FLEET OFF %s" %
-                               (u.stats['label'].upper(), h.name))
-                if self.selected_harbor is h:
-                    self._refresh_harbor_ui(h)
+            self._deliver_shell(unit_type, h.country, home=h)
 
     # ====================================================== capture
     def _capture_garrison(self, city, country):
@@ -4794,7 +5066,14 @@ void main() {
             # airfields: surviving yards inherit, else a refund
             self._relocate_works(hb, old, self.harbors)
             hb.country = new_owner
+            hb.crews = 0                # the crews melt away
             hb.refresh_marker()
+        ap = self.armypost_of_city(city)
+        if ap is not None:
+            self._relocate_works(ap, old, self.armyposts)
+            ap.country = new_owner
+            ap.crews = 0
+            ap.refresh_marker()
         field = self.airfield_of_city(city)
         if field is not None:
             for u in list(self.units):
@@ -5259,7 +5538,7 @@ void main() {
         if show != getattr(self, '_structs_shown', True):
             self._structs_shown = show
             for group in (self.airfields, self.harbors, self.depots,
-                          self.bunkers):
+                          self.bunkers, self.armyposts):
                 for s in group:
                     if show:
                         s.root.show()
@@ -5727,6 +6006,9 @@ void main() {
         if self.selected_harbor:
             self._refresh_harbor_ui(self.selected_harbor)
             return
+        if self.selected_armypost:
+            self._refresh_armypost_ui(self.selected_armypost)
+            return
         if self.selected_depot:
             self._refresh_depot_ui(self.selected_depot)
             return
@@ -5743,7 +6025,14 @@ void main() {
                     bar.add_buttons([
                         ("", self.open_tax_fax, [city],
                          get_icon_path('tax_button', 'dark'), False,
-                         "TAX DECREE -- SET THE CITY'S RATE")])
+                         "TAX DECREE -- SET THE CITY'S RATE"),
+                        ("%d" % city.draft_pool, self.enlist_city,
+                         [city],
+                         get_icon_path('enlist_button', 'dark'), False,
+                         ("ENLIST -- %d CITIZEN(S) STAND READY"
+                          % city.draft_pool) if city.draft_pool
+                         else "ENLIST -- THE ROLLS REPLENISH EACH "
+                              "FORTNIGHT")])
                     bar.set_hint("SET THE CITY'S TAX RATE -- IT BINDS "
                                  "FROM THE NEXT FORTNIGHT")
                 else:
@@ -5762,7 +6051,7 @@ void main() {
                     ("{:,}".format(city.population),
                      "PORT   " if city.harbor else "",
                      COUNTRIES[city.country]['name'].upper(),
-                     ("CAPTURE: %d/%d INFANTRY ON THE CITY"
+                     ("CAPTURE: %d/%d ENLISTED ON THE CITY"
                       % (have, need)) if at_war else "AT PEACE"))
                 if not at_war:
                     bar.set_hint("NO STATE OF WAR EXISTS -- ONLY A "
@@ -5771,9 +6060,9 @@ void main() {
                 elif have >= need:
                     bar.show_capture(self._capture_clicked, [city])
                     bar.set_hint("THE GARRISON STANDS READY -- CAPTURING "
-                                 "COSTS %d INFANTRY" % need)
+                                 "COSTS %d ENLISTED" % need)
                 else:
-                    bar.set_hint("MARCH %d INFANTRY ONTO THE CITY TO "
+                    bar.set_hint("MARCH %d ENLISTED ONTO THE CITY TO "
                                  "TAKE IT (1 PER MILLION SOULS)" % need)
             return
         if not self.selected:
@@ -5950,22 +6239,52 @@ void main() {
         self._refresh_air_roster(field)
 
     def _refresh_harbor_ui(self, harbor):
+        self._refresh_station_ui(harbor, "FLEET YARD",
+                                 "HULL", "RMB THE QUAY WITH ENLISTED "
+                                 "SELECTED TO STATION CREWS")
+
+    def _refresh_armypost_ui(self, post):
+        self._refresh_station_ui(post, "ARMY POST",
+                                 "VEHICLE", "RMB THE POST WITH "
+                                 "ENLISTED SELECTED TO STATION CREWS")
+
+    def _refresh_station_ui(self, st, kind_label, noun, crew_hint):
+        """Shared harbor/army-post menu: shells dispatch under the
+        crews on station; production counts down beside them."""
         bar = self.bottom_bar
-        bar.set_title("%s -- FLEET YARD" % harbor.name)
-        bar.set_info("SUPPLY CACHE %s / %s LBS   HULLS ON THE WAYS %d"
-                     % ("{:,}".format(int(harbor.stock)),
-                        "{:,}".format(int(harbor.STOCK_CAP)),
-                        len(harbor.production)))
+        bar.set_title("%s -- %s" % (st.name, kind_label))
+        bar.set_info(
+            "CREWS %d   %sS AWAITING CREWS %d   SUPPLY %s / %s LBS"
+            % (st.crews, noun, len(st.shells),
+               "{:,}".format(int(st.stock)),
+               "{:,}".format(int(st.STOCK_CAP))))
         entries = []
-        for ut, t_left in harbor.production[:16]:
-            s = stats_for(ut, harbor.country)
-            entries.append(("%ds" % max(0, int(t_left)), self._noop, [],
-                            get_icon_path(ut, 'dark'), False,
-                            "%s -- %d S TO COMMISSIONING" %
-                            (s['label'].upper(), max(0, int(t_left)))))
+        for i, ut in enumerate(st.shells[:12]):
+            info = stats_for(ut, st.country)
+            entries.append((
+                "" if st.crews else "NO CREW",
+                self.dispatch_clicked, [st, i],
+                get_icon_path(ut, 'dark'), False,
+                ("DISPATCH %s -- ONE CREW SIGNS ABOARD"
+                 % info['label'].upper()) if st.crews else
+                "%s -- NO CREWS ON STATION" % info['label'].upper()))
+        for ut, t_left in st.production[:8]:
+            info = stats_for(ut, st.country)
+            entries.append(("%ds" % max(0, int(t_left)), self._noop,
+                            [], get_icon_path(ut, 'dark'), False,
+                            "%s -- %d S TO DELIVERY" %
+                            (info['label'].upper(),
+                             max(0, int(t_left)))))
+        if st.crews > 0:
+            entries.append(("", self.muster_out, [st],
+                            get_icon_path('enlist_button', 'dark'),
+                            False,
+                            "MUSTER OUT -- %d CREW(S) WALK OUT AS "
+                            "ENLISTED" % st.crews))
         bar.add_buttons(entries)
-        bar.set_hint("NEW HULLS TAKE THE WATER OFF THE YARD THE "
-                     "MOMENT THEY ARE FINISHED")
+        bar.set_hint(("CLICK A %s TO CREW AND DISPATCH IT -- %s"
+                      % (noun, crew_hint)) if st.shells
+                     else crew_hint)
 
     def _unload_parked(self, transport):
         """Disembark a parked transport's load onto the apron."""
@@ -6010,11 +6329,13 @@ void main() {
             empty_hint = "NO AIRCRAFT ON THE FIELD"
         garrison = [] if is_carrier else [u for u in base.garrison
                                           if u.alive]
+        shells = [] if is_carrier else list(getattr(base, 'shells',
+                                                    ()))
         if self.garrison_sel and not is_carrier:
             bar.show_exit(self._release_garrison, [base])
         else:
             bar.hide_exit()
-        if wing or garrison:
+        if wing or garrison or shells:
             entries = [("%d/%d" % (int(p.hp), p.max_hp),
                         self._select_embarked, [p],
                         get_icon_path(p.unit_type, 'dark'),
@@ -6030,6 +6351,21 @@ void main() {
                          "%s (STORED) -- STRENGTH %d/%d" %
                          (u.stats['label'].upper(), int(u.hp), u.max_hp))
                         for u in garrison]
+            # section three: airframes waiting on crews -- the
+            # garrisoned Enlisted ARE the crew pool here
+            has_crew = any(u.alive and u.unit_type == 'infantry'
+                           for u in garrison)
+            entries += [("" if has_crew else "NO CREW",
+                         self.dispatch_clicked, [base, i],
+                         get_icon_path(ut, 'dark'), False,
+                         ("DISPATCH %s -- ONE GARRISONED ENLISTED "
+                          "CREWS IT"
+                          % stats_for(ut, base.country)['label'].upper())
+                         if has_crew else
+                         "%s -- MARCH ENLISTED INTO THE FIELD TO "
+                         "CREW IT"
+                         % stats_for(ut, base.country)['label'].upper())
+                        for i, ut in enumerate(shells[:8])]
             planned = [p for p in wing
                        if p in self.selected and p.sortie_plan]
             bar.add_buttons(entries)
@@ -6048,7 +6384,7 @@ void main() {
             elif self.garrison_sel:
                 bar.set_hint("%d STORED UNIT(S) PICKED -- RMB ANOTHER "
                              "AIRFIELD TO FLY THEM THERE (ANY UNIT); "
-                             "RMB OPEN GROUND TO PARADROP (INFANTRY "
+                             "RMB OPEN GROUND TO PARADROP (ENLISTED "
                              "ONLY)" % len(self.garrison_sel))
             elif n:
                 bar.set_hint("%d SELECTED -- RMB PLOTS THE SORTIE "

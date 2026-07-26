@@ -26,7 +26,7 @@ from utils import (north_tangent, slerp, angle_between,
 UNIT_TYPES = {
     # ----- ARMY -----
     'infantry': {
-        'label': 'Infantry Section', 'domain': 'land', 'speed': 0.038,
+        'label': 'Enlisted', 'domain': 'land', 'speed': 0.038,
         'road_mult': 1.5,   # 4 km/h cross-country, 6 in column
         'vision': 0.7, 'hp': 60, 'cost': 100, 'build_time': 4,
         'damage': 7, 'range': 0.5, 'targets': ('land',), 'icon': 'INF'},
@@ -226,7 +226,7 @@ for _ut, _s in UNIT_TYPES.items():
 # range, Soviet mass -- while keeping overall faction power comparable.
 NATION_UNITS = {
     'germany': {
-        'infantry': ('Grenadier Division',
+        'infantry': ('Enlisted',
                      {'damage': 1.15, 'hp': 1.05, 'cost': 1.1},
                      "Doctrine-hardened Landser, dangerous in the attack."),
         'tank': ('Tiger I Panzer',
@@ -287,7 +287,7 @@ NATION_UNITS = {
                        "The Atlantic's most hunted ship."),
     },
     'usa': {
-        'infantry': ('G.I. Rifle Division',
+        'infantry': ('Enlisted',
                      {'damage': 1.25, 'hp': 1.3, 'cost': 0.85},
                      "The best-equipped rifleman of the war -- and plenty."),
         'tank': ('M4 Sherman', {'cost': 0.7, 'build_time': 0.8},
@@ -350,7 +350,7 @@ NATION_UNITS = {
                        "Fast battleships riding with the carriers."),
     },
     'britain': {
-        'infantry': ('Commonwealth Infantry', {'hp': 1.1},
+        'infantry': ('Enlisted', {'hp': 1.1},
                      "Steady regulars of Empire and Commonwealth."),
         'tank': ('Churchill Mk IV', {'hp': 1.25, 'speed': 0.85},
                  "Ponderous, but shrugs off hits going uphill."),
@@ -408,7 +408,7 @@ NATION_UNITS = {
                        "The Royal Navy's modern line."),
     },
     'japan': {
-        'infantry': ('Imperial Infantry',
+        'infantry': ('Enlisted',
                      {'cost': 0.75, 'speed': 1.15, 'damage': 1.1,
                       'hp': 0.85},
                      "Fanatic light infantry, fast through any country."),
@@ -470,7 +470,7 @@ NATION_UNITS = {
                        "The largest guns ever sent to sea."),
     },
     'soviet': {
-        'infantry': ('Rifle Division',
+        'infantry': ('Enlisted',
                      {'cost': 0.6, 'hp': 1.15, 'damage': 0.95,
                       'build_time': 0.8},
                      "Massed frontoviki: cheap, tough, and everywhere."),

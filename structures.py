@@ -96,6 +96,8 @@ class Airfield(Structure):
         self.max_hp = AIRFIELD_HP
         self.production = []            # wings on the line: [type, time]
         self.garrison = []              # land units stored on the field
+        self.shells = []                # finished airframes, no crews
+        self.crews = 0                  # Enlisted stationed here
         # every field is laid out on its own compass bearing
         import zlib as _zlib
         self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
@@ -197,6 +199,8 @@ class Harbor(Structure):
     def __init__(self, game, lat, lon, country, name, city=None):
         self.city = city
         self.production = []            # hulls on the ways: [type, time]
+        self.shells = []                # finished hulls awaiting crews
+        self.crews = 0                  # Enlisted stationed at the quay
         self.stock = 0.0                # the quayside supply cache
         import zlib as _zlib
         self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
@@ -250,6 +254,62 @@ class Depot(Structure):
     def __init__(self, game, lat, lon, country, name):
         self.stock = 0.0
         Structure.__init__(self, game, lat, lon, country, name)
+
+
+class ArmyPost(Structure):
+    """The army's harbor: land vehicles arrive here as empty shells
+    and wait for Enlisted crews to march in and take them out. Also
+    a quayside-sized supply cache for the trucks."""
+
+    ICON = 'army_post'
+    FIXED_SCALE = 0.045
+    TINT = 0.0                  # city-sketch palette, like the towns
+    STOCK_CAP = 20000.0
+
+    def __init__(self, game, lat, lon, country, name, city=None):
+        self.city = city
+        self.production = []            # vehicles building: [type, s]
+        self.shells = []                # finished, waiting for crews
+        self.crews = 0                  # Enlisted stationed here
+        self.stock = 0.0
+        import zlib as _zlib
+        self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
+        Structure.__init__(self, game, lat, lon, country, name)
+        c = COUNTRIES[country]['color']
+        self.badge = self.holder.attachNewNode('shell_badge')
+        pill = make_flat_disc('pill', 0.46, (c[0], c[1], c[2], 0.96),
+                              segments=20)
+        pill.setPos(0, -1.45, 0)
+        pill.reparentTo(self.badge)
+        rim = make_flat_ring('rim', 0.46, (0.13, 0.11, 0.09, 1.0),
+                             thickness=1.6, segments=20)
+        rim.setPos(0, -1.45, 0)
+        rim.reparentTo(self.badge)
+        veh = make_icon_quad(game.loader, 'tank', 'dark',
+                             half=0.30, depth=8)
+        veh.setPos(-0.14, -1.45, 0)
+        veh.reparentTo(self.badge)
+        tn = TextNode('count')
+        tn.setAlign(TextNode.ALeft)
+        if game.hud_font:
+            tn.setFont(game.hud_font)
+        tn.setTextColor(0.13, 0.11, 0.09, 1)
+        self.count_tn = tn
+        np_ = self.badge.attachNewNode(tn)
+        np_.setP(-90)
+        np_.setScale(0.5)
+        np_.setPos(0.10, -1.62, 0)
+        np_.setDepthOffset(8)
+        set_marker_layer(self.badge, LAYER_STRUCT + 2)
+        self.badge.hide()
+
+    def set_count(self, n):
+        if n > 0:
+            self.count_tn.setText("x%d" % n)
+            if self.badge.isHidden():
+                self.badge.show()
+        elif not self.badge.isHidden():
+            self.badge.hide()
 
 
 class Bunker(Structure):
