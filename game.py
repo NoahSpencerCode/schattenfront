@@ -3944,7 +3944,9 @@ void main() {
                     or u.supply >= u.stats['supply_cap']):
                 continue
             for c in self.cities:
-                if (c.country == u.country and not c.annexing
+                if ((c.country == u.country
+                     or self.allied(u.country, c.country))
+                        and not c.annexing
                         and u.dist_to(c.pos) < 0.6):
                     u.supply = u.stats['supply_cap']
                     break
@@ -4112,16 +4114,20 @@ void main() {
         return u.stats['use_move'] * d_wu / max(eff, 1e-6)
 
     def _sources_for(self, u):
+        def own_or_ally(country):
+            return (country == u.country
+                    or self.allied(u.country, country))
         if u.stats['domain'] == 'sea':
             srcs = [c.pos for c in self.cities
-                    if c.country == u.country and c.harbor]
+                    if own_or_ally(c.country) and c.harbor]
             srcs += [h.pos for h in self.harbors
-                     if h.country == u.country and h.stock > 2000]
+                     if own_or_ally(h.country) and h.stock > 2000]
         else:
             srcs = [c.pos for c in self.cities
-                    if c.country == u.country]
-            srcs += [d.pos for d in self.depots + self.harbors
-                     if d.country == u.country and d.stock > 2000]
+                    if own_or_ally(c.country)]
+            srcs += [d.pos for d in
+                     self.depots + self.harbors + self.armyposts
+                     if own_or_ally(d.country) and d.stock > 2000]
         return srcs
 
     def _fuel_reserve(self, u, at_pos=None):
@@ -4937,7 +4943,8 @@ void main() {
                              'kind': kind, 'to': to})
         verb = {'war': "a DECLARATION OF WAR",
                 'alliance': "an OFFER OF ALLIANCE",
-                'peace': "TERMS OF PEACE"}[kind]
+                'peace': "TERMS OF PEACE",
+                'volunteers': "a REQUEST FOR VOLUNTEERS"}[kind]
         self.fax.post(
             "DISPATCH SENT",
             "The bag carries %s to %s. The courier is expected in "
@@ -4947,6 +4954,56 @@ void main() {
         if self.diplo_fax:
             self.diplo_fax.rebuild()
         return True
+
+    VOLUNTEER_MEN = 10
+    VOLUNTEER_PRICE = 40        # dollars a man, less as blood binds
+
+    def volunteer_price(self, ally):
+        """Shared wars are shared blood: each war fought on the
+        same side knocks a quarter off, free at four."""
+        me = self.player_country
+        shared = len(self.nation_enemies(me)
+                     & self.nation_enemies(ally))
+        per_man = self.VOLUNTEER_PRICE * max(0.0, 1.0 - 0.25 * shared)
+        return int(self.VOLUNTEER_MEN * per_man)
+
+    def _volunteers_arrive(self, ally):
+        """The courier returns: if the pact still stands and the
+        treasury covers the ally's terms, ten Enlisted muster at the
+        capital."""
+        me = self.player_country
+        if not self.allied(me, ally):
+            self.fax.post(
+                "REQUEST LAPSED",
+                "The pact with %s no longer stands; no volunteers "
+                "march." % B(COUNTRIES[ally]['name']),
+                sender="FOREIGN OFFICE")
+            return
+        price = self.volunteer_price(ally)
+        if self.funds.get(me, 0) < price:
+            self.fax.post(
+                "TERMS UNMET",
+                "%s asks %s for its volunteers and the treasury "
+                "cannot cover it." %
+                (B(COUNTRIES[ally]['name']), B("$%d" % price)),
+                sender="FOREIGN OFFICE")
+            return
+        self.funds[me] -= price
+        cap = self.capital_of(me)
+        for _ in range(self.VOLUNTEER_MEN):
+            u = self.spawn_unit('infantry', me, cap.lat, cap.lon,
+                                jitter=0.3,
+                                seed=random.randrange(99999))
+            u.supply = u.stats['supply_cap']
+        self.fax.post(
+            "VOLUNTEERS ARRIVE",
+            "%d volunteers from %s muster at %s%s." %
+            (self.VOLUNTEER_MEN, B(COUNTRIES[ally]['name']),
+             cap.name, (" for %s" % B("$%d" % price)) if price
+             else " -- brothers in arms ask nothing"),
+            sender="FOREIGN OFFICE")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
 
     def _tick_pouches(self):
         """Deliver diplomatic bags whose couriers have arrived."""
@@ -4983,6 +5040,8 @@ void main() {
                         "%s rejects the offered terms. The war "
                         "continues." % B(name),
                         sender="FOREIGN OFFICE")
+            elif kind == 'volunteers':
+                self._volunteers_arrive(to)
         if self.diplo_fax:
             self.diplo_fax.rebuild()
 

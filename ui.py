@@ -545,12 +545,22 @@ class DiplomacyLedger:
                            color=INK_FAINT)
                 continue
             if allied:
-                b = pill_button(self.frame, "BREAK PACT",
-                                g._diplo_break, extraArgs=[nat],
-                                pos=(bx + 0.13, 0, y), hw=0.13,
-                                hh=0.034, text_scale=0.024,
+                price = g.volunteer_price(nat)
+                b = pill_button(self.frame,
+                                "MEN $%d" % price if price else
+                                "MEN FREE",
+                                g._diplo_action,
+                                extraArgs=['volunteers', nat],
+                                pos=(bx - 0.005, 0, y), hw=0.062,
+                                hh=0.034, text_scale=0.020,
                                 font=self.base.hud_font)
                 self.widgets.append(b)
+                b2 = pill_button(self.frame, "BREAK",
+                                 g._diplo_break, extraArgs=[nat],
+                                 pos=(bx + 0.150, 0, y), hw=0.062,
+                                 hh=0.034, text_scale=0.022,
+                                 font=self.base.hud_font)
+                self.widgets.append(b2)
             elif at_war:
                 b = pill_button(self.frame, "OFFER PEACE",
                                 g._diplo_action,
