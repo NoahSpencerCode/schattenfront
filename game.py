@@ -13,6 +13,7 @@ OUT OF CONTACT: invisible and beyond command until the net reaches them.
 """
 
 import math
+import os
 import random
 import time
 import threading
@@ -280,8 +281,22 @@ class Bridge:
 
 
 class WW2RTSGame(ShowBase):
+
+    @staticmethod
+    def _assert_game_root():
+        """Frozen builds: macOS moves a Finder-launched GUI app's cwd
+        back to the binary dir during Cocoa init, which silently
+        breaks every relative asset path. main.py records the true
+        root; re-assert it whenever the window machinery had a chance
+        to wander."""
+        root = os.environ.get('SCHATTENFRONT_ROOT')
+        if root and os.getcwd() != root and os.path.isdir(
+                os.path.join(root, 'assets')):
+            os.chdir(root)
+
     def __init__(self):
         ShowBase.__init__(self)
+        self._assert_game_root()        # Cocoa may have chdir'd us
         self.disableMouse()
         self.setBackgroundColor(0.04, 0.05, 0.08)
         self.camLens.setNearFar(0.05, 500.0)
@@ -733,6 +748,7 @@ class WW2RTSGame(ShowBase):
         return root, set_status
 
     def start_game(self, country):
+        self._assert_game_root()        # belt and braces before I/O
         loading, progress = self._loading_screen()
         if self.world is None:
             self.world = WorldData(log=progress)

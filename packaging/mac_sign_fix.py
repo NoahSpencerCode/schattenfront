@@ -128,6 +128,22 @@ def main():
     os.replace(tmp, exe)
     os.chmod(exe, 0o755)
 
+    # the game payload must be reachable BESIDE the binary: in a
+    # frozen build every module's __file__ anchors on the
+    # executable's directory (Windows/Linux builds are flat, only the
+    # mac bundle split ever broke this). Real files inside Contents/
+    # MacOS break the code seal -- codesign demands everything there
+    # be signed Mach-O -- so the payload stays in Resources and
+    # SYMLINKS beside the binary carry the paths.
+    res = os.path.join(app, 'Contents', 'Resources')
+    macos_dir = os.path.dirname(exe)
+    for d in ('assets', 'data', 'media'):
+        src = os.path.join(res, d)
+        link = os.path.join(macos_dir, d)
+        if os.path.isdir(src) and not os.path.lexists(link):
+            os.symlink(os.path.join('..', 'Resources', d), link)
+            print("linked %s beside the binary" % d)
+
     for root, _, files in os.walk(app):
         for f in files:
             if f.endswith(('.so', '.dylib')):
