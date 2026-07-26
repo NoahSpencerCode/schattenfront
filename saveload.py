@@ -118,6 +118,8 @@ def _order(game, o, unit_ids):
         out['t'] = o['t']
     if 'what' in o:
         out['what'] = o['what']
+    if 'cost' in o:
+        out['cost'] = o['cost']     # refunded if the work is struck
     if 'target' in o:
         r = _ref(game, o['target'], unit_ids)
         if r is None:
@@ -334,6 +336,8 @@ class _Resolver:
             out['t'] = o['t']
         if 'what' in o:
             out['what'] = o['what']
+        if 'cost' in o:
+            out['cost'] = o['cost']
         if 'target' in o:
             tgt = self.ref(o['target'])
             if tgt is None or not getattr(tgt, 'alive', True):
@@ -522,6 +526,25 @@ def restore(game, data):
                 q = [res.order(o) for o in row['queue']]
                 u.order_queue = [o for o in q if o]
             u.update_visual()
+
+        # amber ghosts take station again on every planned work (the
+        # ghost list is keyed by ORDER IDENTITY, so the very dicts
+        # just restored onto the engineers go into the entries; road
+        # legs draw their survey viz from the orders instead)
+        from globe import orient_to_surface
+        for u in units:
+            held = ([u.current_order] if u.current_order else []) \
+                + list(u.order_queue)
+            for o in held:
+                if (isinstance(o, dict) and o.get('kind') == 'build'
+                        and o.get('what') and o['what'] != 'road'
+                        and o.get('site') is not None):
+                    np_ = g._make_ghost_np(
+                        o['what'], (0.95, 0.82, 0.42, 0.55))
+                    site_n = Vec3(o['site'])
+                    site_n.normalize()
+                    orient_to_surface(np_, site_n)
+                    g._works_ghosts.append((u, o, np_))
 
         # the land garrisons stored inside airfields
         for fname, ids in data['garrisons'].items():
