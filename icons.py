@@ -556,6 +556,17 @@ def _blimp_side(d, ink, y0=14, y1=40):
     d.rectangle([34, y1 - 2, 50, y1 + 8], fill=ink)
 
 
+def _draw_rail_build(d, ink):
+    """A railroad receding ahead: twin rails and cross-ties."""
+    d.line([(34, 88), (43, 8)], fill=ink, width=4)
+    d.line([(62, 88), (53, 8)], fill=ink, width=4)
+    for f in (0.06, 0.2, 0.36, 0.54, 0.74, 0.94):
+        y = 88 - f * 78
+        x0 = 34 + f * 9 - 5
+        x1 = 62 - f * 9 + 5
+        d.line([(x0, y), (x1, y)], fill=ink, width=3)
+
+
 def _draw_blimp_raise_button(d, ink):
     """Up she goes: the airship over a rising arrow."""
     _blimp_side(d, ink)
@@ -752,6 +763,7 @@ _DRAWERS = {
     'surface_button': _draw_surface_button,
     'repair_button': _draw_repair_button,
     'road_build': _draw_road_build,
+    'rail_build': _draw_rail_build,
     'blimp_raise_button': _draw_blimp_raise_button,
     'blimp_lower_button': _draw_blimp_lower_button,
     'panel_button': _draw_panel_button,

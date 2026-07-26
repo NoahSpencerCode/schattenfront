@@ -420,6 +420,7 @@ class WorldData:
         self.rivers = []            # [(lon,lat), ...] lists, gameplay rivers
         self.country_labels = []    # (name, lat, lon)
         self.roads = []             # (city_index_a, city_index_b)
+        self.rail_paths = []        # national main lines, lat/lon curves
         self.bridges = []           # dicts {lat, lon, road}
         self.land_mask = None       # np.bool_ [MASK_H, MASK_W], True = land
 
@@ -431,6 +432,7 @@ class WorldData:
         from terrain import Terrain
         self.terrain = Terrain(self.log)     # real ETOPO1 relief
         self._build_roads_and_bridges()
+        self._build_rails()
         self._build_city_plans()         # one fixed layout per city
         self._build_sites()              # airfield/harbor sites + spurs
         self.texture_path = self._build_texture()
@@ -1288,6 +1290,37 @@ class WorldData:
     # (distances in units of the city's nominal radius). Rendering merely
     # scales the stored plan, so the same rooftops appear at every zoom
     # level -- nothing pops or reshuffles while the camera moves.
+
+    def _build_rails(self):
+        """Each great power opens with a RAILROAD binding its three
+        biggest cities: the two shortest legs of the triangle, curved
+        gently (rails are surveyed straighter than roads). Trains --
+        any column running a rail leg -- burn no stores."""
+        from config import PLAYABLE
+        popk = lambda n: CITY_POPULATION.get(n, 120)
+        by_country = {}
+        for (name, country, lat, lon) in self.cities:
+            by_country.setdefault(country, []).append(
+                (name, country, lat, lon))
+        for country in PLAYABLE:
+            group = sorted(by_country.get(country, []),
+                           key=lambda g: -popk(g[0]))[:3]
+            if len(group) < 2:
+                continue
+            legs = []
+            for i in range(len(group)):
+                for j in range(i + 1, len(group)):
+                    a, b = group[i], group[j]
+                    d = latlon_dist_deg((a[3], a[2]), (b[3], b[2]))
+                    legs.append((d, a, b))
+            legs.sort(key=lambda x: x[0])
+            for d, a, b in legs[:2]:
+                if d > 40.0:
+                    continue        # no ocean-spanning main lines
+                seed = zlib.crc32(("rail:%s:%s" % (a[0], b[0])).encode())
+                curve = self._curved_road_points(
+                    a[2], a[3], b[2], b[3], seed, passes=2, amp=0.02)
+                self.rail_paths.append(curve)
 
     def _build_city_plans(self):
         self.city_plans = {}

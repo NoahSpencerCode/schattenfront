@@ -15,7 +15,8 @@ import time
 import numpy as np
 from panda3d.core import Vec3
 
-from config import (GLOBE_RADIUS, ROAD_SPEED_MULTIPLIER,
+from config import (GLOBE_RADIUS, RAIL_LEG_MULT,
+                    ROAD_SPEED_MULTIPLIER,
                     BRIDGE_TOLERANCE_DEG)
 from utils import (latlon_to_vec, vec_to_latlon, angle_between, slerp,
                    segments_intersect, segment_intersection_point,
@@ -56,11 +57,12 @@ class MovementPlanner:
         self._river_ok_cache.clear()
         self._adj_cache = None
 
-    def add_custom_road(self, poly):
-        """Engineer-built road: the DRAWN centre-line polyline becomes a
-        chain of fast road edges (nodes at every bend plus evenly spaced
-        infill), identical in function to a map road -- traffic follows
-        the laid curve exactly and can join it anywhere along the way."""
+    def add_custom_road(self, poly, rail=False):
+        """Engineer-built road (or RAILROAD, with rail=True): the
+        DRAWN centre-line polyline becomes a chain of fast edges,
+        identical in function to a map road -- but a train on rail
+        edges burns no stores."""
+        flag = 'rail' if rail else True
         if self._static_edges is None:
             self._build_land_graph()
         nodes, edges = self._nodes, self._static_edges
@@ -93,7 +95,7 @@ class MovementPlanner:
             seg_len = max(1e-6, arc[idx] - arc[prev_i])
             geom = vecs[prev_i + 1:idx] or None
             edges.append((prev, nn, seg_len / ROAD_SPEED_MULTIPLIER,
-                          True, [], geom))
+                          flag, [], geom))
             prev, prev_i = nn, idx
             k += 1
         self._adj_cache = None
@@ -675,7 +677,9 @@ class MovementPlanner:
         path = []
         cur = goal_i
         while cur != start_i:
-            mult = ROAD_SPEED_MULTIPLIER if prev_road.get(cur) else 1.0
+            pr = prev_road.get(cur)
+            mult = (RAIL_LEG_MULT if pr == 'rail'
+                    else ROAD_SPEED_MULTIPLIER if pr else 1.0)
             path.append((Vec3(nodes[cur][0]), mult))
             geom, fwd = prev_geom.get(cur, (None, True))
             if geom:

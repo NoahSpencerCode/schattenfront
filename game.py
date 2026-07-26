@@ -799,6 +799,11 @@ class WW2RTSGame(ShowBase):
         progress("PLOTTING ROADS AND SEA LANES...")
         self.planner._build_land_graph()
         self.planner._build_sea_grid()
+        # the national main lines: rail edges carry columns for free
+        for curve in getattr(self.world, 'rail_paths', []):
+            poly = [latlon_to_vec(la, lo) for (la, lo) in curve]
+            if len(poly) >= 2:
+                self.planner.add_custom_road(poly, rail=True)
         progress("RAISING THE ARMIES...")
         self.cities = [City(self, i, n, c, la, lo)
                        for i, (n, c, la, lo) in enumerate(self.world.cities)]
@@ -3413,6 +3418,7 @@ class WW2RTSGame(ShowBase):
     BUILD_WORKS = {
         'bridge':   ('BRIDGE', 50, 30.0),
         'road':     ('ROAD', 60, 40.0),
+        'rail':     ('RAILROAD', 90, 160.0),
         'depot':    ('SUPPLY DEPOT', 60, 25.0),
         'bunker':   ('BUNKER', 50, 18.0),
         'airfield': ('AIRFIELD', 100, 45.0),
@@ -3569,7 +3575,7 @@ class WW2RTSGame(ShowBase):
             lat, lon = self.world.nearest_land(lat, lon)
             ground = latlon_to_vec(lat, lon)
 
-        if kind == 'road':
+        if kind in ('road', 'rail'):
             # TWO CLICKS lay a leg: the first sets the starting point
             # (the party travels there before digging), each further
             # click chains the next leg on. Ends SNAP to the existing
@@ -3725,11 +3731,12 @@ class WW2RTSGame(ShowBase):
                                               'road': (-1, -1)},
                                        len(self.bridges)))
             self.planner.notify_bridge_change()
-        elif kind == 'road':
-            # the laid road is EXACTLY a map road -- but surveyed by
-            # engineers, so its curve is DISCIPLINED (one wobble pass,
-            # not three). Any river it crosses gets its bridge thrown
-            # across automatically, aligned with the roadway.
+        elif kind in ('road', 'rail'):
+            # the laid way is EXACTLY a map road (or a main line) --
+            # surveyed by engineers, so its curve is DISCIPLINED; rails
+            # run straighter still. Any river a ROAD crosses gets its
+            # bridge thrown across automatically.
+            is_rail = kind == 'rail'
             pts = order.get('points') or [site]
             chain = [order['from']] + list(pts)
             for a, b in zip(chain[:-1], chain[1:]):
@@ -3740,7 +3747,9 @@ class WW2RTSGame(ShowBase):
                 seed = zlib.crc32(("eng:%.3f,%.3f,%.3f,%.3f"
                                    % (la1, lo1, la2, lo2)).encode())
                 curve = self.world._curved_road_points(
-                    la1, lo1, la2, lo2, seed, passes=5, amp=0.04)
+                    la1, lo1, la2, lo2, seed,
+                    passes=2 if is_rail else 5,
+                    amp=0.02 if is_rail else 0.04)
                 healed = [c for c in self.road_cuts
                           if any(angle_between(
                               latlon_to_vec(cla, clo), c)
@@ -3752,10 +3761,12 @@ class WW2RTSGame(ShowBase):
                     self.planner.clear_road_cuts(self.road_cuts)
                 self._auto_bridge_curve(curve)
                 poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
-                self.planner.add_custom_road(poly)
-                if not hasattr(self.world, 'custom_road_paths'):
-                    self.world.custom_road_paths = []
-                self.world.custom_road_paths.append(list(curve))
+                self.planner.add_custom_road(poly, rail=is_rail)
+                store = ('custom_rail_paths' if is_rail
+                         else 'custom_road_paths')
+                if not hasattr(self.world, store):
+                    setattr(self.world, store, [])
+                getattr(self.world, store).append(list(curve))
             self._build_road_overlay()
         self._apply_marker_scale()
         if country == self.player_country:
@@ -3831,25 +3842,31 @@ class WW2RTSGame(ShowBase):
         self.custom_roads = []
         self.road_sections = []
         self._glow_section = None
-        paths = list(self.world.road_paths.values()) \
+        road_srcs = list(self.world.road_paths.values()) \
             + list(getattr(self.world, 'spur_paths', [])) \
             + list(getattr(self.world, 'custom_road_paths', []))
-        for path in paths:
-            pts = list(path[::3])
-            if path and (not pts or pts[-1] != path[-1]):
-                pts.append(path[-1])
-            poly = [latlon_to_vec(la, lo) for (la, lo) in pts]
-            if len(poly) < 2:
-                continue
-            for sec_pts in self._split_sections(poly,
-                                                ROAD_SECTION_LEN):
-                mid = sec_pts[len(sec_pts) // 2]
-                if any(angle_between(mid, c) * GLOBE_RADIUS
-                       < self.ROAD_CUT_R for c in self.road_cuts):
-                    continue            # this stretch is bombed out
-                sec = RoadSection(self, sec_pts)
-                sec.node = self._draw_road_section(sec_pts)
-                self.road_sections.append(sec)
+        rail_srcs = list(getattr(self.world, 'rail_paths', [])) \
+            + list(getattr(self.world, 'custom_rail_paths', []))
+        for paths, kind in ((road_srcs, 'road'), (rail_srcs, 'rail')):
+            for path in paths:
+                pts = list(path[::3])
+                if path and (not pts or pts[-1] != path[-1]):
+                    pts.append(path[-1])
+                poly = [latlon_to_vec(la, lo) for (la, lo) in pts]
+                if len(poly) < 2:
+                    continue
+                for sec_pts in self._split_sections(poly,
+                                                    ROAD_SECTION_LEN):
+                    mid = sec_pts[len(sec_pts) // 2]
+                    if any(angle_between(mid, c) * GLOBE_RADIUS
+                           < self.ROAD_CUT_R for c in self.road_cuts):
+                        continue        # this stretch is bombed out
+                    sec = RoadSection(self, sec_pts)
+                    sec.kind = kind
+                    sec.node = (self._draw_road_section(sec_pts)
+                                if kind == 'road'
+                                else self._draw_rail_section(sec_pts))
+                    self.road_sections.append(sec)
 
     ROAD_CUT_R = 0.30               # a bombed section's radius, wu
 
@@ -3879,6 +3896,19 @@ void main() {
 }
 """)
         return self._road_shader_obj
+
+    def _draw_rail_section(self, pts):
+        """One rail section: two silver running rails with brown
+        cross-ties, painted above the road layers."""
+        from models import make_rail_node
+        from panda3d.core import NodePath as _NP
+        root = self._custom_road_group.attachNewNode('rail_sec')
+        R = GLOBE_RADIUS * LIFT_GROUND
+        np_ = _NP(make_rail_node('rail', pts, R))
+        np_.reparentTo(root)
+        from models import set_marker_layer
+        set_marker_layer(np_, 32)
+        return root
 
     def _draw_road_section(self, pts):
         """One section's geometry: verge ribbon under, darker core
@@ -6420,6 +6450,7 @@ void main() {
         bar.set_info("STRENGTH %d/%d   SUPPLY %d LBS" %
                      (int(eng.hp), eng.max_hp, int(eng.supply)))
         work_icon = {'bridge': 'bridge_map', 'road': 'road_build',
+                     'rail': 'rail_build',
                      'depot': 'depot', 'bunker': 'bunker',
                      'airfield': 'airfield', 'harbor': 'harbor',
                      'radar': 'radar'}

@@ -42,6 +42,9 @@ DETAIL_TEX_SIZE = 2048        # per-TILE render resolution
 UNIT_SPEED_FACTOR = 0.10      # global pace: down another 60%
 FORMATION_SPACING = 0.02      # just enough that counters don't overlap
                               # at full zoom
+# path legs carrying THIS mult are RAILROAD running: same speed law
+# as a road, but the train burns no stores under way
+RAIL_LEG_MULT = 8.25
 UNIT_SPRITE_SCALE = 0.045     # fixed world-size of unit pictograms
                               # (tiny; vanishing when zoomed out is fine)
 ROAD_SPEED_MULTIPLIER = 4.0   # ROUTING preference for roads; actual

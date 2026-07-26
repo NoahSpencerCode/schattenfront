@@ -13,6 +13,7 @@ from panda3d.core import Vec3
 from panda3d.core import TextNode
 
 from config import (AIR_VISION_MULT, COMM_RADIUS_FACTOR, COUNTRIES,
+                    RAIL_LEG_MULT,
                     GLOBE_RADIUS, LIFT_AIR, LIFT_GROUND,
                     NIGHT_VISION_FACTOR, UNIT_SPEED_FACTOR,
                     UNIT_SPRITE_SCALE, VISION_SCALE)
@@ -887,10 +888,13 @@ class Unit:
             # the fuel odometer: what a retasking mid-air may still ask
             # of the tanks is endurance minus this
             self._flown = getattr(self, '_flown', 0.0) + moved_wu
-        if self.stats['supply_cap'] > 0:
+        on_rail = abs(speed_mult - RAIL_LEG_MULT) < 1e-6
+        if self.stats['supply_cap'] > 0 and not on_rail:
             # the ORIGINAL harsh economy, by design: the column burns
             # stores every second it is under way, and no advance
-            # outlives its train -- supply reliance is a core mechanic
+            # outlives its train -- supply reliance is a core mechanic.
+            # RAIL legs are the one exemption: the railway carries the
+            # column's stores with it
             burn = self.stats['use_move'] * dt * self.game.game_speed
             if getattr(self, 'submerged', False):
                 burn *= 2.0             # running submerged drinks amps
