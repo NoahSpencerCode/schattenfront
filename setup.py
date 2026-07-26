@@ -10,7 +10,7 @@ from setuptools import setup
 
 setup(
     name='schattenfront',
-    version='0.1.0',
+    version='0.1.1',
     options={
         'build_apps': {
             'gui_apps': {'Schattenfront': 'main.py'},

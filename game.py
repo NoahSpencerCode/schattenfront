@@ -777,6 +777,11 @@ class WW2RTSGame(ShowBase):
         loading, progress = self._loading_screen()
         if self.world is None:
             self.world = WorldData(log=progress)
+        # engineer-laid ways are CAMPAIGN state riding on the reused
+        # world object: a fresh (or loaded) campaign starts clean, or
+        # every past game's roads would haunt the next one
+        self.world.custom_road_paths = []
+        self.world.custom_rail_paths = []
         if self.menu:
             self.menu.destroy()
             self.menu = None

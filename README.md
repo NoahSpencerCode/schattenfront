@@ -86,6 +86,30 @@ Every declaration, pact, peace, capitulation — anywhere on the globe —
 prints an edition of **THE WORLD CHRONICLE**; the war's end prints the
 final edition with the full statistical record.
 
+### Enlistment — the Human Element (0.1.1)
+
+Manpower is never bought. Each city's **draft pool** grows by one
+citizen per 400,000 souls a fortnight (holding at most three
+fortnights' worth); the **ENLIST** key beside the tax decree musters
+them onto the streets as **Enlisted** — free. Enlisted fight as
+riflemen, capture cities, and CREW every other unit: vehicles are
+empty shells until a crew signs aboard. Production delivers hulls to
+a **harbor**, airframes to an **airfield**, vehicles to an **army
+post** (the army's harbor); march Enlisted onto a station to crew it
+and click a shell to dispatch. Each great power opens with exactly
+two of each station at its biggest cities.
+
+### Railroads (0.1.1)
+
+Each power's three biggest cities are bound by a **railroad** — two
+silver rails with brown ties. Rails route like roads at road speed,
+but a column on rail legs **burns no supply**. Engineers lay new
+line at four times a road's build time.
+
+Allies matter more: request **volunteer Enlisted** from the ledger
+(price falls with every war fought on the same side), and supply
+trucks refill at **allied cities** as readily as at home.
+
 ### Saving and Loading
 
 **ESC → SAVE CAMPAIGN** files the whole situation map — every unit
