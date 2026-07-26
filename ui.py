@@ -370,6 +370,221 @@ class BottomBar:
         self.frame.destroy()
 
 
+NEWSPRINT = (0.89, 0.87, 0.80, 0.99)
+
+
+class Newspaper:
+    """A broadsheet on the stand: masthead, dateline, banner headline
+    and the deck beneath, in the manner of the wire-service extras.
+    Click anywhere on the sheet (or the corner key) to file it away.
+    The FINAL edition -- victory or capitulation -- carries the full
+    statistical record of the war and stays up until dismissed."""
+
+    MAST = "THE WORLD CHRONICLE"
+
+    def __init__(self, base, headline, deck, dateline, on_dismiss,
+                 final=None, stats=()):
+        self.base = base
+        self.on_dismiss = on_dismiss
+        tall = 0.48 if final is None else 0.86
+        self.frame = DirectFrame(parent=base.aspect2d,
+                                 frameColor=NEWSPRINT,
+                                 frameSize=(-0.98, 0.98, -tall, tall),
+                                 state=DGG.NORMAL, pos=(0, 0, 0.06))
+        edge = DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                           frameSize=(-0.99, 0.99, -tall - 0.012,
+                                      -tall))
+        y = tall - 0.11
+
+        def text(t, ty, scale, color=INK, align=TextNode.ACenter,
+                 wordwrap=None):
+            tn = TextNode('news')
+            tn.setAlign(align)
+            if base.hud_font:
+                tn.setFont(base.hud_font)
+            tn.setTextColor(*color)
+            if wordwrap:
+                tn.setWordwrap(wordwrap)
+            tn.setText(t)
+            np_ = self.frame.attachNewNode(tn)
+            np_.setPos(0 if align == TextNode.ACenter else -0.88,
+                       0, ty)
+            np_.setScale(scale)
+            return tn, np_
+
+        text(self.MAST, y, 0.085)
+        y -= 0.055
+        text("%s  *  LATE WAR EXTRA  *  ONE PENNY" % dateline,
+             y, 0.026, INK_FAINT)
+        y -= 0.045
+        for ry in (y + 0.012, y + 0.002):
+            rule = DirectFrame(parent=self.frame, frameColor=INK,
+                               frameSize=(-0.90, 0.90, ry, ry + 0.004))
+        y -= 0.10
+        # the banner headline wraps and shrinks to fit the broadsheet
+        size = 0.075 if len(headline) < 38 else 0.058
+        tn, _ = text(headline, y, size, wordwrap=24.0)
+        y -= 0.075 * (1 + headline.count(' ') // 12)
+        y -= 0.075
+        text(deck, y, 0.034, wordwrap=46.0)
+        if final is not None:
+            y -= 0.30
+            text("++ %s ++" % ("TOTAL VICTORY" if final == 'victory'
+                               else "CAPITULATION"), y, 0.045)
+            y -= 0.075
+            for label, value in stats:
+                text("%-28s %s" % (label, value), y, 0.030,
+                     align=TextNode.ALeft)
+                y -= 0.055
+        self.frame.bind(DGG.B1PRESS, lambda e: self.dismiss())
+        pill_button(self.frame, "FILE AWAY",
+                    lambda: self.dismiss(),
+                    pos=(0.76, 0, -tall + 0.075), hw=0.15, hh=0.038,
+                    font=base.hud_font)
+        snd = getattr(base, 'fax_snd', None)
+        if snd is not None:
+            snd.play()
+
+    def dismiss(self):
+        cb = self.on_dismiss
+        self.on_dismiss = None
+        self.destroy()
+        if cb:
+            cb()
+
+    def destroy(self):
+        self.frame.destroy()
+
+
+class DiplomacyLedger:
+    """The Foreign Office ledger: every nation of the world on one
+    sheet -- stance, standing, and the keys that move the bags.
+    Declarations and offers go out AS FAXES and are answered by
+    return courier; only breaking one's own pact is instant."""
+
+    def __init__(self, game, on_close):
+        from config import COUNTRIES, PLAYABLE
+        self.game = game
+        self.base = game
+        self.on_close = on_close
+        self._COUNTRIES = COUNTRIES
+        self._PLAYABLE = PLAYABLE
+        self.frame = DirectFrame(parent=game.aspect2d,
+                                 frameColor=PAPER,
+                                 frameSize=(-1.42, 1.42, -0.86, 0.86),
+                                 state=DGG.NORMAL)
+        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                    frameSize=(-1.42, 1.42, 0.835, 0.86))
+        self.widgets = []
+        self._static()
+        self.rebuild()
+
+    def _text(self, t, pos, scale=0.032, color=INK,
+              align=TextNode.ALeft, keep=False):
+        tn = TextNode('diplo')
+        tn.setAlign(align)
+        if self.base.hud_font:
+            tn.setFont(self.base.hud_font)
+        tn.setTextColor(*color)
+        tn.setText(t)
+        np_ = self.frame.attachNewNode(tn)
+        np_.setPos(pos[0], 0, pos[1])
+        np_.setScale(scale)
+        if not keep:
+            self.widgets.append(np_)
+        return np_
+
+    def _static(self):
+        self._text("++ DIPLOMATIC LEDGER ++", (0, 0.76), 0.05,
+                   align=TextNode.ACenter, keep=True)
+        self._text("FOREIGN OFFICE -- MOST SECRET", (0, 0.70), 0.026,
+                   color=INK_FAINT, align=TextNode.ACenter, keep=True)
+        pill_button(self.frame, "CLOSE [ESC]",
+                    lambda: self.on_close(), pos=(1.16, 0, 0.775),
+                    hw=0.17, hh=0.040, font=self.base.hud_font,
+                    kind='red')
+
+    def rebuild(self):
+        g = self.game
+        for w in self.widgets:
+            w.destroy() if hasattr(w, 'destroy') else w.removeNode()
+        self.widgets = []
+        me = g.player_country
+        nations = [c for c in self._COUNTRIES
+                   if c not in (me, 'neutral')
+                   and c not in g.eliminated]
+        # the majors head the ledger; then the world alphabetically
+        nations.sort(key=lambda c: (c not in self._PLAYABLE,
+                                    self._COUNTRIES[c]['name']))
+        per_col = 13
+        for i, nat in enumerate(nations[:26]):
+            col, row = divmod(i, per_col)
+            x0 = -1.36 + col * 1.44
+            y = 0.60 - row * 0.104
+            info = self._COUNTRIES[nat]
+            chip = DirectFrame(parent=self.frame,
+                               frameColor=tuple(info['color']) + (1.0,),
+                               frameSize=(-0.020, 0.020, -0.020, 0.020),
+                               relief=DGG.FLAT, pos=(x0 + 0.02, 0, y))
+            self.widgets.append(chip)
+            self._text(info['name'].upper()[:24], (x0 + 0.06, y - 0.010),
+                       0.030)
+            at_war = g.at_war(me, nat)
+            allied = g.allied(me, nat)
+            pend = g.pouch_pending(nat)
+            stance = ("AT WAR" if at_war else
+                      "ALLIED" if allied else "AT PEACE")
+            scol = ((0.62, 0.14, 0.10, 1) if at_war else
+                    (0.16, 0.35, 0.14, 1) if allied else INK_FAINT)
+            self._text(stance, (x0 + 0.60, y - 0.010), 0.028,
+                       color=scol)
+            bx = x0 + 0.96
+            if pend is not None:
+                self._text("COURIER EN ROUTE...",
+                           (bx - 0.06, y - 0.010), 0.026,
+                           color=INK_FAINT)
+                continue
+            if allied:
+                b = pill_button(self.frame, "BREAK PACT",
+                                g._diplo_break, extraArgs=[nat],
+                                pos=(bx + 0.13, 0, y), hw=0.13,
+                                hh=0.034, text_scale=0.024,
+                                font=self.base.hud_font)
+                self.widgets.append(b)
+            elif at_war:
+                b = pill_button(self.frame, "OFFER PEACE",
+                                g._diplo_action,
+                                extraArgs=['peace', nat],
+                                pos=(bx + 0.13, 0, y), hw=0.13,
+                                hh=0.034, text_scale=0.024,
+                                font=self.base.hud_font)
+                self.widgets.append(b)
+            else:
+                b = pill_button(self.frame, "WAR", g._diplo_action,
+                                extraArgs=['war', nat],
+                                pos=(bx, 0, y), hw=0.062, hh=0.034,
+                                text_scale=0.024,
+                                font=self.base.hud_font, kind='red',
+                                text_fg=(0.97, 0.90, 0.80, 1.0))
+                self.widgets.append(b)
+                b2 = pill_button(self.frame, "ALLY", g._diplo_action,
+                                 extraArgs=['alliance', nat],
+                                 pos=(bx + 0.150, 0, y), hw=0.062,
+                                 hh=0.034, text_scale=0.024,
+                                 font=self.base.hud_font)
+                self.widgets.append(b2)
+        n_wars = len([w for w in g.wars if me in w])
+        n_allies = len(g.alliances.get(me, ()))
+        self._text("AT WAR WITH %d NATION(S)   BOUND TO %d ALLY(S)   "
+                   "DISPATCHES TRAVEL BY COURIER AND ARE ANSWERED IN "
+                   "KIND" % (n_wars, n_allies),
+                   (0, -0.80), 0.026, color=INK_FAINT,
+                   align=TextNode.ACenter)
+
+    def destroy(self):
+        self.frame.destroy()
+
+
 class _Toast:
     """One field signal: a small sheet of paper that slides up, holds,
     and files itself away."""

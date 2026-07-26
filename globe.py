@@ -19,7 +19,7 @@ from panda3d.core import (Geom, GeomNode, GeomTriangles, GeomVertexData,
                           TransparencyAttrib, Vec2, Vec3, SamplerState,
                           ColorBlendAttrib)
 
-from config import (COUNTRIES,
+from config import (COUNTRIES, PLAYABLE, NPC_NATIONS,
                     GLOBE_RADIUS, GLOBE_SEGMENTS, GLOBE_RINGS,
                     NIGHT_DARKNESS, DETAIL_ACTIVATE_ALT, DETAIL_TEX_SIZE,
                     DETAIL_TIER_ALTS,
@@ -28,8 +28,13 @@ from config import (COUNTRIES,
                     LIFT_PATCH, LIFT_RING)
 from geodata import CACHE_DIR, TEXTURE_VERSION
 
-# owner index order for the border shader (5 = neutral, never tinted)
-NAT_ORDER = ('britain', 'germany', 'usa', 'japan', 'soviet', 'neutral')
+# owner index order for the border shader: the five empires, then every
+# NPC nation, then 'neutral' (never tinted). One extra class beyond the
+# list -- ANNEX_IDX -- marks cities still being absorbed (black wash).
+NAT_ORDER = tuple(PLAYABLE) + tuple(NPC_NATIONS) + ('neutral',)
+NEUTRAL_IDX = len(NAT_ORDER) - 1
+ANNEX_IDX = len(NAT_ORDER)
+N_CLASSES = len(NAT_ORDER) + 1
 
 # dashed border lines exist at these zoom octaves (alt0 = 0.6 * 2^i for
 # i = BORDER_OCT_FIRST..): below alt ~2.5 the borders are faded out
@@ -167,18 +172,27 @@ uniform float comm_cos_eps;       // cos/sin of the outline half-width
 uniform float comm_sin_eps;
 uniform float fog_brightness;
 uniform float fog_saturation;
-// national territory: Voronoi cells around the cities. sites.w is the
-// owner index; owner 5 (neutral) draws no tint. The frontier is the
-// locus halfway between nearest cities of DIFFERENT owners.
+// national territory. The bake stores, per texel, only the TWO nearest
+// empires' smooth-min distances plus their ids (border_top, NEAREST
+// filtered); the shader rebuilds a smooth argmin by hand-bilinear over
+// the four surrounding texels, so frontiers stay sub-texel crisp for
+// ANY number of nations without one field texture per empire.
 uniform int site_count;          // 0 until the border bake has landed
-uniform vec3 nat_tint[6];
+uniform vec3 nat_tint[%(nnat)d];
 uniform sampler2D coast_d;       // radians to the nearest coastline
 uniform vec2 wash_band;          // x = ribbon width (rad), y = floor
 uniform float border_fade;       // 0 close up .. 1 zoomed out
-uniform sampler2D border_dA;     // bilinear float: empires 0-3 smooth-
-uniform sampler2D border_dB;     // min distance fields; 4-5 in B
+uniform sampler2D border_top;    // NEAREST rgba: d1, owner1, d2, owner2
+uniform sampler2D border_fd;     // LINEAR r: true frontier distance
 varying vec2 uv;
 varying vec3 world_normal;
+// distance of nation o at one texel tap, from its top-2 record; a
+// nation outside the tap's top-2 is far away there by construction
+float nat_d(vec4 t, float o) {
+    if (abs(t.g - o) < 0.5) return t.r;
+    if (abs(t.a - o) < 0.5) return t.b;
+    return 6.0;
+}
 void main() {
     vec3 nrm = normalize(world_normal);
     vec4 tex = texture2D(p3d_Texture0, uv);
@@ -235,40 +249,61 @@ void main() {
     if (site_count > 0 && border_fade > 0.003) {
         vec2 buv = vec2(atan(nrm.y, nrm.x) * 0.15915494 + 0.5,
                         asin(clamp(nrm.z, -1.0, 1.0)) * 0.31830988 + 0.5);
-        // ONE globally continuous smooth-min distance field PER EMPIRE
-        // (baked over every city that empire owns). The shader argmins
-        // six smooth numbers -- there are no site pairs anywhere, so no
-        // seams, wedges or staircases can exist, even at triple points.
-        // The shader only paints the territory WASH; the dotted border
-        // line itself is real polyline geometry traced from these same
-        // fields on the worker thread (see set_borders), which is the
-        // only way to get truly even, consistent dashes.
-        vec4 fA = texture2D(border_dA, buv);
-        vec4 fB = texture2D(border_dB, buv);
         bool land_px = distance(tex.rgb, vec3(0.173, 0.227, 0.310)) > 0.12
                     && distance(tex.rgb, vec3(0.322, 0.463, 0.620)) > 0.09;
-        float d1 = fA.r; int owner = 0;
-        if (fA.g < d1) { d1 = fA.g; owner = 1; }
-        if (fA.b < d1) { d1 = fA.b; owner = 2; }
-        if (fA.a < d1) { d1 = fA.a; owner = 3; }
-        if (fB.r < d1) { d1 = fB.r; owner = 4; }
-        if (fB.g < d1) { d1 = fB.g; owner = 5; }
-        if (fB.b < d1) { d1 = fB.b; owner = 6; }
+        // hand-rolled bilinear argmin over the four nearest texels'
+        // top-2 records: the winner's field interpolates smoothly, so
+        // frontiers land sub-texel exactly as with per-empire fields.
+        // (A frontier always has both its empires in the local top-2.)
+        vec2 ts = vec2(%(bw)d.0, %(bh)d.0);
+        vec2 st = buv * ts - 0.5;
+        vec2 ff = fract(st);
+        vec2 b0 = (floor(st) + 0.5) / ts;
+        vec4 t00 = texture2D(border_top, b0);
+        vec4 t10 = texture2D(border_top, b0 + vec2(1.0 / ts.x, 0.0));
+        vec4 t01 = texture2D(border_top, b0 + vec2(0.0, 1.0 / ts.y));
+        vec4 t11 = texture2D(border_top, b0 + vec2(1.0 / ts.x,
+                                                   1.0 / ts.y));
+        float w00 = (1.0 - ff.x) * (1.0 - ff.y);
+        float w10 = ff.x * (1.0 - ff.y);
+        float w01 = (1.0 - ff.x) * ff.y;
+        float w11 = ff.x * ff.y;
+        float d1 = 9.0;
+        float own = %(neutral)d.0;
+        float cand; float dc;
+        cand = t00.g;
+        dc = w00 * nat_d(t00, cand) + w10 * nat_d(t10, cand)
+           + w01 * nat_d(t01, cand) + w11 * nat_d(t11, cand);
+        if (dc < d1) { d1 = dc; own = cand; }
+        cand = t10.g;
+        dc = w00 * nat_d(t00, cand) + w10 * nat_d(t10, cand)
+           + w01 * nat_d(t01, cand) + w11 * nat_d(t11, cand);
+        if (dc < d1) { d1 = dc; own = cand; }
+        cand = t01.g;
+        dc = w00 * nat_d(t00, cand) + w10 * nat_d(t10, cand)
+           + w01 * nat_d(t01, cand) + w11 * nat_d(t11, cand);
+        if (dc < d1) { d1 = dc; own = cand; }
+        cand = t11.g;
+        dc = w00 * nat_d(t00, cand) + w10 * nat_d(t10, cand)
+           + w01 * nat_d(t01, cand) + w11 * nat_d(t11, cand);
+        if (dc < d1) { d1 = dc; own = cand; }
         // the empire's writ runs only so far; the cap undulates on
         // smooth sines so empty country gets an organic frontier
         float wob = 0.004 * (sin(nrm.x * 21.0) + sin(nrm.y * 17.0)
                              + sin(nrm.z * 25.0));
         float reach = 0.11 + wob;
-        if (land_px && d1 < reach && owner != 5) {
+        int owner = int(own + 0.5);
+        if (land_px && d1 < reach && owner != %(neutral)d) {
             // territory wash as a CONSTANT-WIDTH frontier ribbon: the
-            // baked TRUE distance to the drawn border (fB.a) and to
-            // the nearest COAST both count as the empire's edge, so
-            // the band hugs the dashed line evenly everywhere and an
+            // baked TRUE distance to the drawn border and to the
+            // nearest COAST both count as the empire's edge, so the
+            // band hugs the dashed line evenly everywhere and an
             // island wears its colours along the shore. Fades to a
             // whisper deep inland. Annexation wears BLACK.
             vec3 tint = vec3(0.05, 0.05, 0.05);
-            if (owner < 5) tint = nat_tint[owner];
-            float edge = min(fB.a, texture2D(coast_d, buv).r);
+            if (owner < %(nnat)d) tint = nat_tint[owner];
+            float edge = min(texture2D(border_fd, buv).r,
+                             texture2D(coast_d, buv).r);
             float w = 1.0 - smoothstep(0.0, wash_band.x, edge);
             c = mix(c, tint,
                     (wash_band.y + (1.0 - wash_band.y) * w)
@@ -277,7 +312,8 @@ void main() {
     }
     gl_FragColor = vec4(c, 1.0);
 }
-""" % {'nvis': MAX_VISION_SOURCES, 'nsites': 200}
+""" % {'nvis': MAX_VISION_SOURCES, 'nnat': len(NAT_ORDER),
+       'neutral': NEUTRAL_IDX, 'bw': 2048, 'bh': 1024}
 
 
 class Globe:
@@ -329,14 +365,12 @@ class Globe:
         self.root.setShaderInput('comm_sin_eps', math.sin(eps))
         self.root.setShaderInput('fog_brightness', FOG_BRIGHTNESS)
         self.root.setShaderInput('fog_saturation', FOG_SATURATION)
-        # national borders: Voronoi sites (the cities) + owner tints
+        # national borders: one tint per nation in NAT_ORDER
         from panda3d.core import PTA_LVecBase3f
-        self._sites_pta = PTA_LVecBase4f.emptyArray(200)
-        self._tint_pta = PTA_LVecBase3f.emptyArray(6)
+        self._tint_pta = PTA_LVecBase3f.emptyArray(len(NAT_ORDER))
         for i, key in enumerate(NAT_ORDER):
             col = COUNTRIES[key]['color']
             self._tint_pta.setElement(i, Vec3(col[0], col[1], col[2]))
-        self.root.setShaderInput('sites', self._sites_pta)
         self.root.setShaderInput('site_count', 0)
         self.root.setShaderInput('nat_tint', self._tint_pta)
         self.root.setShaderInput('border_eps', 0.0022)
@@ -345,12 +379,17 @@ class Globe:
         self._border_gen = 0
         self._border_bake = None
         self._pending_site_count = 0
-        for name in ('border_dA', 'border_dB'):
-            fdummy = Texture(name)
-            fdummy.setup2dTexture(1, 1, Texture.TFloat, Texture.FRgba32)
-            fdummy.setRamImage(
-                np.full(4, 9.0, dtype=np.float32).tobytes())
-            self.root.setShaderInput(name, fdummy)
+        tdummy = Texture('border_top')
+        tdummy.setup2dTexture(1, 1, Texture.TFloat, Texture.FRgba32)
+        # BGRA texel (d2, o1, d1, o2): far away, owned by nobody
+        tdummy.setRamImage(np.array(
+            [9.0, float(NEUTRAL_IDX), 9.0, float(NEUTRAL_IDX)],
+            dtype=np.float32).tobytes())
+        self.root.setShaderInput('border_top', tdummy)
+        fdummy = Texture('border_fd')
+        fdummy.setup2dTexture(1, 1, Texture.TFloat, Texture.FR32)
+        fdummy.setRamImage(np.full(1, 9.0, dtype=np.float32).tobytes())
+        self.root.setShaderInput('border_fd', fdummy)
         cdummy = Texture('coast_d')
         cdummy.setup2dTexture(1, 1, Texture.TFloat, Texture.FR32)
         cdummy.setRamImage(np.full(1, 9.0, dtype=np.float32).tobytes())
@@ -533,12 +572,12 @@ class Globe:
         return Globe._bids_grid
 
     def set_borders(self, entries):
-        """entries: [(unit_vec, owner_index 0..5), ...]. Bakes, on a
-        worker thread, the COMPLETE smooth-min distance fields over
-        every city of every empire: signed frontier distance + own-
-        empire distance per texel (float, bilinear at draw), plus the
-        owner pair per texel. Globally continuous by construction, so
-        the drawn borders can have no seams or slivers."""
+        """entries: [(unit_vec, owner_index into NAT_ORDER or
+        ANNEX_IDX), ...]. Bakes, on a worker thread, the smooth-min
+        distance fields over every city of every empire, then keeps
+        only the TOP-2 (distance, owner) pair per texel -- sufficient
+        for the shader's sub-texel argmin AND for tracing every
+        frontier, at a memory cost independent of the nation count."""
         self._border_gen += 1
         gen = self._border_gen
         n = len(entries)
@@ -546,24 +585,28 @@ class Globe:
         S = np.array([[p.x, p.y, p.z] for (p, o) in entries],
                      dtype=np.float32).T          # (3, n)
         owners = np.array([o for (p, o) in entries], dtype=np.int64)
-        # 7 classes: empires 0-4, neutral 5, and 6 = cities still being
-        # annexed, which carry their own BLACK border until absorbed
-        onehot = np.zeros((n, 7), dtype=np.float32)
+        # classes: every nation in NAT_ORDER, plus ANNEX_IDX = cities
+        # still being absorbed, which carry a BLACK wash until done
+        onehot = np.zeros((n, N_CLASSES), dtype=np.float32)
         onehot[np.arange(n), owners] = 1.0
+        live = np.flatnonzero(onehot.sum(axis=0) > 0)   # classes in play
 
         def bake():
             # smooth-min radius. Keep SMALL: the log-sum-exp field is a
             # density estimator, so a big K lets a CLUSTER of rival
-            # cities out-pull a single nearby city (Calais+Dunkirk+Lille
-            # were pushing the border past British Dover, and Britain's
-            # own dense isles pushed red tint onto the Calais coast).
-            # At K=0.006 only cities within ~75 km sway a point, so the
-            # border lands at the halfway point between the two NEAREST
-            # cities while corners stay visibly rounded.
+            # cities out-pull a single nearby city. At K=0.006 only
+            # cities within ~75 km sway a point, so the border lands at
+            # the halfway point between the two NEAREST cities while
+            # corners stay visibly rounded.
             K = 0.006
             grid = self._border_grid()
             total = grid.shape[0]
-            dist6 = np.empty((total, 7), dtype=np.float32)
+            # top-2 per texel: distances + owner ids
+            d1 = np.empty(total, dtype=np.float32)
+            o1 = np.empty(total, dtype=np.float32)
+            d2 = np.empty(total, dtype=np.float32)
+            o2 = np.empty(total, dtype=np.float32)
+            oh = onehot[:, live]                  # only classes in play
             step = 65536
             for a in range(0, total, step):
                 b = min(total, a + step)
@@ -571,51 +614,59 @@ class Globe:
                     dots = grid[a:b] @ S              # (chunk, n)
                 np.clip(dots, -1.0, 1.0, out=dots)
                 ang = np.arccos(dots)
-                # smooth-min distance to EVERY empire at once
+                # smooth-min distance to EVERY live class at once
                 with np.errstate(all='ignore'):
-                    E = np.exp(ang * (-1.0 / K)) @ onehot   # (chunk, 7)
-                dist6[a:b] = -K * np.log(np.maximum(E, 1e-30))
-            fa = np.zeros((total, 4), dtype=np.float32)
-            fa[:, 2] = dist6[:, 0]                    # BGRA: R at [2]
-            fa[:, 1] = dist6[:, 1]                    # G at [1]
-            fa[:, 0] = dist6[:, 2]                    # B at [0]
-            fa[:, 3] = dist6[:, 3]                    # A at [3]
-            fb = np.zeros((total, 4), dtype=np.float32)
-            fb[:, 2] = dist6[:, 4]
-            fb[:, 1] = dist6[:, 5]
-            fb[:, 0] = dist6[:, 6]              # annexing class in B
+                    E = np.exp(ang * (-1.0 / K)) @ oh
+                dc = -K * np.log(np.maximum(E, 1e-30))
+                if dc.shape[1] == 1:
+                    d1[a:b] = dc[:, 0]
+                    o1[a:b] = float(live[0])
+                    d2[a:b] = 9.0
+                    o2[a:b] = float(NEUTRAL_IDX)
+                    continue
+                part = np.argpartition(dc, 1, axis=1)[:, :2]
+                r = np.arange(dc.shape[0])
+                da = dc[r, part[:, 0]]
+                db = dc[r, part[:, 1]]
+                swap = db < da
+                first = np.where(swap, part[:, 1], part[:, 0])
+                second = np.where(swap, part[:, 0], part[:, 1])
+                d1[a:b] = np.minimum(da, db)
+                d2[a:b] = np.maximum(da, db)
+                o1[a:b] = live[first]
+                o2[a:b] = live[second]
+            H, W = self.BIDS_H, self.BIDS_W
+            top = np.empty((total, 4), dtype=np.float32)
+            top[:, 2] = d1                        # BGRA: R at [2]
+            top[:, 1] = o1                        # G at [1]
+            top[:, 0] = d2                        # B at [0]
+            top[:, 3] = o2                        # A at [3]
             # TRUE distance (radians) to the drawn frontier, so the
             # territory wash can hug the dashed line at a CONSTANT
-            # width. The seed is the zero set of the SAME field the
-            # dash tracer marches -- min(reach - d_e, d_riv - d_e) --
-            # so the ribbon follows every drawn contour, including the
-            # REACH CAP out in open country (a class-change seed
-            # missed those far-land frontiers entirely).
-            H, W = self.BIDS_H, self.BIDS_W
-            D7 = dist6.reshape(H, W, 7)
+            # width. The class map's boundaries ARE the frontier: the
+            # winner inside its reach cap, else neutral.
             reach = (BORDER_REACH
                      + 0.004 * (np.sin(grid[:, 0] * 21.0)
                                 + np.sin(grid[:, 1] * 17.0)
                                 + np.sin(grid[:, 2] * 25.0))
                      ).reshape(H, W).astype(np.float32)
-            seed = np.zeros((H, W), dtype=bool)
-            for e in (0, 1, 2, 3, 4, 6):
-                d_e = D7[:, :, e]
-                d_riv = np.delete(D7, e, axis=2).min(axis=2)
-                inside = np.minimum(reach - d_e, d_riv - d_e) > 0
-                seed |= inside != np.roll(inside, 1, axis=1)
-                seed |= inside != np.roll(inside, -1, axis=1)
-                seed[1:] |= inside[1:] != inside[:-1]
-                seed[:-1] |= inside[:-1] != inside[1:]
+            cls = np.where(d1.reshape(H, W) < reach,
+                           o1.reshape(H, W).astype(np.int16),
+                           np.int16(NEUTRAL_IDX))
+            seed = self._frontier_seed(cls)
+            # neutral-vs-neutral texel pairs seed nothing
+            seed &= cls != NEUTRAL_IDX
             bd = self._chamfer(seed)
-            fb[:, 3] = (bd * np.float32(np.pi / H)).reshape(-1)
-            # trace the actual border curves out of the same fields and
-            # pre-cut them into evenly spaced dashes (one geometry per
-            # zoom octave): the drawn line is real geometry, so its
-            # thickness and dash rhythm are exact everywhere
+            fd = (bd * np.float32(np.pi / H)).reshape(-1)
+            # trace the actual border curves out of the same top-2
+            # fields and pre-cut them into evenly spaced dashes
             lines = self._trace_border_lines(
-                dist6.reshape(self.BIDS_H, self.BIDS_W, 7), grid)
-            self._border_bake = (gen, fa.tobytes(), fb.tobytes(), lines)
+                d1.reshape(H, W), o1.reshape(H, W),
+                d2.reshape(H, W), o2.reshape(H, W),
+                [int(e) for e in live if e != NEUTRAL_IDX],
+                reach, grid)
+            self._border_bake = (gen, top.tobytes(),
+                                 fd.astype(np.float32).tobytes(), lines)
 
         threading.Thread(target=bake, daemon=True).start()
 
@@ -628,25 +679,23 @@ class Globe:
     # renderer, and the whole thing is glued to the terrain.  Worker
     # thread only.
 
-    def _trace_border_lines(self, D, grid):
-        """D: (H, W, 6) smooth-min distance per empire; grid: (H*W, 3)
-        unit vectors. Returns [(verts (n,3) f32, segs (m,2) u32), ...]
-        one entry per zoom octave in BORDER_OCT_ALTS."""
+    def _trace_border_lines(self, d1, o1, d2, o2, classes, reach, grid):
+        """Trace every empire's frontier from the TOP-2 records: at
+        any texel on e's frontier, e is the winner on one side and the
+        runner-up on the other, so d_e and its nearest rival are both
+        recoverable exactly where the zero crossing lives. Returns
+        [(verts, segs), ...] one entry per zoom octave."""
         H, W = self.BIDS_H, self.BIDS_W
-        gx, gy, gz = grid[:, 0], grid[:, 1], grid[:, 2]
-        reach = (BORDER_REACH + 0.004 * (np.sin(gx * 21.0)
-                                         + np.sin(gy * 17.0)
-                                         + np.sin(gz * 25.0))
-                 ).reshape(H, W).astype(np.float32)
         oct_pts = [[] for _ in BORDER_OCT_ALTS]
         oct_segs = [[] for _ in BORDER_OCT_ALTS]
         oct_base = [0] * len(BORDER_OCT_ALTS)
-        for e in (0, 1, 2, 3, 4, 6):          # neutral draws no border
-            d_e = D[:, :, e]
-            others = np.delete(D, e, axis=2)
-            d_riv = others.min(axis=2)
-            riv_arg = others.argmin(axis=2)
-            riv_idx = np.where(riv_arg >= e, riv_arg + 1, riv_arg)
+        for e in classes:                     # neutral draws no border
+            win = o1 == e
+            runner = o2 == e
+            d_e = np.where(win, d1, np.where(runner, d2,
+                                             np.float32(9.0)))
+            d_riv = np.where(win, d2, d1)
+            riv_idx = np.where(win, o2, o1).astype(np.int64)
             # territory: closer to us than any rival AND within reach
             F = np.minimum(reach - d_e, d_riv - d_e)
             frontier = d_riv < reach          # which constraint binds
@@ -703,7 +752,7 @@ class Globe:
         r = np.clip(((90.0 - lat) / 180.0 * H).astype(np.int64), 0, H - 1)
         c = ((lon + 180.0) / 360.0 * W).astype(np.int64) % W
         riv = riv_idx[r, c]
-        shared = frontier[r, c] & (riv < e) & (riv != 5)
+        shared = frontier[r, c] & (riv < e) & (riv != NEUTRAL_IDX)
         keep &= ~shared
         for ki, (s0, s1) in enumerate(spans):
             if not keep[ki]:
@@ -878,17 +927,27 @@ class Globe:
         if bake is None or bake[0] != self._border_gen:
             return
         self._border_bake = None
-        gen, fa_data, fb_data, lines = bake
-        for name, data in (('border_dA', fa_data), ('border_dB', fb_data)):
-            ftex = Texture(name)
-            ftex.setup2dTexture(self.BIDS_W, self.BIDS_H,
-                                Texture.TFloat, Texture.FRgba32)
-            ftex.setRamImage(data)
-            ftex.setMinfilter(SamplerState.FTLinear)
-            ftex.setMagfilter(SamplerState.FTLinear)
-            ftex.setWrapU(SamplerState.WMRepeat)
-            ftex.setWrapV(SamplerState.WMClamp)
-            self.root.setShaderInput(name, ftex)
+        gen, top_data, fd_data, lines = bake
+        # top-2 records: NEAREST (the shader does its own bilinear --
+        # linear filtering would blend owner IDS into nonsense)
+        ttex = Texture('border_top')
+        ttex.setup2dTexture(self.BIDS_W, self.BIDS_H,
+                            Texture.TFloat, Texture.FRgba32)
+        ttex.setRamImage(top_data)
+        ttex.setMinfilter(SamplerState.FTNearest)
+        ttex.setMagfilter(SamplerState.FTNearest)
+        ttex.setWrapU(SamplerState.WMRepeat)
+        ttex.setWrapV(SamplerState.WMClamp)
+        self.root.setShaderInput('border_top', ttex)
+        ftex = Texture('border_fd')
+        ftex.setup2dTexture(self.BIDS_W, self.BIDS_H,
+                            Texture.TFloat, Texture.FR32)
+        ftex.setRamImage(fd_data)
+        ftex.setMinfilter(SamplerState.FTLinear)
+        ftex.setMagfilter(SamplerState.FTLinear)
+        ftex.setWrapU(SamplerState.WMRepeat)
+        ftex.setWrapV(SamplerState.WMClamp)
+        self.root.setShaderInput('border_fd', ftex)
         self.root.setShaderInput('site_count', self._pending_site_count)
         for np_ in self._border_line_nodes:
             np_.removeNode()

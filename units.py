@@ -908,6 +908,13 @@ class Unit:
         if target is not None and not getattr(target, 'alive', True):
             self.attack_target = None
             target = None
+        # peace (declared mid-fight or by stale order) drops the target
+        if (target is not None
+                and getattr(target, 'country', None) is not None
+                and isinstance(target, Unit)
+                and not self.game.at_war(self.country, target.country)):
+            self.attack_target = None
+            target = None
         if target is None:
             if self.fire_cooldown > 0.0:
                 return          # scan for targets only when guns are ready

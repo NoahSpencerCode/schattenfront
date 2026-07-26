@@ -13,6 +13,7 @@ OUT OF CONTACT: invisible and beyond command until the net reaches them.
 """
 
 import math
+import os
 import random
 import time
 import threading
@@ -71,6 +72,7 @@ from utils import (angle_between, find_regular_font_path,
                    find_typewriter_font_path, latlon_dist_deg,
                    latlon_to_vec, north_tangent, vec_to_latlon)
 
+_EMPTY_SET = frozenset()
 MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
           'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 
@@ -279,8 +281,22 @@ class Bridge:
 
 
 class WW2RTSGame(ShowBase):
+
+    @staticmethod
+    def _assert_game_root():
+        """Frozen builds: macOS moves a Finder-launched GUI app's cwd
+        back to the binary dir during Cocoa init, which silently
+        breaks every relative asset path. main.py records the true
+        root; re-assert it whenever the window machinery had a chance
+        to wander."""
+        root = os.environ.get('SCHATTENFRONT_ROOT')
+        if root and os.getcwd() != root and os.path.isdir(
+                os.path.join(root, 'assets')):
+            os.chdir(root)
+
     def __init__(self):
         ShowBase.__init__(self)
+        self._assert_game_root()        # Cocoa may have chdir'd us
         self.disableMouse()
         self.setBackgroundColor(0.04, 0.05, 0.08)
         self.camLens.setNearFar(0.05, 500.0)
@@ -378,6 +394,12 @@ class WW2RTSGame(ShowBase):
         self.sun_angle = 0.0
         self.eliminated = set()
         self.game_over = False
+        self.wars = set()
+        self._war_sets = {}
+        self.alliances = {c: set() for c in COUNTRIES}
+        self.pouches = []
+        self.news_queue = []
+        self.stats_ledger = {}
         self.kills = 0
         self.losses = 0
         self.out_of_contact = 0
@@ -389,6 +411,9 @@ class WW2RTSGame(ShowBase):
         self.budget_fax = None
         self.briefing_fax = None
         self.tax_fax = None
+        self.diplo_fax = None
+        self.newspaper = None
+        self._news_cooldown = 0.0
 
         # input state
         self.drag_start = None
@@ -478,6 +503,13 @@ class WW2RTSGame(ShowBase):
         self._pending_plans = 0
         self._preplans = {}         # token -> queued order awaiting route
         self._ind_tokens = set()    # plans the player is waiting on
+        # a busy pure-python worker (route planner, border bake) holds
+        # the GIL for the FULL default switch interval (5 ms) at every
+        # handoff -- the main loop stalls mid-frame and the game
+        # hitches. A short interval keeps frames smooth; the workers
+        # lose a little throughput, which async work never notices.
+        import sys as _sys
+        _sys.setswitchinterval(0.0005)
         self._plan_worker = threading.Thread(target=self._plan_loop,
                                              daemon=True)
         self._plan_worker.start()
@@ -557,6 +589,17 @@ class WW2RTSGame(ShowBase):
         month %= 12
         return "%02d%02d HRS  %d %s %d" % (hh, mm, day, MONTHS[month], year)
 
+    def campaign_date_text(self, minutes=None):
+        """The dateline alone (no clock), for mastheads."""
+        y, mo, d, h, mi = CAMPAIGN_START
+        total = mi + h * 60 + (d - 1) * 1440 + \
+            (self.clock_minutes if minutes is None else minutes)
+        days = int(total) // 1440
+        month = mo - 1 + days // 30
+        day = days % 30 + 1
+        year = y + month // 12
+        return "%d %s %d" % (day, MONTHS[month % 12], year)
+
     # ========================================================== states
     def show_menu(self):
         self.game_state = 'menu'
@@ -615,6 +658,9 @@ class WW2RTSGame(ShowBase):
         self.budget_fax = None
         self.briefing_fax = None
         self.tax_fax = None
+        self.diplo_fax = None
+        self.newspaper = None
+        self._news_cooldown = 0.0
         self.budget_lock_until = None
         self.budget_counts = {}
         self.fortnight_start = 0.0
@@ -638,6 +684,14 @@ class WW2RTSGame(ShowBase):
         self.kills = self.losses = 0
         self.out_of_contact = 0
         self.clock_minutes = 0.0
+        # ---- diplomacy: the world begins AT PEACE ----
+        self.wars = set()               # frozenset({a, b}) at war
+        self._war_sets = {}             # flat per-nation enemy sets
+        self.alliances = {c: set() for c in COUNTRIES}
+        self.pouches = []               # diplomatic bags in transit
+        self.news_queue = []            # newspapers on the stand
+        self.stats_ledger = {'wars_declared': 0, 'allies_made': 0,
+                             'cities_taken': 0, 'units_raised': 0}
         self._nation_ais = {}
         self._pending_ai_orders = []
         self.unload_mode = False
@@ -694,6 +748,7 @@ class WW2RTSGame(ShowBase):
         return root, set_status
 
     def start_game(self, country):
+        self._assert_game_root()        # belt and braces before I/O
         loading, progress = self._loading_screen()
         if self.world is None:
             self.world = WorldData(log=progress)
@@ -755,14 +810,20 @@ class WW2RTSGame(ShowBase):
         self.research_pct = {c: (0 if c == country else 15)
                              for c in COUNTRIES}
         self.tech_fax = None
-        # every computer power gets a general staff playing by the
-        # player's own rules (budget, production, orders, annexation)
-        self._nation_ais = {c: NationAI(self, c) for c in COUNTRIES
-                            if c != country and c != 'neutral'}
+        # every computer POWER gets a general staff playing by the
+        # player's own rules (budget, production, orders, annexation);
+        # the NPC nations field a standing home-defense garrison only
+        from config import PLAYABLE
+        self._nation_ais = {c: NationAI(self, c) for c in PLAYABLE
+                            if c != country}
 
         for faction in COUNTRIES:
-            if faction != 'neutral':
+            if faction == 'neutral':
+                continue
+            if faction in PLAYABLE:
                 self._spawn_starting_forces(faction)
+            else:
+                self._spawn_npc_garrison(faction)
 
         self._update_borders()
         cap = self.capital_of(country)
@@ -794,7 +855,10 @@ class WW2RTSGame(ShowBase):
 
         self._make_idle_roster()
         self._make_demolish_button()
+        self._make_diplo_button()
         self._build_road_overlay()
+        from icons import prewarm_button_assets
+        prewarm_button_assets()         # no first-use PIL hitch in play
         self._loading_np = loading      # held up through the warm-up
         self._warmup_t0 = globalClock.getFrameTime()
         self._bind_game_controls()
@@ -827,8 +891,35 @@ class WW2RTSGame(ShowBase):
                 self.spawn_unit(ut, faction, wl, wo, jitter=0.25,
                                 seed=30 + i, water=True)
 
+    def _spawn_npc_garrison(self, faction):
+        """An NPC nation's standing army: a home-defense garrison
+        posted AT its cities, sized by the town. It never marches and
+        never grows -- the auto-acquire law makes it fight anyone who
+        brings a war to its soil."""
+        from geodata import CITY_POPULATION
+        for c in self.cities:
+            if c.home_country != faction:
+                continue
+            pop = CITY_POPULATION.get(c.name, 200)
+            n_inf = max(1, min(4, 1 + pop // 900))
+            for i in range(n_inf):
+                u = self.spawn_unit('infantry', faction, c.lat, c.lon,
+                                    jitter=0.25, seed=100 + i)
+                u.supply = u.stats['supply_cap']
+            if c.capital or pop >= 1500:
+                u = self.spawn_unit('tank', faction, c.lat, c.lon,
+                                    jitter=0.2, seed=140)
+                u.supply = u.stats['supply_cap']
+            if pop >= 900:
+                u = self.spawn_unit('aa_artillery', faction, c.lat,
+                                    c.lon, jitter=0.2, seed=150)
+                u.supply = u.stats['supply_cap']
+
     def spawn_unit(self, unit_type, faction, lat, lon, jitter=0.0, seed=0,
                    water=False, base=None):
+        if faction == self.player_country:
+            self.stats_ledger['units_raised'] = \
+                self.stats_ledger.get('units_raised', 0) + 1
         rng = random.Random(hash((faction, unit_type, seed)))
         la = lat + rng.uniform(-jitter, jitter)
         lo = lon + rng.uniform(-jitter, jitter)
@@ -868,9 +959,11 @@ class WW2RTSGame(ShowBase):
         ownership (capture or completed annexation)."""
         if not self.globe:
             return
+        from globe import ANNEX_IDX, NEUTRAL_IDX
         idx = {k: i for i, k in enumerate(NAT_ORDER)}
         self.globe.set_borders(
-            [(c.pos, 6 if c.annexing else idx.get(c.country, 5))
+            [(c.pos, ANNEX_IDX if c.annexing
+              else idx.get(c.country, NEUTRAL_IDX))
              for c in self.cities])
 
     def harbor_of_city(self, city):
@@ -941,6 +1034,24 @@ class WW2RTSGame(ShowBase):
     # idle pool of that type.
 
     IDLE_ROSTER_MAX = 10
+
+    def _make_diplo_button(self):
+        """Square key at the top of the right edge: opens the
+        Foreign Office ledger."""
+        from ui import pill_button, add_tooltip
+        from direct.gui.OnscreenImage import OnscreenImage
+        if getattr(self, 'diplo_btn', None) is not None:
+            self.diplo_btn.destroy()
+        b = pill_button(self.a2dRightCenter, '', self.open_diplomacy,
+                        pos=(-0.075, 0, 0.54), hw=0.048, hh=0.048,
+                        corner=0.30)
+        pic = OnscreenImage(image=get_icon_path('diplomacy_button',
+                                                'dark'),
+                            parent=b, scale=0.032, pos=(0, 0, 0.002))
+        pic.setTransparency(True)
+        add_tooltip(b, "DIPLOMACY LEDGER -- WARS, PACTS AND PEACE",
+                    font=self.hud_font, left=0.048)
+        self.diplo_btn = b
 
     def _make_idle_roster(self):
         if getattr(self, 'idle_btns', None):
@@ -1066,6 +1177,8 @@ class WW2RTSGame(ShowBase):
             self._close_briefing()
         elif self.tax_fax:
             self._tax_discard()
+        elif self.diplo_fax:
+            self._close_diplomacy()
         elif self.budget_fax:
             self._budget_discard()
         elif self.pause_frame:
@@ -1841,7 +1954,7 @@ class WW2RTSGame(ShowBase):
         # under an ARMED demolition order
         if target is None and self.demolish_mode:
             foe_fields = [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
-                          if a.country != self.player_country
+                          if self.at_war(self.player_country, a.country)
                           and self._facing_camera(a.pos)]
             foe_field = self._pick_object(mpos, foe_fields)
             if foe_field is not None:
@@ -1881,6 +1994,12 @@ class WW2RTSGame(ShowBase):
             self._order_on_bridge(target, shift, commandable)
             return
         if isinstance(target, Unit):
+            if not self.at_war(self.player_country, target.country):
+                self.fax_short(
+                    "ORDER REFUSED -- NOT AT WAR WITH %s: THE FOREIGN "
+                    "OFFICE MUST SPEAK FIRST" %
+                    COUNTRIES[target.country]['name'].upper())
+                return
             for u in commandable:
                 if u.can_target(target.stats['domain']):
                     u.give_order({'kind': 'attack', 'target': target},
@@ -2559,6 +2678,10 @@ class WW2RTSGame(ShowBase):
             if not getattr(target, 'alive', False):
                 unit.attack_target = None
                 return True
+            if (isinstance(target, Unit)
+                    and not self.at_war(unit.country, target.country)):
+                unit.attack_target = None
+                return True     # peace overtook the order: stand down
             if unit.dist_to(target.pos) > \
                     self.effective_fire_range(unit, target):
                 if not self._replan_ready(unit):
@@ -2924,8 +3047,11 @@ class WW2RTSGame(ShowBase):
         best, best_d = None, horizon
         night_blind = not self.is_day(unit.pos)   # vs the other domain
         unit_air = unit.is_air()
+        enemies = self._war_sets.get(unit.country)
+        if not enemies:
+            return None         # a nation at peace scans nobody
         for other in self.units:
-            if not other.alive or other.country == unit.country \
+            if not other.alive or other.country not in enemies \
                     or other.carried_by or self.is_embarked(other):
                 continue
             if not unit.can_target(other.stats['domain']):
@@ -2941,6 +3067,11 @@ class WW2RTSGame(ShowBase):
         return best
 
     def resolve_shot(self, attacker, target):
+        # the last word of the gunnery law: units of nations at peace
+        # never exchange fire, whatever stale order says otherwise
+        if (isinstance(target, Unit)
+                and not self.at_war(attacker.country, target.country)):
+            return
         dmg = attacker.stats['damage'] * random.uniform(0.75, 1.25)
         # bunkered infantry shrug off bombs and naval shellfire
         if (isinstance(target, Unit) and target.unit_type == 'infantry'
@@ -4290,12 +4421,279 @@ void main() {
                 and u.unit_type == 'infantry' and not u.carried_by
                 and u.dist_to(city.pos) < CITY_CAPTURE_RANGE]
 
+    # ====================================================== diplomacy
+    # The world of 1939 begins at peace. Nothing fires on anything
+    # until a state of war exists between the two flags, and a
+    # declaration binds BLOCS: every ally of each side is dragged in.
+
+    def at_war(self, a, b):
+        return b in self._war_sets.get(a, _EMPTY_SET)
+
+    def _rebuild_war_sets(self):
+        """Flat enemy sets per nation: the hot paths (target
+        acquisition over hundreds of units) do ONE dict lookup and
+        set-membership test instead of hashing a frozenset."""
+        ws = {}
+        for pair in self.wars:
+            a, b = tuple(pair)
+            ws.setdefault(a, set()).add(b)
+            ws.setdefault(b, set()).add(a)
+        self._war_sets = ws
+
+    def allied(self, a, b):
+        return b in self.alliances.get(a, ())
+
+    def _bloc(self, a):
+        """a and everyone bound to it through the alliance web."""
+        seen = {a}
+        queue = [a]
+        while queue:
+            x = queue.pop()
+            for y in self.alliances.get(x, ()):
+                if y not in seen:
+                    seen.add(y)
+                    queue.append(y)
+        return seen
+
+    def nation_enemies(self, a):
+        return set(self._war_sets.get(a, _EMPTY_SET))
+
+    def declare_war(self, aggressor, defender):
+        """The declaration takes effect at once and drags the blocs:
+        every member of each alliance web enters the war."""
+        if (aggressor == defender or self.at_war(aggressor, defender)
+                or aggressor in self.eliminated
+                or defender in self.eliminated):
+            return False
+        bloc_a = self._bloc(aggressor)
+        bloc_b = self._bloc(defender)
+        for x in bloc_a:
+            for y in bloc_b:
+                if x != y:
+                    self.wars.add(frozenset((x, y)))
+                    self.alliances[x].discard(y)
+                    self.alliances[y].discard(x)
+        if aggressor == self.player_country:
+            self.stats_ledger['wars_declared'] = \
+                self.stats_ledger.get('wars_declared', 0) + 1
+        self._rebuild_war_sets()
+        dragged = sorted((bloc_a | bloc_b) - {aggressor, defender})
+        deck = "%s and its allies enter the war against %s" % (
+            COUNTRIES[aggressor]['name'], COUNTRIES[defender]['name'])
+        if dragged:
+            deck += " -- treaty obligations bring in %s" % ", ".join(
+                COUNTRIES[d]['name'] for d in dragged)
+        self.post_news(
+            "%s DECLARES WAR ON %s" %
+            (COUNTRIES[aggressor]['name'].upper(),
+             COUNTRIES[defender]['name'].upper()), deck + ".")
+        player = self.player_country
+        if player in bloc_a or player in bloc_b:
+            other = (bloc_b if player in bloc_a else bloc_a)
+            self.fax.post(
+                "STATE OF WAR",
+                "A state of war now exists with %s." %
+                B(", ".join(COUNTRIES[c]['name'] for c in sorted(other))),
+                sender="FOREIGN OFFICE")
+        for ai in self._nation_ais.values():
+            ai.on_ownership_change()
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+        return True
+
+    def make_alliance(self, a, b):
+        """A signed pact: the two nations' wars become one another's."""
+        if (a == b or self.at_war(a, b) or self.allied(a, b)
+                or a in self.eliminated or b in self.eliminated):
+            return False
+        self.alliances[a].add(b)
+        self.alliances[b].add(a)
+        if self.player_country in (a, b):
+            self.stats_ledger['allies_made'] = \
+                self.stats_ledger.get('allies_made', 0) + 1
+        self.post_news(
+            "%s AND %s SIGN PACT OF ALLIANCE" %
+            (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
+            "The two powers bind their wars together: an attack upon "
+            "one is now an attack upon both.")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+        # the pact inherits each partner's standing wars at once
+        for x, y in ((a, b), (b, a)):
+            for enemy in list(self.nation_enemies(x)):
+                if enemy != y and not self.at_war(y, enemy):
+                    self.wars.add(frozenset((y, enemy)))
+        self._rebuild_war_sets()
+        return True
+
+    def break_alliance(self, a, b):
+        if not self.allied(a, b):
+            return False
+        self.alliances[a].discard(b)
+        self.alliances[b].discard(a)
+        self.post_news(
+            "%s RENOUNCES ITS PACT WITH %s" %
+            (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
+            "The alliance is dissolved by note delivered in the small "
+            "hours; each power's wars are its own again.")
+        return True
+
+    def make_peace(self, a, b):
+        """A white peace between the PAIR alone -- allies fight on."""
+        if not self.at_war(a, b):
+            return False
+        self.wars.discard(frozenset((a, b)))
+        self._rebuild_war_sets()
+        self.post_news(
+            "PEACE BETWEEN %s AND %s" %
+            (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
+            "Guns fall silent along the whole frontier under a peace "
+            "signed without indemnity or annexation.")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+        return True
+
+    def alliance_answer(self, nation, suitor):
+        """Would NATION accept SUITOR's offer of alliance? Shared
+        enemies persuade; entanglement with the suitor's enemies
+        forbids; a neutral NPC nation prefers its neutrality."""
+        if self.at_war(nation, suitor):
+            return False
+        en_n = self.nation_enemies(nation)
+        en_s = self.nation_enemies(suitor)
+        # an ally of the suitor's enemy will not sign
+        for e in en_s:
+            if self.allied(nation, e):
+                return False
+        score = 3 * len(en_n & en_s)
+        if en_n and not en_s:
+            score += 1              # a strong friend for a nation at war
+        if en_n:
+            score += 1              # any port in a storm
+        from config import PLAYABLE as _P
+        if nation not in _P and not en_n:
+            score -= 2              # the neutrals cherish neutrality
+        return score >= 2 or (score >= 1 and random.random() < 0.35)
+
+    def peace_answer(self, nation, suitor):
+        """Would NATION accept a white peace with SUITOR? A nation
+        losing the war says yes; a quiet, bloodless front usually
+        does; a winning power fights on."""
+        mine = [c for c in self.cities if c.country == nation]
+        home = [c for c in self.cities if c.home_country == nation]
+        losing = len(mine) < len(home)
+        if losing:
+            return True
+        forces_n = sum(1 for u in self.units
+                       if u.alive and u.country == nation)
+        forces_s = sum(1 for u in self.units
+                       if u.alive and u.country == suitor)
+        if forces_n < forces_s * 0.5:
+            return True
+        return random.random() < 0.25
+
+    # ---- the player's fax diplomacy: pouches with a courier delay ----
+
+    def pouch_pending(self, to):
+        return next((p for p in self.pouches if p['to'] == to), None)
+
+    def dispatch_pouch(self, kind, to):
+        """kind: 'war' | 'alliance' | 'peace'. The bag travels for
+        some game-hours; the answer (or the declaration's effect)
+        arrives by return fax."""
+        if self.pouch_pending(to) or to in self.eliminated:
+            return False
+        hours = random.uniform(4.0, 10.0)
+        self.pouches.append({'due': self.clock_minutes + hours * 60.0,
+                             'kind': kind, 'to': to})
+        verb = {'war': "a DECLARATION OF WAR",
+                'alliance': "an OFFER OF ALLIANCE",
+                'peace': "TERMS OF PEACE"}[kind]
+        self.fax.post(
+            "DISPATCH SENT",
+            "The bag carries %s to %s. The courier is expected in "
+            "about %d hours." %
+            (B(verb), B(COUNTRIES[to]['name']), round(hours)),
+            sender="FOREIGN OFFICE")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+        return True
+
+    def _tick_pouches(self):
+        """Deliver diplomatic bags whose couriers have arrived."""
+        if not self.pouches:
+            return
+        due = [p for p in self.pouches if p['due'] <= self.clock_minutes]
+        if not due:
+            return
+        me = self.player_country
+        for p in due:
+            self.pouches.remove(p)
+            to, kind = p['to'], p['kind']
+            if to in self.eliminated:
+                continue
+            name = COUNTRIES[to]['name']
+            if kind == 'war':
+                self.declare_war(me, to)
+            elif kind == 'alliance':
+                if self.alliance_answer(to, me):
+                    self.make_alliance(me, to)
+                else:
+                    self.fax.post(
+                        "OFFER DECLINED",
+                        "%s presents its compliments and declines the "
+                        "proposed pact. Its neutrality (or its own "
+                        "counsel) stands." % B(name),
+                        sender="FOREIGN OFFICE")
+            elif kind == 'peace':
+                if self.peace_answer(to, me):
+                    self.make_peace(me, to)
+                else:
+                    self.fax.post(
+                        "TERMS REJECTED",
+                        "%s rejects the offered terms. The war "
+                        "continues." % B(name),
+                        sender="FOREIGN OFFICE")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+
+    def open_diplomacy(self):
+        if self.game_state != 'playing' or self.diplo_fax:
+            return
+        from ui import DiplomacyLedger
+        self.diplo_fax = DiplomacyLedger(self, self._close_diplomacy)
+
+    def _close_diplomacy(self):
+        if self.diplo_fax:
+            self.diplo_fax.destroy()
+            self.diplo_fax = None
+
+    def _diplo_action(self, kind, nation):
+        """A ledger key pressed: the dispatch goes into the bag."""
+        self.dispatch_pouch(kind, nation)
+
+    def _diplo_break(self, nation):
+        self.break_alliance(self.player_country, nation)
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+
+    def post_news(self, headline, deck):
+        """An edition goes to the stand; the reader (phase: newspapers)
+        drains the queue. Every edition also files a short fax line so
+        no event is silent even before the paper is read."""
+        self.news_queue.append({
+            'headline': headline, 'deck': deck,
+            'minutes': self.clock_minutes})
+        self.fax_short(headline)
+
     def attempt_capture(self, city, country):
         """Annex a city: costs one infantry division per million souls
         (the cost of control -- they garrison it and leave the order of
         battle). The city cannot be taxed until the next fortnight."""
         if city.country == country or not self.units:
             return False
+        if not self.at_war(country, city.country):
+            return False        # no seizures at peace: war must exist
         garrison = self._capture_garrison(city, country)
         need = city.required_infantry()
         if len(garrison) < need:
@@ -4346,6 +4744,9 @@ void main() {
                                   sender="FIELD COMMAND")
 
     def _capture_city(self, city, new_owner):
+        if new_owner == self.player_country:
+            self.stats_ledger['cities_taken'] = \
+                self.stats_ledger.get('cities_taken', 0) + 1
         old = city.country
         city.country = new_owner
         city.capture_progress = 0.0
@@ -4403,30 +4804,95 @@ void main() {
                 continue
             if not any(c.country == country for c in self.cities):
                 self.eliminated.add(country)
-                self.fax.post(
-                    "INSTRUMENT OF SURRENDER",
-                    "%s has capitulated. Its forces lay down their "
-                    "arms." % B(COUNTRIES[country]['name']),
-                    sender="SUPREME HQ")
+                # a fallen nation leaves the diplomatic stage entirely
+                self.wars = {w for w in self.wars if country not in w}
+                self._rebuild_war_sets()
+                for allies in self.alliances.values():
+                    allies.discard(country)
+                self.alliances[country] = set()
+                self.post_news(
+                    "%s CAPITULATES" % COUNTRIES[country]['name'].upper(),
+                    "With its last city fallen, %s signs the instrument "
+                    "of surrender; its forces lay down their arms." %
+                    COUNTRIES[country]['name'])
                 for u in self.units:
                     if u.alive and u.country == country:
                         self.unit_destroyed(u, None)
         if self.player_country in self.eliminated:
             self.game_over = True
-            self.fax.post("DEFEAT",
-                          "The government has %s. The war is over -- "
-                          "press %s for headquarters." %
-                          (B("SURRENDERED"), B("ESC")),
-                          sender="SUPREME HQ")
-        elif all(c in self.eliminated or c == self.player_country
-                 or c == 'neutral' for c in COUNTRIES):
-            self.game_over = True
-            self.fax.post("TOTAL VICTORY",
-                          "%s. Church bells ring at home -- press %s "
-                          "for headquarters." %
-                          (B("ALL ENEMY POWERS HAVE CAPITULATED"),
-                           B("ESC")),
-                          sender="SUPREME HQ")
+            self._show_final_paper(False)
+        else:
+            # TOTAL VICTORY: the player's side holds the capitals of
+            # ALL FIVE great powers (NPC nations may survive at the
+            # edges -- the war is decided among the greats)
+            from config import PLAYABLE
+            side = self._bloc(self.player_country)
+            majors = [c for c in self.cities
+                      if c.capital and c.home_country in PLAYABLE]
+            if majors and all(c.country in side for c in majors):
+                self.game_over = True
+                self._show_final_paper(True)
+
+    def _tick_news(self, dt):
+        """The press: one edition at a time from the stand, with a
+        breath between editions so a busy day still reads."""
+        if self._news_cooldown > 0.0:
+            self._news_cooldown -= dt
+            return
+        if self.newspaper is not None or not self.news_queue:
+            return
+        ed = self.news_queue.pop(0)
+        from ui import Newspaper
+
+        def filed():
+            self.newspaper = None
+            self._news_cooldown = 4.0
+        self.newspaper = Newspaper(
+            self, ed['headline'], ed['deck'],
+            self.campaign_date_text(ed['minutes']), filed)
+
+    def _show_final_paper(self, victory):
+        """The war's LAST edition: the full statistical record."""
+        from ui import Newspaper
+        from config import PLAYABLE
+        if self.newspaper is not None:
+            self.newspaper.destroy()
+            self.newspaper = None
+        me = self.player_country
+        days = int(self.clock_minutes // 1440)
+        led = self.stats_ledger
+        stats = [
+            ("THE WAR RAN", "%d DAYS" % days),
+            ("CITIES UNDER THE FLAG",
+             str(sum(1 for c in self.cities if c.country == me))),
+            ("CITIES TAKEN BY ARMS", str(led.get('cities_taken', 0))),
+            ("ENEMY UNITS DESTROYED", str(self.kills)),
+            ("OWN UNITS LOST", str(self.losses)),
+            ("UNITS RAISED", str(led.get('units_raised', 0))),
+            ("WARS DECLARED", str(led.get('wars_declared', 0))),
+            ("PACTS SIGNED", str(led.get('allies_made', 0))),
+            ("TREASURY AT THE END",
+             "$%d" % int(self.funds.get(me, 0))),
+        ]
+        if victory:
+            allies = sorted(self.alliances.get(me, ()))
+            head = "TOTAL VICTORY -- THE WAR IS WON"
+            deck = ("All five great capitals stand under %s's flag%s. "
+                    "Church bells ring across the homeland." %
+                    (COUNTRIES[me]['name'],
+                     (" and its allies' (%s)" % ", ".join(
+                         COUNTRIES[a]['name'] for a in allies))
+                     if allies else ""))
+        else:
+            head = "%s CAPITULATES" % COUNTRIES[me]['name'].upper()
+            deck = ("With its last city fallen the government signs "
+                    "the instrument of surrender. The war is over.")
+
+        def filed():
+            self.newspaper = None
+        self.newspaper = Newspaper(
+            self, head, deck, self.campaign_date_text(), filed,
+            final='victory' if victory else 'defeat', stats=stats)
 
     # =========================================== vision & communications
     def _tick_vision_comm(self):
@@ -4513,30 +4979,62 @@ void main() {
                                if r.country == player]
         self._update_vision_shader()
         for u in self.units:
-            if not u.alive or u.carried_by or u.country == player \
-                    or self.is_embarked(u):
-                if u.alive and u.country == player:
-                    u.visible_to_player = u.in_contact
-                continue
-            target_air = u.is_air()
-            # a submerged boat shows nothing but a periscope feather:
-            # spotted only nearly overhead
-            sub_cap = (0.05 if getattr(u, 'submerged', False) else None)
-            visible = False
-            for (pos, rng, src_air, src_day, los) in friendly:
-                if not src_day and src_air != target_air:
-                    continue        # night: air and surface see nothing
-                                    # of each other
-                if sub_cap is not None:
-                    rng = min(rng, sub_cap)
-                ang = angle_between(u.pos, pos)
-                if ang * GLOBE_RADIUS > rng:
-                    continue
-                if (los is not None and not target_air
-                        and ang > los[self._az_index(pos, u.pos)]):
-                    continue        # the ridge hides them
-                visible = True
-                break
+            if u.alive and u.country == player:
+                u.visible_to_player = u.in_contact
+        targets = [u for u in self.units
+                   if u.alive and not u.carried_by
+                   and u.country != player and not self.is_embarked(u)]
+        if not targets:
+            return
+        if friendly and not TERRAIN_LOS:
+            # vectorized: ONE (targets x sources) angle matrix in
+            # numpy replaces the python double loop that was hitching
+            # the frame with hundreds of units on the map
+            import numpy as np
+            T = np.array([[u.pos.x, u.pos.y, u.pos.z]
+                          for u in targets])
+            F = np.array([[p.x, p.y, p.z]
+                          for (p, r, a, d, l) in friendly])
+            rng = np.array([r for (p, r, a, d, l) in friendly])
+            s_air = np.array([a for (p, r, a, d, l) in friendly],
+                             dtype=bool)
+            s_day = np.array([d for (p, r, a, d, l) in friendly],
+                             dtype=bool)
+            t_air = np.array([u.is_air() for u in targets], dtype=bool)
+            sub = np.array([bool(getattr(u, 'submerged', False))
+                            for u in targets], dtype=bool)
+            ang = np.arccos(np.clip(T @ F.T, -1.0, 1.0)) * GLOBE_RADIUS
+            eff = np.repeat(rng[None, :], len(targets), axis=0)
+            if sub.any():
+                # a submerged boat shows only a periscope feather
+                eff[sub] = np.minimum(eff[sub], 0.05)
+            ok = (ang <= eff) & (s_day[None, :]
+                                 | (s_air[None, :] == t_air[:, None]))
+            vis_flags = ok.any(axis=1)
+        else:
+            vis_flags = []
+            for u in targets:
+                target_air = u.is_air()
+                sub_cap = (0.05 if getattr(u, 'submerged', False)
+                           else None)
+                visible = False
+                for (pos, rng, src_air, src_day, los) in friendly:
+                    if not src_day and src_air != target_air:
+                        continue    # night: air and surface see
+                                    # nothing of each other
+                    if sub_cap is not None:
+                        rng = min(rng, sub_cap)
+                    ang = angle_between(u.pos, pos)
+                    if ang * GLOBE_RADIUS > rng:
+                        continue
+                    if (los is not None and not target_air
+                            and ang > los[self._az_index(pos, u.pos)]):
+                        continue    # the ridge hides them
+                    visible = True
+                    break
+                vis_flags.append(visible)
+        for u, visible in zip(targets, vis_flags):
+            visible = bool(visible)
             if visible != u.visible_to_player:
                 u.visible_to_player = visible
                 if visible:
@@ -4831,7 +5329,8 @@ void main() {
         mw = self.mouseWatcherNode
         if (self.game_state == 'playing' and mw and mw.hasMouse()
                 and not self.pause_frame and not self.budget_fax
-                and not self.briefing_fax and not self.tax_fax):
+                and not self.briefing_fax and not self.tax_fax
+                and not self.diplo_fax):
             if self.unload_mode:
                 mode = 'disembark'
             elif self.build_mode:
@@ -4904,7 +5403,8 @@ void main() {
         shooters = [u for u in self.selected if u.stats['damage'] > 0]
         if shooters:
             cands = [(u, self._unit_world_pos(u)) for u in self.units
-                     if u.alive and u.country != self.player_country
+                     if u.alive
+                     and self.at_war(self.player_country, u.country)
                      and u.visible_to_player and self._facing_camera(u.pos)]
             target = self._pick_object(mpos, cands)
             kind = target.stats['domain'] if target else None
@@ -4912,7 +5412,7 @@ void main() {
                 bl = [(b, b.pos * GLOBE_RADIUS) for b in self.bridges
                       if b.alive and self._facing_camera(b.pos)]
                 bl += [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
-                       if a.country != self.player_country
+                       if self.at_war(self.player_country, a.country)
                        and self._facing_camera(a.pos)]
                 target = self._pick_object(mpos, bl)
                 kind = 'bridge'
@@ -5194,14 +5694,19 @@ void main() {
                 bar.set_title("%s%s -- %s CITY" %
                               (city.name.upper(), tag,
                                COUNTRIES[city.country]['adjective'].upper()))
+                at_war = self.at_war(self.player_country, city.country)
                 bar.set_info(
-                    "POPULATION %s   %sCONTROLLED BY %s   "
-                    "CAPTURE: %d/%d INFANTRY ON THE CITY" %
+                    "POPULATION %s   %sCONTROLLED BY %s   %s" %
                     ("{:,}".format(city.population),
                      "PORT   " if city.harbor else "",
                      COUNTRIES[city.country]['name'].upper(),
-                     have, need))
-                if have >= need:
+                     ("CAPTURE: %d/%d INFANTRY ON THE CITY"
+                      % (have, need)) if at_war else "AT PEACE"))
+                if not at_war:
+                    bar.set_hint("NO STATE OF WAR EXISTS -- ONLY A "
+                                 "DECLARATION FROM THE DIPLOMACY "
+                                 "LEDGER OPENS THIS CITY TO CAPTURE")
+                elif have >= need:
                     bar.show_capture(self._capture_clicked, [city])
                     bar.set_hint("THE GARRISON STANDS READY -- CAPTURING "
                                  "COSTS %d INFANTRY" % need)
@@ -5809,6 +6314,9 @@ void main() {
             self._tick_idle_roster()
         if self.fax:
             self.fax.update(dt)
+        if not self.is_paused and not self.game_over:
+            self._tick_pouches()
+        self._tick_news(dt)
         if self._signal_ttl > 0.0:
             self._signal_ttl -= dt
             if self._signal_ttl <= 0.0 and self.bottom_bar:

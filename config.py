@@ -122,12 +122,64 @@ COUNTRIES = {
                 'adjective': 'Japanese'},
     'soviet':  {'color': COUNTRY_COLORS['soviet'], 'name': 'Soviet Union',
                 'adjective': 'Soviet'},
-    # not a playable power: towns outside the five empires in 1939.
-    # They field no armies and run no AI, but can be annexed.
-    'neutral': {'color': (0.58, 0.56, 0.50), 'name': 'Neutral',
-                'adjective': 'Neutral'},
 }
 PLAYABLE = ('britain', 'germany', 'usa', 'japan', 'soviet')
+
+# The NPC nations of 1939: every town outside the five empires belongs
+# to one of these, by historic ownership. They field a standing
+# home-defense garrison and answer diplomatic fax traffic, but run no
+# economy and never expand -- their leverage is the alliance table.
+NPC_NATIONS = {
+    'france':      {'color': (0.28, 0.42, 0.75), 'name': 'French Republic',
+                    'adjective': 'French'},
+    'italy':       {'color': (0.45, 0.62, 0.42), 'name': 'Kingdom of Italy',
+                    'adjective': 'Italian'},
+    'china':       {'color': (0.55, 0.42, 0.65), 'name': 'Republic of China',
+                    'adjective': 'Chinese'},
+    'poland':      {'color': (0.78, 0.42, 0.48), 'name': 'Republic of Poland',
+                    'adjective': 'Polish'},
+    'netherlands': {'color': (0.85, 0.50, 0.20), 'name': 'The Netherlands',
+                    'adjective': 'Dutch'},
+    'belgium':     {'color': (0.62, 0.55, 0.25), 'name': 'Kingdom of Belgium',
+                    'adjective': 'Belgian'},
+    'norway':      {'color': (0.35, 0.55, 0.68), 'name': 'Kingdom of Norway',
+                    'adjective': 'Norwegian'},
+    'denmark':     {'color': (0.72, 0.35, 0.35), 'name': 'Kingdom of Denmark',
+                    'adjective': 'Danish'},
+    'finland':     {'color': (0.55, 0.65, 0.75), 'name': 'Republic of Finland',
+                    'adjective': 'Finnish'},
+    'greece':      {'color': (0.40, 0.58, 0.62), 'name': 'Kingdom of Greece',
+                    'adjective': 'Greek'},
+    'yugoslavia':  {'color': (0.48, 0.48, 0.62), 'name': 'Kingdom of Yugoslavia',
+                    'adjective': 'Yugoslav'},
+    'romania':     {'color': (0.68, 0.58, 0.35), 'name': 'Kingdom of Romania',
+                    'adjective': 'Romanian'},
+    'hungary':     {'color': (0.58, 0.45, 0.40), 'name': 'Kingdom of Hungary',
+                    'adjective': 'Hungarian'},
+    'bulgaria':    {'color': (0.45, 0.55, 0.45), 'name': 'Kingdom of Bulgaria',
+                    'adjective': 'Bulgarian'},
+    'iraq':        {'color': (0.62, 0.52, 0.42), 'name': 'Kingdom of Iraq',
+                    'adjective': 'Iraqi'},
+    'iran':        {'color': (0.52, 0.58, 0.38), 'name': 'Imperial Iran',
+                    'adjective': 'Iranian'},
+    'siam':        {'color': (0.65, 0.45, 0.55), 'name': 'Kingdom of Siam',
+                    'adjective': 'Siamese'},
+    # dominions and colonial commands of the playable empires stand as
+    # their own nations, so the majors begin with their HOME cities
+    # only and the wider empires enter the war by diplomacy
+    'brit_med':    {'color': (0.35, 0.48, 0.70), 'name': 'British Mediterranean',
+                    'adjective': 'Levantine'},
+    'raj':         {'color': (0.30, 0.52, 0.58), 'name': 'British Raj',
+                    'adjective': 'Indian'},
+    'fareast':     {'color': (0.42, 0.55, 0.52), 'name': 'British Far East',
+                    'adjective': 'Malayan'},
+    'australia':   {'color': (0.38, 0.58, 0.45), 'name': 'Australia',
+                    'adjective': 'Australian'},
+}
+COUNTRIES.update(NPC_NATIONS)
+# not a nation: the fallback class for unowned ground
+COUNTRIES['neutral'] = {'color': (0.58, 0.56, 0.50), 'name': 'Neutral',
+                        'adjective': 'Neutral'}
 
 # File Paths
 MEDIA_PATH = "media/"

@@ -173,15 +173,16 @@ class MenuScreen:
                    SUB_COLOR)
         self._button("[N]  NEW GAME", (0, 0.18), self.show_country_select,
                      ['new'])
-        self._button("[H]  HOST GAME", (0, 0.02), self.show_country_select,
-                     ['host'])
+        # multiplayer is not in this build: the key sits dark and dead
+        mp = self._button("MULTIPLAYER  (COMING SOON)", (0, 0.02), None)
+        mp['state'] = DGG.DISABLED
+        mp.setColorScale(0.55, 0.55, 0.55, 0.75)
         self._button("[S]  SETTINGS", (0, -0.14), self.show_settings)
         self._button("[Q]  QUIT", (0, -0.30), self._quit)
         from config import GAME_VERSION
         self._text("ALPHA %s" % GAME_VERSION,
                    (0, -0.85), 0.035, SUB_COLOR)
         self.base.accept('n', self.show_country_select, ['new'])
-        self.base.accept('h', self.show_country_select, ['host'])
         self.base.accept('s', self.show_settings)
         self.base.accept('q', self._quit)
 
@@ -224,13 +225,13 @@ class MenuScreen:
             paper_text("HOSTED WAR GAME WILL PROCEED UNDER LOCAL COMMAND)",
                        (0, 0.30), 0.032, INK_FAINT)
 
-        # space the nation rows to fill the sheet regardless of how many
-        # powers there are
-        n_countries = len(COUNTRIES) - 1   # neutral is not picked
+        # only the five great powers are playable commands; the NPC
+        # nations of the world live in COUNTRIES too, but a player
+        # never sits at their desk
+        from config import PLAYABLE
+        playable = [(k, COUNTRIES[k]) for k in PLAYABLE]
         y = 0.22
-        row_step = 0.60 / max(1, n_countries - 1)
-        playable = [(k, v) for k, v in COUNTRIES.items()
-                    if k != 'neutral']
+        row_step = 0.60 / max(1, len(playable) - 1)
         for i, (key, info) in enumerate(playable):
             c = info['color']
             chip = DirectFrame(parent=frame,

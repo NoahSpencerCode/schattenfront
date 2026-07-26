@@ -570,6 +570,15 @@ def _draw_blimp_lower_button(d, ink):
     d.polygon([(30, 70), (58, 70), (44, 88)], fill=ink)
 
 
+def _draw_diplomacy_button(d, ink):
+    """The Foreign Office: two courier flags crossed at the staff."""
+    d.line([(26, 86), (56, 12)], fill=ink, width=5)
+    d.line([(70, 86), (40, 12)], fill=ink, width=5)
+    d.polygon([(56, 12), (86, 20), (58, 32)], fill=ink)
+    d.polygon([(40, 12), (10, 20), (38, 32)], fill=ink)
+    d.line([(20, 88), (76, 88)], fill=ink, width=4)
+
+
 def _draw_demolish_button(d, ink):
     """The demolition order: an aerial bomb over cracked masonry
     (full-colour, ink ignored)."""
@@ -714,6 +723,7 @@ _DRAWERS = {
     'info_button': _draw_info_button,
     'scramble_button': _draw_scramble_button,
     'demolish_button': _draw_demolish_button,
+    'diplomacy_button': _draw_diplomacy_button,
     'unload_button': _draw_unload_button,
     'paradrop_button': _draw_paradrop_button,
     'submerge_button': _draw_submerge_button,
@@ -1387,6 +1397,24 @@ def button_assets(kind, hw, hh, corner=0.42):
     fz = (H - 2.0 * m) / H
     return ((paths['ready'], paths['press'], paths['hover'],
              paths['ready']), hw / fx, hh / fz)
+
+
+def prewarm_button_assets():
+    """Paint every key shape the UI is known to use, so no menu or
+    newspaper pays a first-use PIL render mid-game (a several-hundred-
+    millisecond hitch on a cold cache). Runs under the loading screen;
+    already-painted shapes cost one os.path.exists each."""
+    combos = [
+        ('panel', 0.050, 0.050, 0.30), ('panel', 0.048, 0.048, 0.30),
+        ('panel', 0.19, 0.037, 0.42), ('panel', 0.42, 0.058, 0.42),
+        ('panel', 0.13, 0.034, 0.42), ('panel', 0.062, 0.034, 0.42),
+        ('panel', 0.15, 0.038, 0.42), ('panel', 0.17, 0.036, 0.42),
+        ('red', 0.062, 0.034, 0.42), ('red', 0.17, 0.040, 0.42),
+        ('red', 0.17, 0.036, 0.42), ('red', 0.20, 0.038, 0.42),
+        ('red', 0.24, 0.052, 0.42),
+    ]
+    for kind, hw, hh, corner in combos:
+        button_assets(kind, hw, hh, corner=corner)
 
 
 def get_icon_path(unit_type, variant='dark', nation=None):

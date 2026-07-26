@@ -221,10 +221,14 @@ class MovementPlanner:
                 merged = True
             if not merged:
                 break
-        np.savez(cache,
-                 pts=np.array(new_pts, dtype=np.float64).reshape(-1, 2),
-                 links=np.array(new_links, dtype=np.float64
-                                ).reshape(-1, 3))
+        try:
+            np.savez(cache,
+                     pts=np.array(new_pts, dtype=np.float64
+                                  ).reshape(-1, 2),
+                     links=np.array(new_links, dtype=np.float64
+                                    ).reshape(-1, 3))
+        except OSError:
+            pass    # read-only install: the stitch just isn't cached
 
     # ------------------------------------------------------------ helpers
     def _alive_bridges(self):

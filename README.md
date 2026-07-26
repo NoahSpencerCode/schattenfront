@@ -2,8 +2,11 @@
 
 A real-time strategy game set in the Second World War, played on a full 3D
 globe built from real geographic data. Command the armies, navies, and air
-forces of Britain, Germany, the United States, or Japan. Built entirely in
-code with Python + Panda3D — no game-engine editor involved.
+forces of Britain, Germany, the Soviet Union, the United States, or Japan
+in a world of 26 nations — every town of 1939 belongs to its historic
+owner, from France and Italy to China and Siam, and the war only exists
+where someone has declared it. Built entirely in code with Python +
+Panda3D — no game-engine editor involved.
 
 Everything on the map is drawn **flat on the planet surface** like symbols
 inked onto a 1940s situation map — unit counters, city rings, bridges,
@@ -56,12 +59,32 @@ ww2-rts-game/
 
 ## How to Play
 
-1. **NEW GAME** (or **HOST GAME**) from the main menu.
-2. A mobilization FAX asks for your nation: Britain, Germany, USA, or
-   Japan. Each starts with an army, an air wing, a small fleet, and ten
-   historical cities (the first is your capital).
-3. Capture all of an enemy's cities to force their capitulation. Lose all
-   of yours and the war is over.
+1. **NEW GAME** from the main menu (multiplayer is greyed out until it
+   exists).
+2. Pick your power: Britain, Germany, the Soviet Union, the USA, or
+   Japan. Each starts with an army, an air wing, a small fleet, and its
+   historical home cities (the first is your capital).
+3. **The world begins at peace.** Nothing fires on anything until a
+   state of war exists — and TOTAL VICTORY is holding the capitals of
+   all five great powers with your own flag or an ally's.
+
+### Diplomacy — the Foreign Office Ledger
+
+The crossed-flags key on the right edge opens the **DIPLOMATIC
+LEDGER**: every living nation with its stance (AT WAR / ALLIED / AT
+PEACE) and the keys that move the bags. Declarations of war, offers of
+alliance and terms of peace travel by courier for some game-hours and
+are answered by return fax. A declaration binds **blocs** — every ally
+of each side is dragged into the war. The 21 NPC nations (France,
+Italy, China, the Balkans, the British dominions...) field standing
+home-defense garrisons and answer diplomacy, but never expand. The AI
+great powers run their own war councils: they declare opportunistic
+wars, court co-belligerents, and will drag their alliances in against
+you.
+
+Every declaration, pact, peace, capitulation — anywhere on the globe —
+prints an edition of **THE WORLD CHRONICLE**; the war's end prints the
+final edition with the full statistical record.
 
 ### The Fortnight Budget
 
@@ -238,10 +261,23 @@ meter.
 - **Performance** — lower `DETAIL_TEX_SIZE`, `GLOBE_SEGMENTS`, or the
   texture size in `geodata.py` (`TEX_W`, `TEX_H`) on older machines.
 
+## Release Builds
+
+`python setup.py bdist_apps` (from the venv) assembles installable
+builds for **macOS (Apple Silicon)** and **Windows (x64)** into
+`dist/` as zips, icons included — Panda3D's deploy tools gather the
+per-platform wheels, nothing is compiled locally. The bundle ships
+every cache the game reads at runtime, so first launch pays no bake;
+the deep-zoom tile cache rebuilds itself lazily in play.
+
 ## Known Limitations / Roadmap
 
-- HOST GAME currently starts a local campaign (network play is on the
-  roadmap; the menu FAX says as much in period style).
-- Engineers rebuild bridges but do not yet lay new roads.
+- Multiplayer is not implemented; the menu key sits dark.
 - No save/load yet; campaigns are one sitting.
-- No audio yet.
+- macOS builds are ad-hoc signed, not notarized: right-click → Open on
+  first launch. If macOS still refuses (or the app misbehaves after a
+  download), clear the quarantine flag once:
+
+  ```bash
+  xattr -rd com.apple.quarantine Schattenfront.app
+  ```
