@@ -274,4 +274,10 @@ the deep-zoom tile cache rebuilds itself lazily in play.
 
 - Multiplayer is not implemented; the menu key sits dark.
 - No save/load yet; campaigns are one sitting.
-- macOS builds are unsigned: right-click → Open on first launch.
+- macOS builds are ad-hoc signed, not notarized: right-click → Open on
+  first launch. If macOS still refuses (or the app misbehaves after a
+  download), clear the quarantine flag once:
+
+  ```bash
+  xattr -rd com.apple.quarantine Schattenfront.app
+  ```

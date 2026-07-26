@@ -225,13 +225,13 @@ class MenuScreen:
             paper_text("HOSTED WAR GAME WILL PROCEED UNDER LOCAL COMMAND)",
                        (0, 0.30), 0.032, INK_FAINT)
 
-        # space the nation rows to fill the sheet regardless of how many
-        # powers there are
-        n_countries = len(COUNTRIES) - 1   # neutral is not picked
+        # only the five great powers are playable commands; the NPC
+        # nations of the world live in COUNTRIES too, but a player
+        # never sits at their desk
+        from config import PLAYABLE
+        playable = [(k, COUNTRIES[k]) for k in PLAYABLE]
         y = 0.22
-        row_step = 0.60 / max(1, n_countries - 1)
-        playable = [(k, v) for k, v in COUNTRIES.items()
-                    if k != 'neutral']
+        row_step = 0.60 / max(1, len(playable) - 1)
         for i, (key, info) in enumerate(playable):
             c = info['color']
             chip = DirectFrame(parent=frame,

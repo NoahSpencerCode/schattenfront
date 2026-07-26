@@ -9,15 +9,24 @@ import sys
 
 # Run from the game directory so relative asset paths work when the
 # launcher is double-clicked from elsewhere. A FROZEN build (the
-# shipped .app/.exe) anchors on the executable instead: game data
-# sits beside the binary, or in Resources inside a mac bundle.
+# shipped .app/.exe) anchors on the executable -- but sys.executable
+# is not reliable under every deploy stub, so the stub's own working
+# directory (it starts in the binary's folder) is a candidate too.
+# In a mac bundle the game data lives in Contents/Resources.
 if getattr(sys, 'frozen', False):
-    _base = os.path.dirname(os.path.abspath(sys.executable))
-    for _cand in (_base, os.path.join(os.path.dirname(_base),
-                                      'Resources')):
+    _cands = []
+    for _exe in (sys.executable, sys.argv[0] if sys.argv else ''):
+        if _exe:
+            _cands.append(os.path.dirname(os.path.abspath(_exe)))
+    _cands.append(os.getcwd())
+    for _base in list(_cands):
+        _cands.append(os.path.join(os.path.dirname(_base),
+                                   'Resources'))
+    for _cand in _cands:
         if os.path.isdir(os.path.join(_cand, 'assets')):
             os.chdir(_cand)
             break
+    print("game root:", os.getcwd())
 else:
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
