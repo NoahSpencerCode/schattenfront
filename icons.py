@@ -1,12 +1,25 @@
 """
-Procedurally drawn unit icons — small pictogram images, one per unit
-type, generated with PIL on first run into assets/icons/.
+Procedurally drawn unit icons — pictogram images generated with PIL
+on first run into assets/icons/, laid out for an ARTIST to take over:
 
-Each icon is drawn in two variants: "dark" ink for light faction
-counters, "light" ink for dark ones.  Replace any generated PNG with
-your own art (same filename) and it will be used instead.
+    assets/icons/units/   top-down map sprites, one per piece of
+                          equipment, named for the real thing
+                          (tiger.png, spitfire.png, fubuki.png ...)
+    assets/icons/ui/      menu/bar pictograms, <name>_dark.png for
+                          light keys and <name>_light.png for dark
+                          plates (cursors and structures included)
+    assets/icons/keys/    the painted console-key textures
+    assets/icons/sheets/  painted surfaces (bars, fax paper, ...)
+
+Replace any PNG with your own art (same filename, same canvas) and
+the game uses it forever: a sidecar manifest (.generated.json)
+records what THIS code painted, so a hand-made file — or a repainted
+one — is never overwritten, even when the procedural art changes
+version. See assets/icons/README.md for the full artist's handbook.
 """
 
+import hashlib
+import json
 import os
 
 from PIL import Image, ImageDraw
@@ -1525,22 +1538,21 @@ def button_assets(kind, hw, hh, corner=0.42):
     never stretched from a square master. corner= is the radius as a
     fraction of key height (the square menu keys sit less rounded
     than the long command pills)."""
-    os.makedirs(ICON_DIR, exist_ok=True)
     pal = 'red' if kind == 'red' else 'panel'
     aq = max(0.5, min(14.0, round((hw / max(1e-6, hh)) * 4) / 4.0))
     H = 160
     W = int(round(H * aq))
     paths = {}
     for state in ('ready', 'press', 'hover'):
-        fname = 'btn_%s_%s_a%s_r%s_v%d.png' % (
+        rel = os.path.join('keys', '%s_%s_a%s_r%s.png' % (
             pal, state, ('%.2f' % aq).replace('.', '_'),
-            ('%.2f' % corner).replace('.', '_'), BUTTON_VERSION)
-        path = os.path.join(ICON_DIR, fname)
-        if not os.path.exists(path):
+            ('%.2f' % corner).replace('.', '_')))
+
+        def paint(state=state):
             top, bot, glow = _BTN_STATES[pal][state]
-            _paint_button(W, H, top, bot, _BTN_EDGE[pal],
-                          glow, corner=corner).save(path)
-        paths[state] = path
+            return _paint_button(W, H, top, bot, _BTN_EDGE[pal],
+                                 glow, corner=corner)
+        paths[state] = _ensure(rel, BUTTON_VERSION, paint)
     m = H * 0.15
     fx = (W - 2.0 * m) / W
     fz = (H - 2.0 * m) / H
@@ -1646,12 +1658,8 @@ def _paint_sheet(kind):
 
 def sheet_texture(kind):
     """Path to a painted UI surface texture, rendered on first use."""
-    os.makedirs(ICON_DIR, exist_ok=True)
-    path = os.path.join(ICON_DIR, 'sheet_%s_v%d.png'
-                        % (kind, SHEET_VERSION))
-    if not os.path.exists(path):
-        _paint_sheet(kind).save(path)
-    return path
+    return _ensure(os.path.join('sheets', kind + '.png'),
+                   SHEET_VERSION, lambda: _paint_sheet(kind))
 
 
 def prewarm_button_assets():
@@ -1674,26 +1682,127 @@ def prewarm_button_assets():
         sheet_texture(kind)
 
 
+# ------------------------------------------------- the ART REGISTER
+# Every sprite file carries a stable, human-readable name so an
+# artist can work the folder directly. The majors' signature
+# equipment resolves to its historical name; any (type, nation) not
+# listed shares the generic file named for the type. The register
+# mirrors the nation branches inside the _tu_ drawers EXACTLY --
+# add a branch there, add its name here.
+UNIT_ART = {
+    ('tank', 'germany'): 'tiger',
+    ('tank', 'soviet'): 't34',
+    ('tank', 'britain'): 'churchill',
+    ('tank', 'japan'): 'chi_ha',
+    ('supply_truck', 'usa'): 'studebaker_us6',
+    ('supply_truck', 'soviet'): 'studebaker_us6',
+    ('transport_truck', 'germany'): 'halftrack',
+    ('transport_truck', 'usa'): 'halftrack',
+    ('transport_truck', 'britain'): 'bren_carrier',
+    ('transport_truck', 'soviet'): 'zis_5',
+    ('aa_artillery', 'germany'): 'flak_88',
+    ('naval_command', 'japan'): 'yamato',
+    ('destroyer_sea_sea', 'japan'): 'fubuki',
+    ('destroyer_sea_sea', 'britain'): 'tribal_class',
+    ('aircraft_carrier', 'britain'): 'illustrious',
+    ('aircraft_carrier', 'japan'): 'akagi',
+    ('fighter', 'britain'): 'spitfire',
+    ('fighter', 'germany'): 'bf_109',
+    ('fighter', 'japan'): 'zero',
+    ('fighter', 'soviet'): 'yak_3',
+    ('bomber', 'usa'): 'b_17',
+    ('bomber', 'britain'): 'halifax',
+    ('bomber', 'soviet'): 'il_2',
+    ('bomber', 'japan'): 'g4m_betty',
+    ('heavy_bomber', 'britain'): 'lancaster',
+    ('battleship', 'japan'): 'nagato',
+    # the air command ship is the nation's bomber wearing the flash
+    ('airforce_command', 'usa'): 'b_17_command',
+    ('airforce_command', 'britain'): 'halifax_command',
+    ('airforce_command', 'soviet'): 'il_2_command',
+    ('airforce_command', 'japan'): 'g4m_command',
+}
+# art name -> (unit_type, nation) that paints it (generation only)
+_ART_PAINT = {}
+for (_t, _n), _name in UNIT_ART.items():
+    _ART_PAINT[_name] = (_t, _n)
+
+# ---------------------------------------- generated-file manifest
+# .generated.json records every file THIS code painted (version +
+# content hash). A file missing from the manifest, or whose bytes no
+# longer match its record, is the ARTIST'S and is never repainted --
+# not even when the procedural art bumps its version.
+_MANIFEST_PATH = os.path.join(ICON_DIR, '.generated.json')
+_manifest = None
+
+
+def _load_manifest():
+    global _manifest
+    if _manifest is None:
+        try:
+            with open(_MANIFEST_PATH) as f:
+                _manifest = json.load(f)
+        except (OSError, ValueError):
+            _manifest = {}
+    return _manifest
+
+
+def _file_hash(path):
+    with open(path, 'rb') as f:
+        return hashlib.md5(f.read()).hexdigest()
+
+
+def _ensure(rel, version, paint):
+    """Return the asset's path, painting it only when it is absent
+    or is OUR OWN stale generation. Hand-made art always wins."""
+    path = os.path.join(ICON_DIR, rel)
+    key = rel.replace(os.sep, '/')
+    man = _load_manifest()
+    if os.path.exists(path):
+        rec = man.get(key)
+        if (rec is None                       # the artist's file
+                or rec.get('v') == version    # current generation
+                or rec.get('h') != _file_hash(path)):   # repainted
+            return path
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        paint().save(path)
+        man[key] = {'v': version, 'h': _file_hash(path)}
+        with open(_MANIFEST_PATH, 'w') as f:
+            json.dump(man, f, indent=0, sort_keys=True)
+    except OSError:
+        pass        # read-only install: assets ship pre-baked
+    return path
+
+
 def get_icon_path(unit_type, variant='dark', nation=None):
     """Path to the icon PNG, generating it on first request. Top-down
-    unit sprites vary by nation (each power fields its own marks).
-    Icons are drawn onto an 8x supersampled canvas and downsampled to
-    OUT_SIZE, so their edges are anti-aliased and stay smooth even
-    magnified at street-level zoom."""
-    os.makedirs(ICON_DIR, exist_ok=True)
-    tag = ("%s@%s" % (unit_type, nation)
-           if (nation and variant == 'unit') else unit_type)
-    path = os.path.join(ICON_DIR, "%s_%s_v%d.png"
-                        % (tag, variant, ICON_VERSION))
-    if not os.path.exists(path):
-        img = Image.new('RGBA', (SIZE * _SS, SIZE * _SS), (0, 0, 0, 0))
-        d = _ScaledDraw(ImageDraw.Draw(img), _SS)
-        if variant == 'unit':
-            _TOP_DOWN.get(unit_type, _tu_infantry)(d, _WHITE, nation)
-        else:
+    unit sprites resolve through the ART REGISTER: nations fielding
+    their own marks get files named for the real equipment, everyone
+    else shares the generic type file. Icons are drawn onto an 8x
+    supersampled canvas and downsampled to OUT_SIZE, so their edges
+    stay smooth even magnified at street-level zoom."""
+    if variant == 'unit':
+        art = UNIT_ART.get((unit_type, nation), unit_type)
+        rel = os.path.join('units', art + '.png')
+
+        def paint(art=art, unit_type=unit_type):
+            img = Image.new('RGBA', (SIZE * _SS, SIZE * _SS),
+                            (0, 0, 0, 0))
+            d = _ScaledDraw(ImageDraw.Draw(img), _SS)
+            t, nat = _ART_PAINT.get(art, (unit_type, None))
+            _TOP_DOWN.get(t, _tu_infantry)(d, _WHITE, nat)
+            img = _finish_icon(img, 'unit')
+            return img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
+    else:
+        rel = os.path.join('ui', '%s_%s.png' % (unit_type, variant))
+
+        def paint(unit_type=unit_type, variant=variant):
+            img = Image.new('RGBA', (SIZE * _SS, SIZE * _SS),
+                            (0, 0, 0, 0))
+            d = _ScaledDraw(ImageDraw.Draw(img), _SS)
             ink = _INKS.get(variant, INK_DARK)
             _DRAWERS.get(unit_type, _draw_infantry)(d, ink)
-        img = _finish_icon(img, variant)
-        img = img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
-        img.save(path)
-    return path
+            img = _finish_icon(img, variant)
+            return img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
+    return _ensure(rel, ICON_VERSION, paint)

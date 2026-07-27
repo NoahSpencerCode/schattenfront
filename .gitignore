@@ -39,7 +39,6 @@ settings.json
 saves/
 media/
 data/cache/
-assets/icons/
 logs/
 *.log
 

@@ -1,0 +1,886 @@
+{
+"keys/panel_hover_a1_00_r0_30.png": {
+"h": "d149751df3aa5596ba0f4ed53447abf9",
+"v": 2
+},
+"keys/panel_hover_a1_75_r0_42.png": {
+"h": "1df1de09768e0d6286441997389c1787",
+"v": 2
+},
+"keys/panel_hover_a3_75_r0_42.png": {
+"h": "091798526befc219932b66839f34e1e5",
+"v": 2
+},
+"keys/panel_hover_a4_00_r0_42.png": {
+"h": "21081d2cb90c3da58df58ae6f4689368",
+"v": 2
+},
+"keys/panel_hover_a4_75_r0_42.png": {
+"h": "87a80c60ab9981c0025c73cd16a4fe63",
+"v": 2
+},
+"keys/panel_hover_a5_25_r0_42.png": {
+"h": "045f29ccf1fe242f0810117eb847ec0c",
+"v": 2
+},
+"keys/panel_hover_a7_25_r0_42.png": {
+"h": "b966c7d2ca511317cf42f9f085266df5",
+"v": 2
+},
+"keys/panel_press_a1_00_r0_30.png": {
+"h": "4dd726b5844ab715d493dc2dfc2216ea",
+"v": 2
+},
+"keys/panel_press_a1_75_r0_42.png": {
+"h": "1637f0069361c91e83416e3d83928b28",
+"v": 2
+},
+"keys/panel_press_a3_75_r0_42.png": {
+"h": "64391d20dabb308b102fe38101941550",
+"v": 2
+},
+"keys/panel_press_a4_00_r0_42.png": {
+"h": "e7d411ac93714efe54a5169047e83421",
+"v": 2
+},
+"keys/panel_press_a4_75_r0_42.png": {
+"h": "e2f90e167d768fa5c45d1ed05bc3e11c",
+"v": 2
+},
+"keys/panel_press_a5_25_r0_42.png": {
+"h": "b811fa43dd8a1a2152f8eb278919d45b",
+"v": 2
+},
+"keys/panel_press_a7_25_r0_42.png": {
+"h": "be51b89c1ec9b6894ab69c044964e372",
+"v": 2
+},
+"keys/panel_ready_a1_00_r0_30.png": {
+"h": "c043b07464a214467c3b47eff82d9e05",
+"v": 2
+},
+"keys/panel_ready_a1_75_r0_42.png": {
+"h": "7f0bf20cb018fe226b6b98833e2fa890",
+"v": 2
+},
+"keys/panel_ready_a3_75_r0_42.png": {
+"h": "625847e1d3eb4617e6395368e7e51987",
+"v": 2
+},
+"keys/panel_ready_a4_00_r0_42.png": {
+"h": "606ca844d32e27d6f1f07afee2ad6eb9",
+"v": 2
+},
+"keys/panel_ready_a4_75_r0_42.png": {
+"h": "3da3aa5bf453858748ffabf7d2bab503",
+"v": 2
+},
+"keys/panel_ready_a5_25_r0_42.png": {
+"h": "fc14ca62be4ea8561a549153220e8dca",
+"v": 2
+},
+"keys/panel_ready_a7_25_r0_42.png": {
+"h": "a5e56aca68c320f209d1dbaa43b57de8",
+"v": 2
+},
+"keys/red_hover_a1_75_r0_42.png": {
+"h": "fec35b197ce42846686ba6a53c5280f6",
+"v": 2
+},
+"keys/red_hover_a4_25_r0_42.png": {
+"h": "9bcccdd729229e7e5ff1741a4bdd181d",
+"v": 2
+},
+"keys/red_hover_a4_50_r0_42.png": {
+"h": "a6f082087a18da57698ed7ffd81b30c5",
+"v": 2
+},
+"keys/red_hover_a4_75_r0_42.png": {
+"h": "a68d11852625439bc7074090b3d688bb",
+"v": 2
+},
+"keys/red_hover_a5_25_r0_42.png": {
+"h": "ec1eb63c8ebb822bd89c8f6021ff4e3f",
+"v": 2
+},
+"keys/red_press_a1_75_r0_42.png": {
+"h": "12a4383c7960bd78fb2ec1f2a3e626dc",
+"v": 2
+},
+"keys/red_press_a4_25_r0_42.png": {
+"h": "ebc48470fd3d352438ff0954ede98a04",
+"v": 2
+},
+"keys/red_press_a4_50_r0_42.png": {
+"h": "292411b301d2cd6891654b76e6bb4a54",
+"v": 2
+},
+"keys/red_press_a4_75_r0_42.png": {
+"h": "2a272860fcdb799bfc27e4f334f44514",
+"v": 2
+},
+"keys/red_press_a5_25_r0_42.png": {
+"h": "1f9351fb02560d68d7350a3cc9175949",
+"v": 2
+},
+"keys/red_ready_a1_75_r0_42.png": {
+"h": "58965dbc2dbb74211f7fc7571b67cbd4",
+"v": 2
+},
+"keys/red_ready_a4_25_r0_42.png": {
+"h": "c5ec8f5167b28ab0ce24d2bb0edf0eb8",
+"v": 2
+},
+"keys/red_ready_a4_50_r0_42.png": {
+"h": "7007ba74a7751487f5c2f1870cb90d1f",
+"v": 2
+},
+"keys/red_ready_a4_75_r0_42.png": {
+"h": "aa6da24461f14f897ec6dc06e2282c88",
+"v": 2
+},
+"keys/red_ready_a5_25_r0_42.png": {
+"h": "b86cccbdaa9df2e6b145060f75145da9",
+"v": 2
+},
+"sheets/bar.png": {
+"h": "941d57620cbaa774105ca89b64d0a7d5",
+"v": 1
+},
+"sheets/newsprint.png": {
+"h": "a43d4232eaf98915777f0c86091eafda",
+"v": 1
+},
+"sheets/paper.png": {
+"h": "91518fb2c00608037bd3a1d01de29460",
+"v": 1
+},
+"sheets/plate.png": {
+"h": "2f1a1034ee72756294cf8811e8ef6ef3",
+"v": 1
+},
+"ui/aa_artillery_dark.png": {
+"h": "2339b3ab4bb2f51372db930cff059df2",
+"v": 16
+},
+"ui/aa_artillery_light.png": {
+"h": "8b5f9eed82baf413f9f0d4d13a229e57",
+"v": 16
+},
+"ui/aircraft_carrier_dark.png": {
+"h": "de4dd0ba3de87866eff114d73752f47c",
+"v": 16
+},
+"ui/aircraft_carrier_light.png": {
+"h": "3f4320df1f3516522972d35d657d9b08",
+"v": 16
+},
+"ui/airfield_dark.png": {
+"h": "7fffdcaddc7ee9fcd21bdbc48b4e3978",
+"v": 16
+},
+"ui/airfield_light.png": {
+"h": "fca70f1dd6cad0ea38fceb7e6b36aeca",
+"v": 16
+},
+"ui/airforce_command_dark.png": {
+"h": "5c75f1efd3d9dfe9519553847e7b2137",
+"v": 16
+},
+"ui/airforce_command_light.png": {
+"h": "d61a7a700ddeab703c206063ebdcccdc",
+"v": 16
+},
+"ui/army_command_dark.png": {
+"h": "4e8ad012a9a23159971b325d26ad9c23",
+"v": 16
+},
+"ui/army_command_light.png": {
+"h": "3b3ef16a62c4148b26a06cf3bb0d77c4",
+"v": 16
+},
+"ui/army_post_dark.png": {
+"h": "f5237ba9801059a9839e40cf103bb5c2",
+"v": 16
+},
+"ui/army_post_light.png": {
+"h": "d1b46463d17e470f2b5db61de958e8fb",
+"v": 16
+},
+"ui/artillery_dark.png": {
+"h": "707bb23a564bf175e98ffa775b424fc1",
+"v": 16
+},
+"ui/artillery_light.png": {
+"h": "66962bf955443b602531e7c092a64a89",
+"v": 16
+},
+"ui/battleship_dark.png": {
+"h": "d65a2c7201cef5b0b9db5a16028e3811",
+"v": 16
+},
+"ui/battleship_light.png": {
+"h": "22c985d1e4b906226e698a0803809971",
+"v": 16
+},
+"ui/blimp_dark.png": {
+"h": "c7fd33520ca5e1a13eb105c35b97d475",
+"v": 16
+},
+"ui/blimp_light.png": {
+"h": "41befe118e9949df3b724406d345f5e2",
+"v": 16
+},
+"ui/blimp_lower_button_dark.png": {
+"h": "577c7cf426ba3c9e3bc407a151a93b70",
+"v": 16
+},
+"ui/blimp_lower_button_light.png": {
+"h": "658af21f58f6418937b71fcb790332c9",
+"v": 16
+},
+"ui/blimp_raise_button_dark.png": {
+"h": "8ce2313735006c39afd93c962a16d49b",
+"v": 16
+},
+"ui/blimp_raise_button_light.png": {
+"h": "21e09a96a01813c1aa0ee5651e5b0d43",
+"v": 16
+},
+"ui/bomber_dark.png": {
+"h": "43be7747a6df1fa50b0e9ce435999147",
+"v": 16
+},
+"ui/bomber_light.png": {
+"h": "367ffcddf4b9030d8abcf59b9dbd6b07",
+"v": 16
+},
+"ui/bridge_map_dark.png": {
+"h": "0722113190d4f9d31b02dfa7ff2c1a8b",
+"v": 16
+},
+"ui/bridge_map_light.png": {
+"h": "4acfcb77121666286ae22816d73fea0d",
+"v": 16
+},
+"ui/bunker_dark.png": {
+"h": "73232208cb7b6b24cc792d847946a232",
+"v": 16
+},
+"ui/bunker_light.png": {
+"h": "f8b84215b04e8ee7033e24cb487f874d",
+"v": 16
+},
+"ui/capital_dark.png": {
+"h": "41451958a08192b0f31dcb84f8be76c2",
+"v": 16
+},
+"ui/capital_light.png": {
+"h": "ceed75c58612957062217aa1abeb7582",
+"v": 16
+},
+"ui/city_dark.png": {
+"h": "eade66e2bdfb32ff7ea90d2e59730ee4",
+"v": 16
+},
+"ui/city_light.png": {
+"h": "ee4aceb2a25bc0641346199294402712",
+"v": 16
+},
+"ui/cursor_attack_dark.png": {
+"h": "335f9686c6391edcd056ac0ab4cff01e",
+"v": 16
+},
+"ui/cursor_attack_light.png": {
+"h": "4e64db85f296348816bfefd5e00fa550",
+"v": 16
+},
+"ui/cursor_default_dark.png": {
+"h": "23417e7ae3217d03d06f898c52f64517",
+"v": 16
+},
+"ui/cursor_default_light.png": {
+"h": "fe0128145720666023737727ca75759a",
+"v": 16
+},
+"ui/cursor_disembark_dark.png": {
+"h": "fdc48da422f6209b3f4b50c89205b40e",
+"v": 16
+},
+"ui/cursor_disembark_light.png": {
+"h": "9cba2163d922d2fd55f400d8975f03a7",
+"v": 16
+},
+"ui/cursor_embark_dark.png": {
+"h": "0b39eaf18063ae9fdcba22157a54d1d2",
+"v": 16
+},
+"ui/cursor_embark_light.png": {
+"h": "9eba1c9181c68030582e38e09ed8cd68",
+"v": 16
+},
+"ui/demolish_button_dark.png": {
+"h": "f29a19b9d72361f555d2c8b26d92be8f",
+"v": 16
+},
+"ui/demolish_button_light.png": {
+"h": "81a3e7096aa3f51fcb28505fac8c6429",
+"v": 16
+},
+"ui/depot_dark.png": {
+"h": "8e97891ad54083bab5e05993459b7a22",
+"v": 16
+},
+"ui/depot_light.png": {
+"h": "0c4e8fdb79b7265ce5822f532b044ea6",
+"v": 16
+},
+"ui/destroyer_aa_dark.png": {
+"h": "7e6917e503754ea9171b9c66d3da0853",
+"v": 16
+},
+"ui/destroyer_aa_light.png": {
+"h": "26faac7ba3999f347b28b2caa5793603",
+"v": 16
+},
+"ui/destroyer_sea_land_dark.png": {
+"h": "425fa9e000480d77878185f9f081199c",
+"v": 16
+},
+"ui/destroyer_sea_land_light.png": {
+"h": "e36208108a6a19faedb3e4bf707493e2",
+"v": 16
+},
+"ui/destroyer_sea_sea_dark.png": {
+"h": "a70ed1794eca2b4e999f1453361340af",
+"v": 16
+},
+"ui/destroyer_sea_sea_light.png": {
+"h": "8e4f35f609fbaf589461b36765acdd35",
+"v": 16
+},
+"ui/diplomacy_button_dark.png": {
+"h": "85ff1f451bcbf2069e787a94187ebf3b",
+"v": 16
+},
+"ui/diplomacy_button_light.png": {
+"h": "ca65a4bc892317d0714a58471d3ed30d",
+"v": 16
+},
+"ui/engineer_dark.png": {
+"h": "7231cb034f0b2a6f3d628add4a65d40e",
+"v": 16
+},
+"ui/engineer_light.png": {
+"h": "31e8104dd23df666c3daee89d5d3653d",
+"v": 16
+},
+"ui/enlist_button_dark.png": {
+"h": "88d08d8c487381e0dda05aa82c34a137",
+"v": 16
+},
+"ui/enlist_button_light.png": {
+"h": "1239fd3ae99cb1c1b765ef35f6c24d6a",
+"v": 16
+},
+"ui/factory_button_dark.png": {
+"h": "b6f7c31e25be721e1278fa46813d4636",
+"v": 16
+},
+"ui/factory_button_light.png": {
+"h": "017eae79efc22ee21e6a5380af819094",
+"v": 16
+},
+"ui/fighter_dark.png": {
+"h": "a18d8513eb274e7f5ef8d9cd4e44c6e4",
+"v": 16
+},
+"ui/fighter_light.png": {
+"h": "3659da94853c9f4580b5023d82d1d6da",
+"v": 16
+},
+"ui/harbor_dark.png": {
+"h": "368feefc38c3d6f726ccd90a9affa455",
+"v": 16
+},
+"ui/harbor_light.png": {
+"h": "4f8f56d92c7916c5fc9da34ba3857e4c",
+"v": 16
+},
+"ui/heavy_bomber_dark.png": {
+"h": "d26016bb949376a35a4fddb0087d34c3",
+"v": 16
+},
+"ui/heavy_bomber_light.png": {
+"h": "77cfcdc244d5af730f3b1436171be9a6",
+"v": 16
+},
+"ui/heavy_tank_dark.png": {
+"h": "a0a7491a3df18c169283c43002a08799",
+"v": 16
+},
+"ui/heavy_tank_light.png": {
+"h": "fb3311bdb52a3190a0c8b3a014e9bab5",
+"v": 16
+},
+"ui/infantry_dark.png": {
+"h": "eb9a783982d8ed20eed54313614e9246",
+"v": 16
+},
+"ui/infantry_light.png": {
+"h": "a51eae696969150d75ff345a9a5dda94",
+"v": 16
+},
+"ui/info_button_dark.png": {
+"h": "bcaeba6785a547afc0060d5fc5b22935",
+"v": 16
+},
+"ui/info_button_light.png": {
+"h": "2ad66d4e3208027bbf2ace61ab1c167c",
+"v": 16
+},
+"ui/jet_fighter_dark.png": {
+"h": "b08632a2fba279447611fd7748e2c5f0",
+"v": 16
+},
+"ui/jet_fighter_light.png": {
+"h": "d339353c1280546cd4ee3f5f69931793",
+"v": 16
+},
+"ui/naval_command_dark.png": {
+"h": "dd3c40b61bf410b19d6e9216b437ce15",
+"v": 16
+},
+"ui/naval_command_light.png": {
+"h": "d22bb0077e6cba6acd2e8ec1402d48ca",
+"v": 16
+},
+"ui/nosupply_dark.png": {
+"h": "b63a47a28c922e00e1864f498523593b",
+"v": 16
+},
+"ui/nosupply_light.png": {
+"h": "5dd54a607c6be938b3721d93224d8c9c",
+"v": 16
+},
+"ui/panel_button_dark.png": {
+"h": "270d4229532203c8e58fdcec38129f8d",
+"v": 16
+},
+"ui/panel_button_hover_dark.png": {
+"h": "249e31a0c4093763b3099b32c06d8f69",
+"v": 16
+},
+"ui/panel_button_hover_light.png": {
+"h": "4946cd15de216daece71645919684f64",
+"v": 16
+},
+"ui/panel_button_light.png": {
+"h": "6661dcbff92fa0e456f4281ea2874d68",
+"v": 16
+},
+"ui/panel_button_press_dark.png": {
+"h": "3939910e84e241bc5880e5933839c990",
+"v": 16
+},
+"ui/panel_button_press_light.png": {
+"h": "05f45f27869d3803925db67afc074051",
+"v": 16
+},
+"ui/panel_key_dark.png": {
+"h": "d53fa9f5ba0617e13ad0d294bd2b492d",
+"v": 16
+},
+"ui/panel_key_hover_dark.png": {
+"h": "36351963145ae7dc4ee93b8690e6c477",
+"v": 16
+},
+"ui/panel_key_hover_light.png": {
+"h": "2055b235340ae9f32847364d6f4f65e0",
+"v": 16
+},
+"ui/panel_key_light.png": {
+"h": "617406652da575bc72fbf1d7d2e3029e",
+"v": 16
+},
+"ui/panel_key_press_dark.png": {
+"h": "b30b409dbb6c2c4ff7d2775afb6425fc",
+"v": 16
+},
+"ui/panel_key_press_light.png": {
+"h": "7dd70414ee1465169593730e2595e6b9",
+"v": 16
+},
+"ui/paradrop_button_dark.png": {
+"h": "60de2cf24ee159d3399f372baba42e4f",
+"v": 16
+},
+"ui/paradrop_button_light.png": {
+"h": "726cc13718357d3f0dcea75af05ae797",
+"v": 16
+},
+"ui/personnel_transport_dark.png": {
+"h": "7a5dc8b466ea814b05cd0e7a605e5583",
+"v": 16
+},
+"ui/personnel_transport_light.png": {
+"h": "f6005472b797d1437319598579cf30d6",
+"v": 16
+},
+"ui/radar_dark.png": {
+"h": "1d62154049685d31d0d9a3b9079abde9",
+"v": 16
+},
+"ui/radar_light.png": {
+"h": "17cd0e4c8a3bf7deb846c0e41a6a3e49",
+"v": 16
+},
+"ui/rail_build_dark.png": {
+"h": "2015d914d390647e0afcc3480bdd769f",
+"v": 16
+},
+"ui/rail_build_light.png": {
+"h": "fffc4a16ee4004a6922a7fee97b0df02",
+"v": 16
+},
+"ui/red_button_dark.png": {
+"h": "32e12746cdab630bf3a36c3b60ff4510",
+"v": 16
+},
+"ui/red_button_hover_dark.png": {
+"h": "d1b7c4d564ff5b850c8be8f607d0458c",
+"v": 16
+},
+"ui/red_button_hover_light.png": {
+"h": "b1298fdf0d45926801cc61fa7bd81c88",
+"v": 16
+},
+"ui/red_button_light.png": {
+"h": "24d3de2c5cff8e177571a6c4995fb9a8",
+"v": 16
+},
+"ui/red_button_press_dark.png": {
+"h": "40a99ef4fbd53911938f2950ddc01565",
+"v": 16
+},
+"ui/red_button_press_light.png": {
+"h": "e1e7f3f3d1ec88271653c7cbd4839254",
+"v": 16
+},
+"ui/repair_button_dark.png": {
+"h": "4d0bd04a73d102d5651d1c6739efb386",
+"v": 16
+},
+"ui/repair_button_light.png": {
+"h": "3a0b9ad1dd3e8c82ff9113a922a8c3bb",
+"v": 16
+},
+"ui/road_build_dark.png": {
+"h": "0049e880d019b256d0325bc0557c6304",
+"v": 16
+},
+"ui/road_build_light.png": {
+"h": "ff9713fb18b610176ebe67741a138ab7",
+"v": 16
+},
+"ui/scramble_button_dark.png": {
+"h": "64b45b3842a4254365db188955a5bf44",
+"v": 16
+},
+"ui/scramble_button_light.png": {
+"h": "db95ad06cd4bbad408fdf26b498010aa",
+"v": 16
+},
+"ui/submarine_dark.png": {
+"h": "4fd3788f4479303b7cbdaee6c373cc23",
+"v": 16
+},
+"ui/submarine_light.png": {
+"h": "797a4d6400761b302e77fa1e48fa1b7a",
+"v": 16
+},
+"ui/submerge_button_dark.png": {
+"h": "4a73a59d03a0eee45fbf0cb371409916",
+"v": 16
+},
+"ui/submerge_button_light.png": {
+"h": "9b6b567aa00c00dfa5b8a14c9baaec80",
+"v": 16
+},
+"ui/supply_ship_dark.png": {
+"h": "2d9e4167bfe2468bafad2d37813a2d59",
+"v": 16
+},
+"ui/supply_ship_light.png": {
+"h": "80482ccc0f24305f4fb91c4d9d433fc9",
+"v": 16
+},
+"ui/supply_truck_dark.png": {
+"h": "9174c666d373055ce96afe87c397de90",
+"v": 16
+},
+"ui/supply_truck_light.png": {
+"h": "cc88b7138c62e89ce69e59a157649d6e",
+"v": 16
+},
+"ui/surface_button_dark.png": {
+"h": "b7efa6e28cc9df183514f824ac62b617",
+"v": 16
+},
+"ui/surface_button_light.png": {
+"h": "0318a3f3c5402a5d0910e614b21570e4",
+"v": 16
+},
+"ui/tank_dark.png": {
+"h": "7194eb7a8e8375948260e61ad060888a",
+"v": 16
+},
+"ui/tank_light.png": {
+"h": "5a6ef121b8616a8f4eede21229d92ff4",
+"v": 16
+},
+"ui/tax_button_dark.png": {
+"h": "7a74c9f50dab83b175944a2f656c4d51",
+"v": 16
+},
+"ui/tax_button_light.png": {
+"h": "bf200bd5dedb71e1f621a8d147d8adf5",
+"v": 16
+},
+"ui/transport_air_dark.png": {
+"h": "2807cf64f9d80040a5749a34d1237e22",
+"v": 16
+},
+"ui/transport_air_light.png": {
+"h": "9636bf0efd4ccaaf0c14dd920a4e35c9",
+"v": 16
+},
+"ui/transport_truck_dark.png": {
+"h": "8548872f89e225bb6a8fe810a13959db",
+"v": 16
+},
+"ui/transport_truck_light.png": {
+"h": "d21457511fa0ff2980efdf7cafd4c317",
+"v": 16
+},
+"ui/unload_button_dark.png": {
+"h": "933b814550b1443545409a3e91738e27",
+"v": 16
+},
+"ui/unload_button_light.png": {
+"h": "64c5f0aa99ed866fee9b3043808ce056",
+"v": 16
+},
+"units/aa_artillery.png": {
+"h": "64e33596d9e1468d082a8cba2648c268",
+"v": 16
+},
+"units/aircraft_carrier.png": {
+"h": "0a7981c0832bd704e0e8837f46975aa6",
+"v": 16
+},
+"units/airforce_command.png": {
+"h": "065aa60624f1efebebf2629116725825",
+"v": 16
+},
+"units/akagi.png": {
+"h": "7b300c0617a8d641e7846023aedd9825",
+"v": 16
+},
+"units/army_command.png": {
+"h": "9dbf3efe9a3c4b8035ab93be98dbaa98",
+"v": 16
+},
+"units/artillery.png": {
+"h": "b90c857f2f116e1d05aa4a65f3213b65",
+"v": 16
+},
+"units/b_17.png": {
+"h": "850d2e6b618f270c3d3f45ad532d6e6b",
+"v": 16
+},
+"units/b_17_command.png": {
+"h": "8b0558c84c2af793921a48431ebb232d",
+"v": 16
+},
+"units/battleship.png": {
+"h": "6fbc78759542aa27614cab95da8a2244",
+"v": 16
+},
+"units/bf_109.png": {
+"h": "eb51d2d7e26cec2dcea817f6ff4ed58d",
+"v": 16
+},
+"units/blimp.png": {
+"h": "0de1cc16e86cedde4e3a86c569325f94",
+"v": 16
+},
+"units/bomber.png": {
+"h": "d5556d2caa3707dc0ccad3343890bbf0",
+"v": 16
+},
+"units/bren_carrier.png": {
+"h": "209afe12fc14c4f2aa7c010b23effb98",
+"v": 16
+},
+"units/chi_ha.png": {
+"h": "bf7f07252904ac9c51dcdcab2e870e26",
+"v": 16
+},
+"units/churchill.png": {
+"h": "86408ca579ba2c7519a33bffa1e3b6de",
+"v": 16
+},
+"units/destroyer_aa.png": {
+"h": "0662b965003b96aa410078e3870f5d9a",
+"v": 16
+},
+"units/destroyer_sea_land.png": {
+"h": "9579f6f5e66c2f896f7f716dc667efb1",
+"v": 16
+},
+"units/destroyer_sea_sea.png": {
+"h": "70a55e2e0756f4b79c85486fd0718f40",
+"v": 16
+},
+"units/engineer.png": {
+"h": "5d55734271c31e0e72e3c501ebb63cd5",
+"v": 16
+},
+"units/fighter.png": {
+"h": "9beca6b108b84e7326450db1f2a2a36b",
+"v": 16
+},
+"units/flak_88.png": {
+"h": "e2febe2ea30fb70948685d2b45503c7d",
+"v": 16
+},
+"units/fubuki.png": {
+"h": "c2e16b1d961f95377c5b058aaea1b3e8",
+"v": 16
+},
+"units/g4m_betty.png": {
+"h": "1e839529ca27835591fbd7ad91aa8d70",
+"v": 16
+},
+"units/g4m_command.png": {
+"h": "c269372f00ddb6661beb9660fa2d406f",
+"v": 16
+},
+"units/halftrack.png": {
+"h": "e8bc5f2088d75b7d398b6b6be5b68f59",
+"v": 16
+},
+"units/halifax.png": {
+"h": "43d6974cb3c0441e099ed2e41b5a715a",
+"v": 16
+},
+"units/halifax_command.png": {
+"h": "7074615a1a34195f3f508a348176eb14",
+"v": 16
+},
+"units/heavy_bomber.png": {
+"h": "c398ef49480b458008f90e465f5e2261",
+"v": 16
+},
+"units/heavy_tank.png": {
+"h": "c300ff46277a3cff0835db87d8949ca4",
+"v": 16
+},
+"units/il_2.png": {
+"h": "b481541e59276811193e488a3137ddeb",
+"v": 16
+},
+"units/il_2_command.png": {
+"h": "32d536c371d9d2cbad2ba2f1a38aed3a",
+"v": 16
+},
+"units/illustrious.png": {
+"h": "122d1bf5cc806d161741d3b3ae3b11e0",
+"v": 16
+},
+"units/infantry.png": {
+"h": "771ebfe036077a92524283cc6412b530",
+"v": 16
+},
+"units/jet_fighter.png": {
+"h": "23d18c74a0901f6e9c9d259ccf0a9792",
+"v": 16
+},
+"units/lancaster.png": {
+"h": "8016c9e02a976ffdf2f0ef978bbb058f",
+"v": 16
+},
+"units/nagato.png": {
+"h": "718f4ca6bf1e3bd85fa31fd60ddf4c12",
+"v": 16
+},
+"units/naval_command.png": {
+"h": "0f0bcd389a2c94fb7fbc7fb967739647",
+"v": 16
+},
+"units/personnel_transport.png": {
+"h": "526b1d78314b80ba74cdaf8a69d1f79e",
+"v": 16
+},
+"units/spitfire.png": {
+"h": "0debc981dcb110eaf336548af9a565b8",
+"v": 16
+},
+"units/studebaker_us6.png": {
+"h": "a8e017db9cc1d09c24427a1c3dfa4cfe",
+"v": 16
+},
+"units/submarine.png": {
+"h": "430a41593dc90d54b8f9392d05f66477",
+"v": 16
+},
+"units/supply_ship.png": {
+"h": "b5fa2312d59e14c28a650b36f7464204",
+"v": 16
+},
+"units/supply_truck.png": {
+"h": "4e861f6f56bf041ee5e47651b64cec0c",
+"v": 16
+},
+"units/t34.png": {
+"h": "79f801a54bcd666bcee2d4696ecfd98c",
+"v": 16
+},
+"units/tank.png": {
+"h": "712022f4c46cf76750a82b4604f08774",
+"v": 16
+},
+"units/tiger.png": {
+"h": "eb5cd5e5a78493e48fa3c18e2c058ba5",
+"v": 16
+},
+"units/transport_air.png": {
+"h": "c24cd3392dd95d6697d71a1755067863",
+"v": 16
+},
+"units/transport_truck.png": {
+"h": "d65537306fba4c4b1d11f1b71850873e",
+"v": 16
+},
+"units/tribal_class.png": {
+"h": "20580a6ccb49dbacb9faad6882c7f78e",
+"v": 16
+},
+"units/yak_3.png": {
+"h": "ed5352f79ed708c03ac06378b4bfa398",
+"v": 16
+},
+"units/yamato.png": {
+"h": "646720fd5d899322a6f3ed8097ce4be7",
+"v": 16
+},
+"units/zero.png": {
+"h": "a662803fe694e3d24d2e51c2a85064e2",
+"v": 16
+},
+"units/zis_5.png": {
+"h": "97a87fe1cc2d8f81414d51851fad5984",
+"v": 16
+}
+}
