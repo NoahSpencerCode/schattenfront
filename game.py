@@ -6651,7 +6651,7 @@ void main() {
                      'depot': 'depot', 'bunker': 'bunker',
                      'airfield': 'airfield', 'harbor': 'harbor',
                      'radar': 'radar'}
-        entries = [("%dLB" % cost, self.begin_build_mode, [kind],
+        entries = [("", self.begin_build_mode, [kind],
                     get_icon_path(work_icon.get(kind, 'depot'), 'dark'),
                     False, "%s -- %d LB OF STORES" % (label, cost))
                    for kind, (label, cost, _t) in self.BUILD_WORKS.items()]

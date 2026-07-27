@@ -346,8 +346,11 @@ class BottomBar:
                               hw=side, hh=side, corner=0.30,
                               font=self.base.hud_font)
             if icon:
+                # a captioned key rides its icon high to clear the
+                # chip; a bare key wears the icon dead centre
+                pic_z = 0.012 if (label and len(label) <= 8) else 0.0
                 pic = OnscreenImage(image=icon, parent=btn,
-                                    scale=0.044, pos=(0, 0, 0.012))
+                                    scale=0.044, pos=(0, 0, pic_z))
                 pic.setTransparency(True)
                 if label and len(label) <= 8:
                     # short caption (hp, cost) on a paper chip at the
