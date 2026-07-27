@@ -308,10 +308,12 @@ class BottomBar:
 
     def add_buttons(self, entries):
         """entries: (label, command, extraArgs[, icon_path[, selected
-        [, tip]]]).  Every control is a SQUARE console key bearing an
-        icon; the full name rides a hover tooltip and a short label
-        (an hp readout, a cost) prints as a caption under the icon.
-        A truthy 'selected' draws a white halo. Two rows of 16."""
+        [, tip[, dim]]]]).  Every control is a SQUARE console key
+        bearing an icon; the full name rides a hover tooltip and a
+        short label (an hp readout, a cost) prints as a caption under
+        the icon.  A truthy 'selected' draws a white halo.  A truthy
+        'dim' greys the whole key out -- not ready (no crew, still on
+        the ways); the tooltip still explains why. Two rows of 16."""
         self.clear_buttons()
         self.set_hint('')
         per_row = 16
@@ -321,6 +323,7 @@ class BottomBar:
             icon = entry[3] if len(entry) > 3 else None
             selected = entry[4] if len(entry) > 4 else False
             tip = entry[5] if len(entry) > 5 else label
+            dim = entry[6] if len(entry) > 6 else False
             row, col = divmod(i, per_row)
             x = -1.19 + col * 0.112
             y = 0.166 - row * 0.112
@@ -367,6 +370,11 @@ class BottomBar:
                 btn['text'] = label
                 btn['text_scale'] = min(0.030, fit)
                 btn['text_pos'] = (0, -0.010)
+            if dim:
+                # greyed key: the works aren't ready (no crew, still
+                # building) -- clicks fall through to the command,
+                # which explains itself over the wire
+                btn.setColorScale(0.55, 0.55, 0.55, 1.0)
             if tip:
                 # the slip clears the key's top edge, riding over the
                 # info line rather than the bar title

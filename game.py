@@ -6486,19 +6486,19 @@ void main() {
         for i, ut in enumerate(st.shells):
             info = stats_for(ut, st.country)
             entries.append((
-                "" if st.crews else "NO CREW",
-                self.dispatch_clicked, [st, i],
+                "", self.dispatch_clicked, [st, i],
                 get_icon_path(ut, 'dark'), False,
                 ("DISPATCH %s -- ONE CREW SIGNS ABOARD"
                  % info['label'].upper()) if st.crews else
-                "%s -- NO CREWS ON STATION" % info['label'].upper()))
+                "%s -- NO CREWS ON STATION" % info['label'].upper(),
+                not st.crews))
         for ut, t_left in st.production:
             info = stats_for(ut, st.country)
             entries.append(("%ds" % max(0, int(t_left)), self._noop,
                             [], get_icon_path(ut, 'dark'), False,
                             "%s -- %d S TO DELIVERY" %
                             (info['label'].upper(),
-                             max(0, int(t_left)))))
+                             max(0, int(t_left))), True))
         if st.crews > 0:
             entries.append(("", self.muster_out, [st],
                             get_icon_path('enlist_button', 'dark'),
@@ -6580,7 +6580,7 @@ void main() {
             # garrisoned Enlisted ARE the crew pool here
             has_crew = any(u.alive and u.unit_type == 'infantry'
                            for u in garrison)
-            entries += [("" if has_crew else "NO CREW",
+            entries += [("",
                          self.dispatch_clicked, [base, i],
                          get_icon_path(ut, 'dark'), False,
                          ("DISPATCH %s -- ONE GARRISONED ENLISTED "
@@ -6589,7 +6589,8 @@ void main() {
                          if has_crew else
                          "%s -- MARCH ENLISTED INTO THE FIELD TO "
                          "CREW IT"
-                         % stats_for(ut, base.country)['label'].upper())
+                         % stats_for(ut, base.country)['label'].upper(),
+                         not has_crew)
                         for i, ut in enumerate(shells)]
             planned = [p for p in wing
                        if p in self.selected and p.sortie_plan]
