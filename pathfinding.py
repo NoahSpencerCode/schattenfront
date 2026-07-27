@@ -67,6 +67,27 @@ class MovementPlanner:
             self._build_land_graph()
         nodes, edges = self._nodes, self._static_edges
         vecs = [Vec3(v) for v in poly]
+        lls = [vec_to_latlon(v) for v in vecs]
+
+        def crossings(i0, i1):
+            """River crossings along the drawn centre-line between
+            two graph nodes: each one demands a LIVE span at plan
+            time (the usability check reads the live bridge list, so
+            spans thrown later -- or restored from a save -- count)."""
+            hits = []
+            for (la1, lo1), (la2, lo2) in zip(lls[i0:i1],
+                                              lls[i0 + 1:i1 + 1]):
+                if abs(lo1 - lo2) > 180.0:
+                    continue
+                mid = ((lo1 + lo2) / 2.0, (la1 + la2) / 2.0)
+                for seg in self.world.river_segments_near(
+                        mid[0], mid[1]):
+                    hit = segment_intersection_point(
+                        (lo1, la1), (lo2, la2), seg[0], seg[1])
+                    if hit is not None:
+                        hits.append(hit)
+            return hits
+
         arc = [0.0]
         for va, vb in zip(vecs[:-1], vecs[1:]):
             arc.append(arc[-1] + angle_between(va, vb) * GLOBE_RADIUS)
@@ -97,7 +118,9 @@ class MovementPlanner:
             # rails carry a routing preference: same true speed, but a
             # column that CAN ride the line should (it burns nothing)
             rate = ROAD_SPEED_MULTIPLIER * (1.15 if rail else 1.0)
-            edges.append((prev, nn, seg_len / rate, flag, [], geom))
+            xs = crossings(prev_i, idx)
+            gate = {'x': xs} if xs else []
+            edges.append((prev, nn, seg_len / rate, flag, gate, geom))
             prev, prev_i = nn, idx
             k += 1
         self._adj_cache = None
@@ -536,7 +559,16 @@ class MovementPlanner:
     def _land_edges_usable(self, edge):
         i, j, cost, is_road, bs = edge[:5]
         if is_road:
-            if not all(self.bridges[bi].alive for bi in (bs or [])):
+            if isinstance(bs, dict):
+                # a custom way (engineer road, railroad): every river
+                # crossing on the drawn line wants a LIVE span within
+                # bridge tolerance -- blow the span, sever the way
+                for hit in bs['x']:
+                    if not any(latlon_dist_deg((b.lon, b.lat), hit)
+                               <= BRIDGE_TOLERANCE_DEG
+                               for b in self.bridges if b.alive):
+                        return False
+            elif not all(self.bridges[bi].alive for bi in (bs or [])):
                 return False
             cuts = getattr(self, 'road_cuts', None)
             if cuts:

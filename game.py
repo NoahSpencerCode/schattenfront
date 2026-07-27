@@ -804,11 +804,17 @@ class WW2RTSGame(ShowBase):
         progress("PLOTTING ROADS AND SEA LANES...")
         self.planner._build_land_graph()
         self.planner._build_sea_grid()
-        # the national main lines: rail edges carry columns for free
+        # the national main lines: rail edges carry columns for free.
+        # A line is a way like any road: every river it crosses gets
+        # its span thrown FIRST, so the crossings are legal -- and
+        # bombable. (A loaded game recreates its spans from the save.)
         for curve in getattr(self.world, 'rail_paths', []):
+            if len(curve) < 2:
+                continue
+            if snapshot is None:
+                self._auto_bridge_curve(curve, quiet=True)
             poly = [latlon_to_vec(la, lo) for (la, lo) in curve]
-            if len(poly) >= 2:
-                self.planner.add_custom_road(poly, rail=True)
+            self.planner.add_custom_road(poly, rail=True)
         progress("RAISING THE ARMIES...")
         self.cities = [City(self, i, n, c, la, lo)
                        for i, (n, c, la, lo) in enumerate(self.world.cities)]
@@ -3480,7 +3486,10 @@ class WW2RTSGame(ShowBase):
 
     _GHOST_ICON = {'bridge': 'bridge_map', 'depot': 'depot',
                    'bunker': 'bunker', 'airfield': 'airfield',
-                   'harbor': 'harbor', 'radar': 'radar'}
+                   'harbor': 'harbor', 'radar': 'radar',
+                   # ways use the survey line, not a placement ghost,
+                   # but any stray call must never KeyError the frame
+                   'road': 'road_build', 'rail': 'rail_build'}
     _GHOST_SCALE = {'airfield': 0.034, 'harbor': 0.045, 'radar': 0.040,
                     'bridge': 0.035, 'depot': 0.03}
 
@@ -3518,7 +3527,7 @@ class WW2RTSGame(ShowBase):
         GREEN where they may stand, RED over forbidden ground."""
         kind = self.build_mode
         ground = None
-        if (kind is not None and kind != 'road'
+        if (kind is not None and kind not in ('road', 'rail')
                 and self.game_state == 'playing'
                 and self.mouseWatcherNode
                 and self.mouseWatcherNode.hasMouse()):
@@ -3626,7 +3635,7 @@ class WW2RTSGame(ShowBase):
                           for o in ([eng.current_order]
                                     if eng.current_order else [])
                           + eng.order_queue)
-            eng.give_order({'kind': 'build', 'what': 'road',
+            eng.give_order({'kind': 'build', 'what': kind,
                             'site': Vec3(a), 'points': [Vec3(b)],
                             'from': Vec3(a), 't': build_time,
                             'cost': cost}, queue=shift or chained)
@@ -3636,8 +3645,9 @@ class WW2RTSGame(ShowBase):
             if self.road_preview:
                 self.road_preview.removeNode()
                 self.road_preview = None
-            self.fax_short("ROAD LEG UNDER CONSTRUCTION -- CLICK "
-                           "EXTENDS THE LINE, ESC ENDS THE SURVEY")
+            self.fax_short("%s LEG UNDER CONSTRUCTION -- CLICK "
+                           "EXTENDS THE LINE, ESC ENDS THE SURVEY"
+                           % label)
             return
 
         if kind == 'bridge':
@@ -3799,9 +3809,9 @@ class WW2RTSGame(ShowBase):
                           (B(label), self._grid_ref(lat, lon)),
                           sender="ENGINEER CORPS")
 
-    def _auto_bridge_curve(self, curve):
-        """Throw a bridge over every river the surveyed road curve
-        crosses, decked ALONG the roadway."""
+    def _auto_bridge_curve(self, curve, quiet=False):
+        """Throw a bridge over every river the surveyed way (road OR
+        railroad) crosses, decked ALONG the roadway."""
         from utils import latlon_dist_deg as _ldd
         from utils import segment_intersection_point as _sip
         built = 0
@@ -3823,7 +3833,7 @@ class WW2RTSGame(ShowBase):
                 built += 1
         if built:
             self.planner.notify_bridge_change()
-            if self.player_country:
+            if self.player_country and not quiet:
                 self.fax_short("%d BRIDGE(S) THROWN ACROSS THE "
                                "CROSSINGS" % built)
 
@@ -5480,7 +5490,12 @@ void main() {
             t_air = np.array([u.is_air() for u in targets], dtype=bool)
             sub = np.array([bool(getattr(u, 'submerged', False))
                             for u in targets], dtype=bool)
-            ang = np.arccos(np.clip(T @ F.T, -1.0, 1.0)) * GLOBE_RADIUS
+            # errstate: Apple's Accelerate BLAS raises spurious FP
+            # flags on matmul (see pathfinding); the products are
+            # exact and the clip bounds arccos regardless
+            with np.errstate(all='ignore'):
+                ang = np.arccos(np.clip(T @ F.T, -1.0, 1.0)) \
+                    * GLOBE_RADIUS
             eff = np.repeat(rng[None, :], len(targets), axis=0)
             if sub.any():
                 # a submerged boat shows only a periscope feather

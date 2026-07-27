@@ -581,7 +581,8 @@ def restore(game, data):
                 + list(u.order_queue)
             for o in held:
                 if (isinstance(o, dict) and o.get('kind') == 'build'
-                        and o.get('what') and o['what'] != 'road'
+                        and o.get('what')
+                        and o['what'] not in ('road', 'rail')
                         and o.get('site') is not None):
                     np_ = g._make_ghost_np(
                         o['what'], (0.95, 0.82, 0.42, 0.55))
