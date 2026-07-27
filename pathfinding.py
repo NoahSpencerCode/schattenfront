@@ -113,7 +113,10 @@ class MovementPlanner:
         import os as _os
         from geodata import CACHE_DIR as _CD
         base_n = len(nodes)
-        cache = _os.path.join(_CD, 'land_stitch_v1_%d.npz' % base_n)
+        # v2: station siting gained the clean-separation rule, which
+        # moved spur geometry -- the node COUNT alone could collide
+        # with a v1 survey of the old map
+        cache = _os.path.join(_CD, 'land_stitch_v2_%d.npz' % base_n)
         if _os.path.exists(cache):
             z = np.load(cache)
             for la, lo in z['pts']:

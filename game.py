@@ -81,7 +81,7 @@ DRAG_THRESHOLD = 0.015
 HIT_FLASH_TIME = 0.35        # seconds for a combat flash to expand and die
 MAX_HIT_FLASHES = 48
 
-STARTING_ARMY = ['army_command', 'infantry', 'infantry', 'tank', 'engineer',
+STARTING_ARMY = ['army_command', 'tank', 'engineer',
                  'aa_artillery', 'supply_truck']
 STARTING_AIR = ['fighter', 'bomber']
 STARTING_NAVY = ['destroyer_sea_sea', 'personnel_transport']
@@ -926,31 +926,21 @@ class WW2RTSGame(ShowBase):
         return self.cities[0]
 
     def _spawn_starting_forces(self, faction):
-        """The opening order of battle under the enlistment law: only
-        ENLISTED stand in the open; every vehicle -- army, air and
-        sea alike -- waits at its station as a shell. Nothing is ever
-        scattered loose about the map."""
-        cities = [c for c in self.cities if c.home_country == faction]
-        cap = cities[0]
-        second = cities[1]
+        """The opening order of battle under the enlistment law: NO
+        man stands in the open -- every soldier must be enlisted from
+        a city -- and every vehicle -- army, air and sea alike --
+        waits at its station as a shell. Nothing is ever scattered
+        loose about the map."""
         posts = [p_ for p_ in self.armyposts if p_.country == faction]
         fields = [a for a in self.airfields if a.country == faction]
         for i, ut in enumerate(STARTING_ARMY):
-            if ut == 'infantry':
-                u = self.spawn_unit(ut, faction, cap.lat, cap.lon,
-                                    jitter=0.5, seed=i)
-                u.supply = u.stats['supply_cap']
-            elif posts:
+            if posts:
                 p_ = posts[i % len(posts)]
                 p_.shells.append(ut)
                 self._refresh_station_badge(p_)
         for i, ut in enumerate(STARTING_AIR):
             if fields:
                 fields[i % len(fields)].shells.append(ut)
-        for i, ut in enumerate(['infantry', 'infantry']):
-            u = self.spawn_unit(ut, faction, second.lat, second.lon,
-                                jitter=0.4, seed=20 + i)
-            u.supply = u.stats['supply_cap']
         # the fleet waits IN the yards as shells, and the opening
         # stations each hold a small standing crew pool
         yards = [h for h in self.harbors if h.country == faction]
@@ -4412,13 +4402,15 @@ void main() {
                                       'goal': Vec3(d.pos),
                                       'auto': True})
 
-    FERRY_MIN_MARCH = 1.0       # a march worth motorizing (world units)
-    FERRY_PICKUP_MAX = 1.5      # how far a truck will drive to collect
+    FERRY_MIN_MARCH = 0.25      # a march worth motorizing (world units)
+    FERRY_PICKUP_MAX = 2.5      # how far a truck will drive to collect
 
     def _tick_ferry(self):
         """Idle personnel trucks run a taxi service: infantry slogging
-        somewhere far on foot are collected by their NEAREST idle truck,
-        driven to their goal and dropped -- orders handed back."""
+        somewhere on foot are collected by their NEAREST idle truck,
+        driven to their goal and dropped -- orders handed back. A cab
+        turns out for a SINGLE man, and men marching to sign on at a
+        station or garrison ride the same as any other marcher."""
         idle = []
         for truck in self.units:
             if (not truck.alive or truck.carried_by
@@ -4434,51 +4426,108 @@ void main() {
         # marchers worth motorizing, each assigned to the closest cab
         buckets = {}
         for u in self.units:
-            if (u.alive and not u.carried_by
-                    and u.unit_type == 'infantry'
-                    and getattr(u, '_ferry_by', None) is None
-                    and not u.order_queue
-                    and u.current_order
-                    and u.current_order.get('kind') == 'move'
-                    and not u.current_order.get('ferry')
-                    and u.current_order.get('goal') is not None):
-                goal = Vec3(u.current_order['goal'])
-                if (angle_between(u.pos, goal) * GLOBE_RADIUS
-                        < self.FERRY_MIN_MARCH):
+            if (not u.alive or u.carried_by
+                    or u.unit_type != 'infantry'
+                    or getattr(u, '_ferry_by', None) is not None
+                    or u.order_queue or not u.current_order):
+                continue
+            o = u.current_order
+            kind = o.get('kind')
+            if kind == 'move':
+                if o.get('ferry') or o.get('goal') is None:
                     continue
-                cabs = [t for t in idle if t.country == u.country]
-                if not cabs:
+                goal = Vec3(o['goal'])
+                back = None
+            elif kind in ('station', 'garrison'):
+                # a man walking to his posting rides too; the cab
+                # remembers the posting and hands it back at the gate
+                tgt = o.get('target')
+                if tgt is None or getattr(tgt, 'pos', None) is None:
                     continue
-                cab = min(cabs, key=lambda t: t.dist_to(u.pos))
-                if cab.dist_to(u.pos) > self.FERRY_PICKUP_MAX:
-                    continue
-                buckets.setdefault(id(cab), (cab, []))[1].append(u)
+                goal = Vec3(tgt.pos)
+                back = {'kind': kind, 'target': tgt}
+            else:
+                continue
+            if (angle_between(u.pos, goal) * GLOBE_RADIUS
+                    < self.FERRY_MIN_MARCH):
+                continue
+            cabs = [t for t in idle if t.country == u.country
+                    and t.dist_to(u.pos) <= self.FERRY_PICKUP_MAX
+                    and self._ferry_range_ok(t, u.pos, goal)]
+            if not cabs:
+                continue
+            cab = min(cabs, key=lambda t: t.dist_to(u.pos))
+            u._ferry_back = back
+            buckets.setdefault(id(cab), (cab, []))[1].append((u, goal))
         for cab, riders in buckets.values():
-            riders.sort(key=lambda u: cab.dist_to(u.pos))
+            riders.sort(key=lambda p: cab.dist_to(p[0].pos))
             riders = riders[:cab.stats['capacity']]
             # the marchers never break stride: the lorry does all the
             # driving and scoops them up on the road
-            claims = [(u, Vec3(u.current_order['goal'])) for u in riders]
-            for u in riders:
+            claims = [(u, Vec3(gl)) for u, gl in riders]
+            for u, _gl in riders:
                 u._ferry_by = cab
             cab._ferry = {'state': 'collect', 'claims': claims,
                           'chase': None}
-            cab.give_order({'kind': 'move', 'goal': Vec3(riders[0].pos),
+            cab.give_order({'kind': 'move',
+                            'goal': Vec3(riders[0][0].pos),
                             'auto': True})
             if cab.country == self.player_country:
                 self.fax_short("MOTOR COLUMN INTERCEPTING %d "
                                "MARCHER(S)" % len(claims))
 
+    def _ferry_range_ok(self, cab, pick, goal):
+        """A cab only signs for a fare its tank can finish: the run
+        out plus the haul, figured at half road half cross-country,
+        must fit the stores aboard (with a margin for detours)."""
+        use = cab.stats.get('use_move', 0.0)
+        if use <= 0:
+            return True
+        wu = (angle_between(cab.pos, pick)
+              + angle_between(pick, goal)) * GLOBE_RADIUS
+        v = cab.stats['speed'] * UNIT_SPEED_FACTOR
+        t = (wu * 0.5 / v
+             + wu * 0.5 / (v * cab.stats.get('road_mult', 3.0)))
+        return cab.supply >= use * t * 1.15
+
+    def _ferry_handback(self, u, g):
+        """A rider (or claimed marcher) gets his marching orders back:
+        the original station/garrison posting if the cab took one
+        over, else the walk to his goal. A man still marching on his
+        own unchanged order is left alone."""
+        back = getattr(u, '_ferry_back', None)
+        u._ferry_by = None
+        u._ferry_back = None
+        if not u.alive or u.carried_by:
+            return
+        if back is not None:
+            o = u.current_order
+            if (o is not None and o.get('kind') == back['kind']
+                    and o.get('target') is back['target']):
+                return          # never stopped marching on his posting
+            u.give_order(dict(back))
+        else:
+            u.give_order({'kind': 'move', 'goal': Vec3(g),
+                          'auto': True, 'ferry': True})
+
     def _ferry_job(self, truck, job):
         """Advance one truck's active taxi job by one tick."""
         job['claims'] = [(u, g) for (u, g) in job['claims'] if u.alive]
+        # a cab that has run its tank dry goes off duty on the spot:
+        # everyone out, orders handed back, the men march the rest --
+        # riders are never held hostage aboard a stalled lorry
+        if truck.stats['supply_cap'] > 0 and truck.supply <= 0:
+            truck.clear_orders()
+            if truck.cargo:
+                self._unload_cargo(truck)
+            for u, g in job['claims']:
+                self._ferry_handback(u, g)
+            truck._ferry = None
+            return
         # the player re-tasked the truck: hand everyone back
         if truck.current_order and not truck.current_order.get('auto'):
             for u, g in job['claims']:
-                u._ferry_by = None
-                if not u.carried_by:
-                    u.give_order({'kind': 'move', 'goal': Vec3(g),
-                                  'auto': True, 'ferry': True})
+                self._ferry_handback(u, g)
             truck._ferry = None
             return
         if job['state'] == 'collect':
@@ -4488,6 +4537,7 @@ void main() {
                     truck, '_route_fail_until', 0.0):
                 for u, g in job['claims']:
                     u._ferry_by = None
+                    u._ferry_back = None
                 truck._ferry = None
                 return
             keep = []
@@ -4497,16 +4547,24 @@ void main() {
                     continue
                 if u.carried_by is not None:
                     u._ferry_by = None
+                    u._ferry_back = None
                     continue
                 o = u.current_order
-                marching = (o is not None and o.get('kind') == 'move'
-                            and o.get('goal') is not None
-                            and (Vec3(o['goal'])
-                                 - g).lengthSquared() < 1e-8)
+                back = getattr(u, '_ferry_back', None)
+                if back is not None:
+                    marching = (o is not None
+                                and o.get('kind') == back['kind']
+                                and o.get('target') is back['target'])
+                else:
+                    marching = (o is not None and o.get('kind') == 'move'
+                                and o.get('goal') is not None
+                                and (Vec3(o['goal'])
+                                     - g).lengthSquared() < 1e-8)
                 if marching:
                     keep.append((u, g))
                 else:
                     u._ferry_by = None   # re-tasked, arrived, or lost
+                    u._ferry_back = None
             job['claims'] = keep
             if not keep:
                 truck._ferry = None
@@ -4542,10 +4600,7 @@ void main() {
             if truck.cargo:
                 self._unload_cargo(truck)   # route died: drop here
             for u, g in job['claims']:
-                u._ferry_by = None
-                if u.alive and not u.carried_by:
-                    u.give_order({'kind': 'move', 'goal': Vec3(g),
-                                  'auto': True, 'ferry': True})
+                self._ferry_handback(u, g)
             truck._ferry = None
 
     # ====================================================== economy
@@ -6383,9 +6438,11 @@ void main() {
                                  "ENLISTED SELECTED TO STATION CREWS")
 
     def _paged_entries(self, entries, page_attr):
-        """A menu holding more keys than the bar carries: slice into
-        pages, with < and > keys at the ends of the visible run."""
-        per = 24
+        """A menu holding more keys than one row carries: slice into
+        pages, with < and > keys at the ends of the visible run. A
+        page never wraps to a second row: 14 entries plus the two
+        arrows fill exactly the row of 16."""
+        per = 14
         n = len(entries)
         if n <= per:
             return entries

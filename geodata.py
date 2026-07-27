@@ -980,18 +980,36 @@ class WorldData:
                 if sea:
                     harbor_ok.add(sea[0][0])
 
+        # stations around one town must stand CLEANLY APART -- Vienna
+        # once had its field and its army post on adjoining bearings
+        STATION_MIN_SEP = 0.5           # degrees between any two sites
+
+        def clear_of(la, lo, others):
+            return all(latlon_dist_deg((lo, la), (o[1], o[0]))
+                       >= STATION_MIN_SEP for o in others)
+
         for (name, country, lat, lon) in self.cities:
+            # the quay never moves (it must sit on water), so the land
+            # stations are the ones that give way
+            quay = [coastal[name]] if name in harbor_ok else []
             if name in air_ok:
                 rng = np.random.RandomState(
                     zlib.crc32(('airfield:' + name).encode()) & 0xffffffff)
+                bearings = list(rng.permutation(range(0, 360, 30)))
                 site = None
-                for b in rng.permutation(range(0, 360, 30)):
-                    la = lat + 0.7 * math.sin(math.radians(b))
-                    lo = lon + 0.7 * math.cos(math.radians(b)) / \
-                        max(0.2, math.cos(math.radians(lat)))
-                    if (self.is_land(la, lo) and self.is_land(la + 0.08, lo)
-                            and self.is_land(la - 0.08, lo)):
-                        site = (float(la), float(lo))
+                for want_sep in (True, False):
+                    for b in bearings:
+                        la = lat + 0.7 * math.sin(math.radians(b))
+                        lo = lon + 0.7 * math.cos(math.radians(b)) / \
+                            max(0.2, math.cos(math.radians(lat)))
+                        if (self.is_land(la, lo)
+                                and self.is_land(la + 0.08, lo)
+                                and self.is_land(la - 0.08, lo)
+                                and (not want_sep
+                                     or clear_of(la, lo, quay))):
+                            site = (float(la), float(lo))
+                            break
+                    if site is not None:
                         break
                 if site is None:
                     site = self.nearest_land(lat, lon + 0.75)
@@ -1013,13 +1031,22 @@ class WorldData:
                 rng = np.random.RandomState(
                     zlib.crc32(('armypost:' + name).encode())
                     & 0xffffffff)
+                avoid = list(quay)
+                if name in self.airfield_sites:
+                    avoid.append(self.airfield_sites[name])
+                bearings = list(rng.permutation(range(0, 360, 30)))
                 site = None
-                for b in rng.permutation(range(0, 360, 30)):
-                    la = lat + 0.55 * math.sin(math.radians(b))
-                    lo = lon + 0.55 * math.cos(math.radians(b)) / \
-                        max(0.2, math.cos(math.radians(lat)))
-                    if self.is_land(la, lo):
-                        site = (float(la), float(lo))
+                for want_sep in (True, False):
+                    for b in bearings:
+                        la = lat + 0.55 * math.sin(math.radians(b))
+                        lo = lon + 0.55 * math.cos(math.radians(b)) / \
+                            max(0.2, math.cos(math.radians(lat)))
+                        if (self.is_land(la, lo)
+                                and (not want_sep
+                                     or clear_of(la, lo, avoid))):
+                            site = (float(la), float(lo))
+                            break
+                    if site is not None:
                         break
                 if site is None:
                     site = self.nearest_land(lat, lon - 0.6)
