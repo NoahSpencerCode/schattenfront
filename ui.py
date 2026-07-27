@@ -14,7 +14,7 @@ from direct.gui.OnscreenImage import OnscreenImage
 from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from panda3d.core import TextNode
 
-from icons import get_icon_path
+from icons import get_icon_path, sheet_texture
 
 PAPER = (0.91, 0.88, 0.78, 0.97)
 PAPER_EDGE = (0.25, 0.22, 0.18, 1.0)
@@ -86,9 +86,11 @@ def add_tooltip(btn, text, font=None, dy=0.085, left=None):
     hw = 0.31 * scale * len(text) + 0.014
     pos = ((-(left + hw + 0.015), 0, 0) if left is not None
            else (0, 0, dy))
-    f = DirectFrame(parent=btn, frameColor=(0.10, 0.09, 0.08, 0.94),
+    f = DirectFrame(parent=btn, frameColor=(1, 1, 1, 0.96),
+                    frameTexture=sheet_texture('plate'),
                     frameSize=(-hw, hw, -0.020, 0.032),
                     relief=DGG.FLAT, state=DGG.DISABLED, pos=pos)
+    f.setTransparency(True)
     edge = DirectFrame(parent=f, frameColor=(0.55, 0.48, 0.34, 1.0),
                        frameSize=(-hw - 0.003, hw + 0.003,
                                   -0.023, 0.035), relief=DGG.FLAT,
@@ -135,9 +137,11 @@ class TopBar:
     def __init__(self, base, on_budget, on_factory=None):
         self.base = base
         self.frame = DirectFrame(parent=base.a2dTopCenter,
-                                 frameColor=BAR_BG,
+                                 frameColor=(1, 1, 1, 0.92),
+                                 frameTexture=sheet_texture('bar'),
                                  frameSize=(-2.0, 2.0, -0.155, 0.0),
                                  state=DGG.NORMAL)
+        self.frame.setTransparency(True)
         self.values = {}
         for (title, x, align) in self.COLUMNS:
             head, _ = _make_text(self.frame, base.hud_font,
@@ -202,9 +206,11 @@ class BottomBar:
     def __init__(self, base):
         self.base = base
         self.frame = DirectFrame(parent=base.a2dBottomCenter,
-                                 frameColor=BAR_BG,
+                                 frameColor=(1, 1, 1, 0.92),
+                                 frameTexture=sheet_texture('bar'),
                                  frameSize=(-1.35, 1.35, 0.0, 0.35),
                                  state=DGG.NORMAL)
+        self.frame.setTransparency(True)
         self.title_tn, _ = _make_text(self.frame, base.hud_font,
                                       (-1.30, 0.290), 0.05, ACCENT)
         self.info_tn, _ = _make_text(self.frame, base.hud_font,
@@ -404,9 +410,11 @@ class Newspaper:
         self.on_dismiss = on_dismiss
         tall = 0.48 if final is None else 0.86
         self.frame = DirectFrame(parent=base.aspect2d,
-                                 frameColor=NEWSPRINT,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('newsprint'),
                                  frameSize=(-0.98, 0.98, -tall, tall),
                                  state=DGG.NORMAL, pos=(0, 0, 0.06))
+        self.frame.setTransparency(True)
         edge = DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
                            frameSize=(-0.99, 0.99, -tall - 0.012,
                                       -tall))
@@ -486,7 +494,8 @@ class DiplomacyLedger:
         self._COUNTRIES = COUNTRIES
         self._PLAYABLE = PLAYABLE
         self.frame = DirectFrame(parent=game.aspect2d,
-                                 frameColor=PAPER,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-1.42, 1.42, -0.86, 0.86),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -633,7 +642,8 @@ class _Toast:
         self.leave_age = 0.0
 
         self.frame = DirectFrame(parent=base.a2dBottomLeft,
-                                 frameColor=PAPER,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(0, self.width, 0, self.height),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -778,7 +788,8 @@ class BudgetFax:
         self.qty_tns = {}
 
         f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-1.18, 1.18, -0.92, 0.92),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -904,7 +915,8 @@ class BriefingFax:
         self.on_close = on_close
         f = base.hud_font
         W, H = self.HALF_W, self.HALF_H
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-W, W, -H, H),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -981,7 +993,8 @@ class TaxFax:
                      else city.tax_rate)
 
         f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-0.85, 0.85, -0.62, 0.62),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -1068,7 +1081,8 @@ class ProductionFax:
         self.base = base
         self.on_close = on_close
         self.f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-1.12, 1.12, -0.88, 0.88),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -1208,7 +1222,8 @@ class TechFax:
         self.game = game
         self.on_close = on_close
         f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-1.24, 1.24, -0.92, 0.92),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,

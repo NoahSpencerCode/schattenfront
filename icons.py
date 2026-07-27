@@ -1294,7 +1294,64 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 15   # bump when drawings change to invalidate the cache
+ICON_VERSION = 16   # bump when drawings change to invalidate the cache
+
+
+def _shift_mask(mask, dx, dy):
+    """Shift an L mask WITHOUT the wrap-around of ImageChops.offset
+    (a glyph touching one edge must never bleed in from the other)."""
+    out = Image.new('L', mask.size, 0)
+    out.paste(mask, (dx, dy))
+    return out
+
+
+def _finish_icon(img, variant):
+    """The polishing bench. Every pictogram leaves the shop with a
+    press-quality finish instead of a flat single-tone fill:
+
+    * GRADED INK -- the fill runs subtly lighter at the top and
+      deeper at the foot, the way a plate never inks perfectly flat;
+    * a LETTERPRESS rim -- a hair of warm light along each upper
+      edge, as if the stamp caught the lamp;
+    * a soft DROP SHADOW lifting the mark off the paper.
+
+    Works on the supersampled sheet so every grade survives the
+    LANCZOS downsample. Unit sprites (tinted by nation colour at
+    runtime) keep their shading multiplicative-safe: pure shape
+    shading, no hue is baked in."""
+    from PIL import ImageFilter, ImageChops
+    import numpy as _np
+    W, H = img.size
+    alpha = img.split()[3]
+    if not alpha.getbbox():
+        return img
+    k = max(1, W // SIZE)               # one logical pixel
+    if variant == 'unit':
+        hi, lo, rim_a, sh_a = 1.00, 0.78, 70, 80
+    elif variant == 'light':
+        hi, lo, rim_a, sh_a = 1.04, 0.86, 55, 90
+    else:                               # dark / red printer's ink
+        hi, lo, rim_a, sh_a = 1.10, 0.86, 85, 70
+    arr = _np.asarray(img, dtype=_np.float32).copy()
+    ramp = _np.linspace(hi, lo, H, dtype=_np.float32)[:, None, None]
+    arr[..., :3] = _np.clip(arr[..., :3] * ramp, 0, 255)
+    inked = Image.fromarray(arr.astype('uint8'), 'RGBA')
+    # letterpress rim: the mask minus itself-shifted-down leaves the
+    # upper edges; a whisper of blur softens the stamp
+    rim = ImageChops.subtract(alpha, _shift_mask(alpha, 0, int(k * 1.3)))
+    rim = rim.filter(ImageFilter.GaussianBlur(k * 0.35))
+    rim = rim.point(lambda v: int(v * rim_a / 255))
+    lamp = Image.new('RGBA', (W, H), (255, 250, 234, 0))
+    lamp.putalpha(rim)
+    inked = Image.alpha_composite(inked, lamp)
+    # the shadow falls down-right, soft, and never tints the glyph
+    smask = alpha.filter(ImageFilter.GaussianBlur(k * 1.1))
+    smask = smask.point(lambda v: int(v * sh_a / 255))
+    shadow = Image.new('RGBA', (W, H), (14, 11, 8, 0))
+    shadow.putalpha(_shift_mask(smask, int(k * 1.2), int(k * 1.6)))
+    out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    out = Image.alpha_composite(out, shadow)
+    return Image.alpha_composite(out, inked)
 
 
 class _ScaledDraw:
@@ -1350,7 +1407,7 @@ class _ScaledDraw:
         self._d.pieslice(self._xy(xy), start, end, **kw)
 
 
-BUTTON_VERSION = 1
+BUTTON_VERSION = 2
 _BTN_EDGE = {'panel': (54, 44, 34, 255), 'red': (38, 12, 8, 255)}
 _BTN_STATES = {
     'panel': {'ready': ((231, 219, 184), (186, 171, 134), None),
@@ -1366,18 +1423,31 @@ _BTN_STATES = {
 
 def _paint_button(w, h, top, bot, edge, glow=None, ss=3, corner=0.42):
     """Paint one physical key AT ITS OWN ASPECT: fixed corner radius
-    relative to height, smooth vertical shade hugging the arcs, drop
-    shadow, bezel, optional hover glow. Supersampled for clean edges."""
+    relative to height, smooth vertical shade hugging the arcs, a
+    SOFT drop shadow, worn-bakelite grain, a machined double bezel
+    (dark rim outside, warm hairline inside), a lamp sheen across
+    the crown and a seating shadow at the foot -- the key should
+    read as a thing you could press with a thumb. Supersampled for
+    clean edges; the metrics (margin, radius, output size) are
+    EXACTLY the old painter's, so no layout shifts."""
     import math as _m
+    from PIL import ImageFilter
+    import numpy as _np
     W, H = w * ss, h * ss
-    img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
     m = H * 0.15
     x0, y0, x1, y1 = m, m, W - m, H - m
     r = (y1 - y0) * corner
-    d.rounded_rectangle([x0 + H * 0.045, y0 + H * 0.06,
-                         x1 + H * 0.045, y1 + H * 0.06],
-                        radius=r, fill=(20, 16, 12, 95))
+
+    # soft shadow on its own sheet, blurred, composited under the key
+    img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    sh = ImageDraw.Draw(img)
+    sh.rounded_rectangle([x0 + H * 0.035, y0 + H * 0.055,
+                          x1 + H * 0.035, y1 + H * 0.055],
+                         radius=r, fill=(18, 14, 10, 120))
+    img = img.filter(ImageFilter.GaussianBlur(H * 0.022))
+
+    key = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(key)
     steps = 56
     hh_ = y1 - y0
     for i in range(steps):
@@ -1392,15 +1462,59 @@ def _paint_button(w, h, top, bot, edge, glow=None, ss=3, corner=0.42):
         if e < r:
             inset = r - _m.sqrt(max(0.0, r * r - (r - e) ** 2))
         d.rectangle([x0 + inset, ya, x1 - inset, yb], fill=col + (255,))
+
+    # worn-surface grain, masked to the key face and kept faint
+    mask = Image.new('L', (W, H), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([x0, y0, x1, y1], radius=r,
+                                           fill=255)
+    rng = _np.random.RandomState(4207)
+    noise = rng.randint(-6, 7, (H, W, 1)).astype(_np.int16)
+    karr = _np.asarray(key, dtype=_np.int16).copy()
+    karr[..., :3] = _np.clip(karr[..., :3] + noise, 0, 255)
+    key = Image.fromarray(karr.astype('uint8'), 'RGBA')
+    key.putalpha(mask)
+
+    kd = ImageDraw.Draw(key)
+    # seating shadow: the face falls away into the bezel at the foot
+    for i in range(3):
+        aa = (46, 30, 18)[i]
+        kd.rounded_rectangle(
+            [x0 + H * 0.012 * i, y0 + H * 0.012 * i,
+             x1 - H * 0.012 * i, y1 - H * 0.018 * i],
+            radius=max(2, r - H * 0.012 * i),
+            outline=(24, 18, 12, aa), width=max(1, int(H * 0.018)))
+    # lamp sheen across the crown
+    sheen = Image.new('L', (W, H), 0)
+    sd = ImageDraw.Draw(sheen)
+    crown_h = hh_ * 0.42
+    for i in range(18):
+        aa = int(34 * (1.0 - i / 18.0))
+        sd.rectangle([x0, y0 + crown_h * i / 18.0,
+                      x1, y0 + crown_h * (i + 1) / 18.0], fill=aa)
+    sheen = Image.composite(Image.new('L', (W, H), 0), sheen,
+                            mask.point(lambda v: 255 - v))
+    lamp = Image.new('RGBA', (W, H), (255, 250, 236, 0))
+    lamp.putalpha(sheen)
+    key = Image.alpha_composite(key, lamp)
+
+    kd = ImageDraw.Draw(key)
     if glow is not None:
-        d.rounded_rectangle([x0 - H * 0.02, y0 - H * 0.02,
-                             x1 + H * 0.02, y1 + H * 0.02],
-                            radius=r + H * 0.02, outline=glow,
-                            width=max(2, int(H * 0.035)))
-    d.line([(x0 + r * 0.9, y0 + H * 0.02), (x1 - r * 0.9, y0 + H * 0.02)],
-           fill=(255, 252, 240, 90), width=max(1, int(H * 0.012)))
-    d.rounded_rectangle([x0, y0, x1, y1], radius=r, outline=edge,
-                        width=max(2, int(H * 0.032)))
+        kd.rounded_rectangle([x0 - H * 0.02, y0 - H * 0.02,
+                              x1 + H * 0.02, y1 + H * 0.02],
+                             radius=r + H * 0.02, outline=glow,
+                             width=max(2, int(H * 0.035)))
+    kd.line([(x0 + r * 0.9, y0 + H * 0.02),
+             (x1 - r * 0.9, y0 + H * 0.02)],
+            fill=(255, 252, 240, 110), width=max(1, int(H * 0.012)))
+    # machined double bezel: warm hairline inside the dark rim
+    kd.rounded_rectangle([x0 + H * 0.030, y0 + H * 0.030,
+                          x1 - H * 0.030, y1 - H * 0.030],
+                         radius=max(2, r - H * 0.030),
+                         outline=(255, 246, 214, 60),
+                         width=max(1, int(H * 0.012)))
+    kd.rounded_rectangle([x0, y0, x1, y1], radius=r, outline=edge,
+                         width=max(2, int(H * 0.032)))
+    img = Image.alpha_composite(img, key)
     return img.resize((w, h), Image.LANCZOS)
 
 
@@ -1434,6 +1548,112 @@ def button_assets(kind, hw, hh, corner=0.42):
              paths['ready']), hw / fx, hh / fz)
 
 
+SHEET_VERSION = 1
+
+
+def _grain(arr, rng, amp):
+    import numpy as _np
+    noise = rng.randint(-amp, amp + 1,
+                        arr.shape[:2] + (1,)).astype(_np.int16)
+    arr[..., :3] = _np.clip(arr[..., :3].astype(_np.int16) + noise,
+                            0, 255).astype(arr.dtype)
+
+
+def _paint_sheet(kind):
+    """Painted UI surfaces, replacing the flat frameColor fills:
+
+    'bar'       -- the command-console panel: blackened steel with a
+                   faint centre light, machining grain, and a brass
+                   hairline along either edge;
+    'paper'     -- the FAX sheet: warm rag paper, fibre grain, a few
+                   pressed flecks, edges toned by the roller;
+    'newsprint' -- the broadsheet: cooler pulp stock, heavier grain,
+                   a soft centre-fold shadow;
+    'plate'     -- the tooltip slip: near-black bakelite plate with
+                   a whisper of lamp light at the top edge."""
+    import numpy as _np
+    rng = _np.random.RandomState(1944)
+    if kind == 'bar':
+        W, H = 1024, 128
+        arr = _np.zeros((H, W, 4), dtype=_np.uint8)
+        ramp = _np.linspace(0, 1, H, dtype=_np.float32)
+        base = 24 + 10 * _np.exp(-((ramp - 0.28) ** 2) / 0.10)
+        arr[..., 0] = base[:, None]
+        arr[..., 1] = (base * 0.97)[:, None]
+        arr[..., 2] = (base * 0.90)[:, None]
+        arr[..., 3] = 232
+        _grain(arr, rng, 4)
+        img = Image.fromarray(arr, 'RGBA')
+        d = ImageDraw.Draw(img)
+        for y in (2, H - 3):
+            d.line([(0, y), (W, y)], fill=(178, 148, 88, 150), width=2)
+        for y in (5, H - 6):
+            d.line([(0, y), (W, y)], fill=(0, 0, 0, 110), width=1)
+        return img
+    if kind == 'paper':
+        W, H = 512, 640
+        arr = _np.zeros((H, W, 4), dtype=_np.uint8)
+        arr[..., 0] = 233; arr[..., 1] = 225; arr[..., 2] = 200
+        arr[..., 3] = 250
+        _grain(arr, rng, 5)
+        # sparse pressed flecks in the rag stock
+        for _ in range(240):
+            yy, xx = rng.randint(0, H), rng.randint(0, W)
+            arr[yy, xx, :3] = _np.clip(
+                arr[yy, xx, :3].astype(_np.int16) -
+                rng.randint(12, 30), 0, 255)
+        # roller-toned edges: a gentle darkening ramp all round
+        edge = 20
+        fade = _np.linspace(0.90, 1.0, edge, dtype=_np.float32)
+        arr[:edge, :, :3] = (arr[:edge, :, :3] *
+                             fade[:, None, None]).astype(_np.uint8)
+        arr[-edge:, :, :3] = (arr[-edge:, :, :3] *
+                              fade[::-1, None, None]).astype(_np.uint8)
+        arr[:, :edge, :3] = (arr[:, :edge, :3] *
+                             fade[None, :, None]).astype(_np.uint8)
+        arr[:, -edge:, :3] = (arr[:, -edge:, :3] *
+                              fade[None, ::-1, None]).astype(_np.uint8)
+        return Image.fromarray(arr, 'RGBA')
+    if kind == 'newsprint':
+        W, H = 512, 640
+        arr = _np.zeros((H, W, 4), dtype=_np.uint8)
+        arr[..., 0] = 228; arr[..., 1] = 223; arr[..., 2] = 207
+        arr[..., 3] = 253
+        _grain(arr, rng, 7)
+        # the centre fold: a soft vertical shadow
+        xs = _np.arange(W, dtype=_np.float32)
+        fold = 1.0 - 0.06 * _np.exp(-((xs - W / 2.0) ** 2) / 180.0)
+        arr[..., :3] = (arr[..., :3] *
+                        fold[None, :, None]).astype(_np.uint8)
+        edge = 14
+        fade = _np.linspace(0.86, 1.0, edge, dtype=_np.float32)
+        arr[:edge, :, :3] = (arr[:edge, :, :3] *
+                             fade[:, None, None]).astype(_np.uint8)
+        arr[-edge:, :, :3] = (arr[-edge:, :, :3] *
+                              fade[::-1, None, None]).astype(_np.uint8)
+        return Image.fromarray(arr, 'RGBA')
+    # 'plate'
+    W, H = 256, 96
+    arr = _np.zeros((H, W, 4), dtype=_np.uint8)
+    arr[..., 0] = 27; arr[..., 1] = 24; arr[..., 2] = 20
+    arr[..., 3] = 242
+    _grain(arr, rng, 3)
+    img = Image.fromarray(arr, 'RGBA')
+    d = ImageDraw.Draw(img)
+    d.line([(0, 1), (W, 1)], fill=(255, 244, 210, 60), width=1)
+    return img
+
+
+def sheet_texture(kind):
+    """Path to a painted UI surface texture, rendered on first use."""
+    os.makedirs(ICON_DIR, exist_ok=True)
+    path = os.path.join(ICON_DIR, 'sheet_%s_v%d.png'
+                        % (kind, SHEET_VERSION))
+    if not os.path.exists(path):
+        _paint_sheet(kind).save(path)
+    return path
+
+
 def prewarm_button_assets():
     """Paint every key shape the UI is known to use, so no menu or
     newspaper pays a first-use PIL render mid-game (a several-hundred-
@@ -1450,6 +1670,8 @@ def prewarm_button_assets():
     ]
     for kind, hw, hh, corner in combos:
         button_assets(kind, hw, hh, corner=corner)
+    for kind in ('bar', 'paper', 'newsprint', 'plate'):
+        sheet_texture(kind)
 
 
 def get_icon_path(unit_type, variant='dark', nation=None):
@@ -1471,6 +1693,7 @@ def get_icon_path(unit_type, variant='dark', nation=None):
         else:
             ink = _INKS.get(variant, INK_DARK)
             _DRAWERS.get(unit_type, _draw_infantry)(d, ink)
+        img = _finish_icon(img, variant)
         img = img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
         img.save(path)
     return path
