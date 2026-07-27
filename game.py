@@ -4419,7 +4419,12 @@ void main() {
             if getattr(truck, '_ferry', None) is not None:
                 self._ferry_job(truck, truck._ferry)
             elif not (truck.cargo or truck.current_order
-                      or truck.order_queue or truck.plan_pending):
+                      or truck.order_queue or truck.plan_pending
+                      or (truck.stats['supply_cap'] > 0
+                          and truck.supply <= 0)):
+                # any fuel at all is enough to sign for a fare --
+                # range is never weighed -- but a BONE-DRY cab cannot
+                # roll to the pickup, so it waits for its jerrycan
                 idle.append(truck)
         if not idle:
             return
@@ -4452,8 +4457,7 @@ void main() {
                     < self.FERRY_MIN_MARCH):
                 continue
             cabs = [t for t in idle if t.country == u.country
-                    and t.dist_to(u.pos) <= self.FERRY_PICKUP_MAX
-                    and self._ferry_range_ok(t, u.pos, goal)]
+                    and t.dist_to(u.pos) <= self.FERRY_PICKUP_MAX]
             if not cabs:
                 continue
             cab = min(cabs, key=lambda t: t.dist_to(u.pos))
@@ -4475,20 +4479,6 @@ void main() {
             if cab.country == self.player_country:
                 self.fax_short("MOTOR COLUMN INTERCEPTING %d "
                                "MARCHER(S)" % len(claims))
-
-    def _ferry_range_ok(self, cab, pick, goal):
-        """A cab only signs for a fare its tank can finish: the run
-        out plus the haul, figured at half road half cross-country,
-        must fit the stores aboard (with a margin for detours)."""
-        use = cab.stats.get('use_move', 0.0)
-        if use <= 0:
-            return True
-        wu = (angle_between(cab.pos, pick)
-              + angle_between(pick, goal)) * GLOBE_RADIUS
-        v = cab.stats['speed'] * UNIT_SPEED_FACTOR
-        t = (wu * 0.5 / v
-             + wu * 0.5 / (v * cab.stats.get('road_mult', 3.0)))
-        return cab.supply >= use * t * 1.15
 
     def _ferry_handback(self, u, g):
         """A rider (or claimed marcher) gets his marching orders back:
@@ -4513,16 +4503,19 @@ void main() {
     def _ferry_job(self, truck, job):
         """Advance one truck's active taxi job by one tick."""
         job['claims'] = [(u, g) for (u, g) in job['claims'] if u.alive]
-        # a cab that has run its tank dry goes off duty on the spot:
-        # everyone out, orders handed back, the men march the rest --
-        # riders are never held hostage aboard a stalled lorry
+        # a dry tank is not the end of the ride: with riders aboard
+        # the cab HOLDS -- the starving flag summons a supply truck
+        # and the journey resumes on the refill (waiting for stores
+        # beats putting everyone back on foot). Dry with nobody
+        # aboard, it releases its claims so a fuelled cab can take
+        # the fare, and stands down to await its own jerrycan.
         if truck.stats['supply_cap'] > 0 and truck.supply <= 0:
-            truck.clear_orders()
-            if truck.cargo:
-                self._unload_cargo(truck)
-            for u, g in job['claims']:
-                self._ferry_handback(u, g)
-            truck._ferry = None
+            if not truck.cargo:
+                truck.clear_orders()
+                for u, g in job['claims']:
+                    u._ferry_by = None
+                    u._ferry_back = None
+                truck._ferry = None
             return
         # the player re-tasked the truck: hand everyone back
         if truck.current_order and not truck.current_order.get('auto'):
