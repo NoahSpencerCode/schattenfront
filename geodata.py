@@ -420,6 +420,7 @@ class WorldData:
         self.rivers = []            # [(lon,lat), ...] lists, gameplay rivers
         self.country_labels = []    # (name, lat, lon)
         self.roads = []             # (city_index_a, city_index_b)
+        self.rail_paths = []        # national main lines, lat/lon curves
         self.bridges = []           # dicts {lat, lon, road}
         self.land_mask = None       # np.bool_ [MASK_H, MASK_W], True = land
 
@@ -431,6 +432,7 @@ class WorldData:
         from terrain import Terrain
         self.terrain = Terrain(self.log)     # real ETOPO1 relief
         self._build_roads_and_bridges()
+        self._build_rails()
         self._build_city_plans()         # one fixed layout per city
         self._build_sites()              # airfield/harbor sites + spurs
         self.texture_path = self._build_texture()
@@ -936,6 +938,7 @@ class WorldData:
         which is also where new hulls take to the sea."""
         self.airfield_sites = {}
         self.harbor_sites = {}
+        self.armypost_sites = {}
         self.airfield_spurs = {}        # name -> the DRAWN polyline; the
         self.harbor_spurs = {}          # route graph follows it exactly
         self.spur_paths = []
@@ -954,37 +957,59 @@ class WorldData:
         by_country = {}
         for entry in self.cities:
             by_country.setdefault(entry[1], []).append(entry)
-        air_ok, harbor_ok = set(), set()
+        air_ok, harbor_ok, post_ok = set(), set(), set()
+        from config import PLAYABLE
         for country, group in by_country.items():
-            if country == 'neutral':
-                for (name, _c, _la, _lo) in group:
-                    if popk(name) >= 1000:
-                        air_ok.add(name)
-                        if name in coastal:
-                            harbor_ok.add(name)
-                continue
             ranked = sorted(group, key=lambda g: -popk(g[0]))
-            # airfields: the capital always flies, plus the biggest towns
-            picks = [g for g in ranked if g[0] in CAPITALS][:1]
-            picks += [g for g in ranked if g not in picks]
-            for g in picks[:3]:
-                air_ok.add(g[0])
-            sea = [g for g in ranked if g[0] in coastal]
-            for g in sea[:3]:
-                harbor_ok.add(g[0])
+            if country in PLAYABLE:
+                # the great powers: TWO of everything, at the biggest
+                # towns (harbors at the biggest COASTAL towns)
+                for g in ranked[:2]:
+                    air_ok.add(g[0])
+                    post_ok.add(g[0])
+                sea = [g for g in ranked if g[0] in coastal]
+                for g in sea[:2]:
+                    harbor_ok.add(g[0])
+            else:
+                # NPC nations: one field at the seat of government and
+                # one quay at the biggest coastal town
+                cap = next((g for g in ranked if g[0] in CAPITALS),
+                           ranked[0])
+                air_ok.add(cap[0])
+                sea = [g for g in ranked if g[0] in coastal]
+                if sea:
+                    harbor_ok.add(sea[0][0])
+
+        # stations around one town must stand CLEANLY APART -- Vienna
+        # once had its field and its army post on adjoining bearings
+        STATION_MIN_SEP = 0.5           # degrees between any two sites
+
+        def clear_of(la, lo, others):
+            return all(latlon_dist_deg((lo, la), (o[1], o[0]))
+                       >= STATION_MIN_SEP for o in others)
 
         for (name, country, lat, lon) in self.cities:
+            # the quay never moves (it must sit on water), so the land
+            # stations are the ones that give way
+            quay = [coastal[name]] if name in harbor_ok else []
             if name in air_ok:
                 rng = np.random.RandomState(
                     zlib.crc32(('airfield:' + name).encode()) & 0xffffffff)
+                bearings = list(rng.permutation(range(0, 360, 30)))
                 site = None
-                for b in rng.permutation(range(0, 360, 30)):
-                    la = lat + 0.7 * math.sin(math.radians(b))
-                    lo = lon + 0.7 * math.cos(math.radians(b)) / \
-                        max(0.2, math.cos(math.radians(lat)))
-                    if (self.is_land(la, lo) and self.is_land(la + 0.08, lo)
-                            and self.is_land(la - 0.08, lo)):
-                        site = (float(la), float(lo))
+                for want_sep in (True, False):
+                    for b in bearings:
+                        la = lat + 0.7 * math.sin(math.radians(b))
+                        lo = lon + 0.7 * math.cos(math.radians(b)) / \
+                            max(0.2, math.cos(math.radians(lat)))
+                        if (self.is_land(la, lo)
+                                and self.is_land(la + 0.08, lo)
+                                and self.is_land(la - 0.08, lo)
+                                and (not want_sep
+                                     or clear_of(la, lo, quay))):
+                            site = (float(la), float(lo))
+                            break
+                    if site is not None:
                         break
                 if site is None:
                     site = self.nearest_land(lat, lon + 0.75)
@@ -1001,6 +1026,34 @@ class WorldData:
                     lat, lon, wl, wo,
                     zlib.crc32(('spur:hb:' + name).encode()), passes=3)
                 self.harbor_spurs[name] = spur
+                self.spur_paths.append(spur)
+            if name in post_ok:
+                rng = np.random.RandomState(
+                    zlib.crc32(('armypost:' + name).encode())
+                    & 0xffffffff)
+                avoid = list(quay)
+                if name in self.airfield_sites:
+                    avoid.append(self.airfield_sites[name])
+                bearings = list(rng.permutation(range(0, 360, 30)))
+                site = None
+                for want_sep in (True, False):
+                    for b in bearings:
+                        la = lat + 0.55 * math.sin(math.radians(b))
+                        lo = lon + 0.55 * math.cos(math.radians(b)) / \
+                            max(0.2, math.cos(math.radians(lat)))
+                        if (self.is_land(la, lo)
+                                and (not want_sep
+                                     or clear_of(la, lo, avoid))):
+                            site = (float(la), float(lo))
+                            break
+                    if site is not None:
+                        break
+                if site is None:
+                    site = self.nearest_land(lat, lon - 0.6)
+                self.armypost_sites[name] = site
+                spur = self._curved_road_points(
+                    lat, lon, site[0], site[1],
+                    zlib.crc32(('spur:ap:' + name).encode()), passes=3)
                 self.spur_paths.append(spur)
 
     # ================================================== base texture
@@ -1264,6 +1317,39 @@ class WorldData:
     # (distances in units of the city's nominal radius). Rendering merely
     # scales the stored plan, so the same rooftops appear at every zoom
     # level -- nothing pops or reshuffles while the camera moves.
+
+    def _build_rails(self):
+        """Each great power opens with a RAILROAD binding its three
+        biggest cities: the two shortest legs of the triangle, curved
+        gently (rails are surveyed straighter than roads). Trains --
+        any column running a rail leg -- burn no stores."""
+        from config import PLAYABLE
+        popk = lambda n: CITY_POPULATION.get(n, 120)
+        by_country = {}
+        for (name, country, lat, lon) in self.cities:
+            by_country.setdefault(country, []).append(
+                (name, country, lat, lon))
+        for country in PLAYABLE:
+            group = sorted(by_country.get(country, []),
+                           key=lambda g: -popk(g[0]))[:3]
+            if len(group) < 2:
+                continue
+            legs = []
+            for i in range(len(group)):
+                for j in range(i + 1, len(group)):
+                    a, b = group[i], group[j]
+                    d = latlon_dist_deg((a[3], a[2]), (b[3], b[2]))
+                    legs.append((d, a, b))
+            legs.sort(key=lambda x: x[0])
+            for d, a, b in legs[:2]:
+                if d > 40.0:
+                    continue        # no ocean-spanning main lines
+                seed = zlib.crc32(("rail:%s:%s" % (a[0], b[0])).encode())
+                coarse = self._curved_road_points(
+                    a[2], a[3], b[2], b[3], seed, smooth=False)
+                curve = [tuple(pt) for pt in
+                         smooth_polyline(np.array(coarse))]
+                self.rail_paths.append(curve)
 
     def _build_city_plans(self):
         self.city_plans = {}

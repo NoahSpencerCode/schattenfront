@@ -22,7 +22,7 @@ import time
 
 from panda3d.core import Vec3
 
-SAVE_VERSION = 1
+SAVE_VERSION = 2
 
 
 # ------------------------------------------------------------ location
@@ -83,12 +83,14 @@ def _ref(game, obj, unit_ids):
         return None
     if obj in unit_ids:
         return {'u': unit_ids[obj]}
-    from structures import Airfield, Harbor
+    from structures import Airfield, ArmyPost, Harbor
     from game import Bridge
     if isinstance(obj, Airfield):
         return {'a': obj.name}
     if isinstance(obj, Harbor):
         return {'h': obj.name}
+    if isinstance(obj, ArmyPost):
+        return {'ap': obj.name}
     if isinstance(obj, Bridge):
         try:
             return {'b': game.bridges.index(obj)}
@@ -228,12 +230,15 @@ def snapshot(game):
             'name': c.name, 'country': c.country,
             'annexing': bool(c.annexing), 'tax': c.tax_rate,
             'pending_tax': c.pending_tax, 'industry': c.industry,
+            'draft': getattr(c, 'draft_pool', 0),
             'production': [[t, s] for (t, s) in c.production],
         } for c in game.cities],
         'airfields': [{
             'name': f.name, 'country': f.country,
             'lat': f.lat, 'lon': f.lon,
             'stock': getattr(f, 'stock', 0.0),
+            'shells': list(getattr(f, 'shells', ())),
+            'crews': getattr(f, 'crews', 0),
             'production': [[t, s] for (t, s) in f.production],
             'built': f.city is None,
         } for f in game.airfields],
@@ -241,9 +246,17 @@ def snapshot(game):
             'name': h.name, 'country': h.country,
             'lat': h.lat, 'lon': h.lon,
             'stock': getattr(h, 'stock', 0.0),
+            'shells': list(getattr(h, 'shells', ())),
+            'crews': getattr(h, 'crews', 0),
             'production': [[t, s] for (t, s) in h.production],
             'built': h.city is None,
         } for h in game.harbors],
+        'armyposts': [{
+            'name': p.name, 'country': p.country,
+            'stock': p.stock, 'shells': list(p.shells),
+            'crews': p.crews,
+            'production': [[t, s] for (t, s) in p.production],
+        } for p in game.armyposts],
         'depots': [{'name': d.name, 'country': d.country,
                     'lat': d.lat, 'lon': d.lon, 'stock': d.stock}
                    for d in game.depots],
@@ -259,6 +272,9 @@ def snapshot(game):
         'custom_roads': [
             [[la, lo] for (la, lo) in curve]
             for curve in getattr(game.world, 'custom_road_paths', [])],
+        'custom_rails': [
+            [[la, lo] for (la, lo) in curve]
+            for curve in getattr(game.world, 'custom_rail_paths', [])],
         'road_sections': [[s.alive, s.hp]
                           for s in getattr(game, 'road_sections', [])],
         'units': u_rows,
@@ -308,6 +324,9 @@ class _Resolver:
         if 'h' in r:
             return next((h for h in g.harbors
                          if h.name == r['h']), None)
+        if 'ap' in r:
+            return next((p_ for p_ in g.armyposts
+                         if p_.name == r['ap']), None)
         if 'b' in r:
             i = r['b']
             return g.bridges[i] if 0 <= i < len(g.bridges) else None
@@ -400,6 +419,7 @@ def restore(game, data):
             c.tax_rate = row['tax']
             c.pending_tax = row['pending_tax']
             c.industry = row['industry']
+            c.draft_pool = row.get('draft', c.draft_rate())
             c.production = [[t, s] for (t, s) in row['production']]
             c.refresh_marker()
 
@@ -418,6 +438,10 @@ def restore(game, data):
                     s.stock = row.get('stock', 0.0)
                 s.production = [[t, sec] for (t, sec)
                                 in row['production']]
+                if hasattr(s, 'shells'):
+                    s.shells = list(row.get('shells', []))
+                    s.crews = row.get('crews', 0)
+                    game._refresh_station_badge(s)
                 s.refresh_marker()
 
         sync_yards(data['airfields'], g.airfields,
@@ -426,6 +450,19 @@ def restore(game, data):
         sync_yards(data['harbors'], g.harbors,
                    lambda r: Harbor(g, r['lat'], r['lon'],
                                     r['country'], r['name']))
+        posts = {p_.name: p_ for p_ in g.armyposts}
+        for row in data.get('armyposts', []):
+            p_ = posts.get(row['name'])
+            if p_ is None:
+                continue
+            p_.country = row['country']
+            p_.stock = row['stock']
+            p_.shells = list(row['shells'])
+            p_.crews = row['crews']
+            p_.production = [[t, sec] for (t, sec)
+                             in row['production']]
+            g._refresh_station_badge(p_)
+            p_.refresh_marker()
         for row in data['depots']:
             d = Depot(g, row['lat'], row['lon'], row['country'],
                       row['name'])
@@ -460,6 +497,13 @@ def restore(game, data):
             if not hasattr(g.world, 'custom_road_paths'):
                 g.world.custom_road_paths = []
             g.world.custom_road_paths.append(pts)
+        for curve in data.get('custom_rails', []):
+            pts = [(la, lo) for (la, lo) in curve]
+            poly = [latlon_to_vec(la, lo) for (la, lo) in pts]
+            g.planner.add_custom_road(poly, rail=True)
+            if not hasattr(g.world, 'custom_rail_paths'):
+                g.world.custom_rail_paths = []
+            g.world.custom_rail_paths.append(pts)
         g._build_road_overlay()
         secs = getattr(g, 'road_sections', [])
         for sec, (alive, hp) in zip(secs, data['road_sections']):
@@ -537,7 +581,8 @@ def restore(game, data):
                 + list(u.order_queue)
             for o in held:
                 if (isinstance(o, dict) and o.get('kind') == 'build'
-                        and o.get('what') and o['what'] != 'road'
+                        and o.get('what')
+                        and o['what'] not in ('road', 'rail')
                         and o.get('site') is not None):
                     np_ = g._make_ghost_np(
                         o['what'], (0.95, 0.82, 0.42, 0.55))

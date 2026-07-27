@@ -16,6 +16,7 @@ from panda3d.core import (CardMaker, Geom, GeomNode, GeomTriangles,
                           TransparencyAttrib, Vec3)
 
 from icons import get_icon_path
+from utils import angle_between
 
 _icon_tex_cache = {}
 
@@ -346,3 +347,117 @@ def make_hit_flash_template():
     ring.setTransparency(TransparencyAttrib.MAlpha)
     set_marker_layer(ring, LAYER_FLASH)
     return ring
+
+
+def _side_frames(pts):
+    """Per-point unit side vectors along a surface polyline, with the
+    same dedupe/carry discipline as make_road_ribbon (zero tangents
+    inherit the last good side, so no NaN can void the bounds)."""
+    out = []
+    last_side = None
+    for i in range(len(pts)):
+        a = pts[max(0, i - 1)]
+        b = pts[min(len(pts) - 1, i + 1)]
+        t = Vec3(b) - Vec3(a)
+        n = Vec3(pts[i])
+        t -= n * t.dot(n)
+        if t.lengthSquared() > 1e-14:
+            t.normalize()
+            side = t.cross(n)
+            if side.lengthSquared() > 1e-14:
+                side.normalize()
+                last_side = side
+        out.append(Vec3(last_side) if last_side is not None
+                   else Vec3(0, 0, 0))
+    return out
+
+
+def make_rail_node(name, pts, R):
+    """A RAILROAD's drawn form: two silver running rails with dark
+    brown cross-ties between them, all one GeomNode, road-sized."""
+    from panda3d.core import (Geom, GeomNode, GeomTriangles,
+                              GeomVertexData, GeomVertexFormat,
+                              GeomVertexWriter)
+    gauge = 0.000042        # half-distance between the two rails, rad
+    rail_hw = 0.000014      # each rail's half-width
+    verge_hw = 0.000026     # dark verge under each rail, wider
+    tie_hl = 0.000090       # ties POKE OUT past the outer rail edges
+    tie_hw = 0.000016       # tie half-width along the track
+    tie_gap = 0.000167      # radians of arc between tie centres
+    silver = (0.72, 0.74, 0.78, 1.0)
+    verge_c = (0.24, 0.19, 0.14, 1.0)
+    brown = (0.30, 0.22, 0.14, 1.0)
+
+    fmt = GeomVertexFormat.getV3c4()
+    vdata = GeomVertexData(name, fmt, Geom.UHStatic)
+    vw = GeomVertexWriter(vdata, 'vertex')
+    cw = GeomVertexWriter(vdata, 'color')
+    tris = GeomTriangles(Geom.UHStatic)
+    vcount = 0
+    sides = _side_frames(pts)
+
+    def quad(p0, p1, p2, p3, col):
+        nonlocal vcount
+        for p in (p0, p1, p2, p3):
+            v = Vec3(p)
+            v.normalize()
+            v *= R
+            vw.addData3(v)
+            cw.addData4(*col)
+        tris.addVertices(vcount, vcount + 1, vcount + 2)
+        tris.addVertices(vcount, vcount + 2, vcount + 3)
+        vcount += 4
+
+    # the ties: even arc spacing along the WHOLE section (segments
+    # are far shorter than a tie interval, so the walk must carry
+    # across them or no tie would ever fit)
+    arcs = [0.0]
+    for i in range(len(pts) - 1):
+        arcs.append(arcs[-1] + angle_between(Vec3(pts[i]),
+                                             Vec3(pts[i + 1])))
+    total = arcs[-1]
+    seg_i = 0
+    k = 1
+    while k * tie_gap < total:
+        t = k * tie_gap
+        k += 1
+        while seg_i < len(arcs) - 2 and arcs[seg_i + 1] < t:
+            seg_i += 1
+        seg = arcs[seg_i + 1] - arcs[seg_i]
+        if seg < 1e-9:
+            continue
+        f = (t - arcs[seg_i]) / seg
+        a, b = Vec3(pts[seg_i]), Vec3(pts[seg_i + 1])
+        mid = a + (b - a) * f
+        side = sides[seg_i]
+        fwd = b - a
+        n = Vec3(mid)
+        if n.lengthSquared() > 1e-12:
+            nn = Vec3(n)
+            nn.normalize()
+            fwd -= nn * fwd.dot(nn)
+        if fwd.lengthSquared() > 1e-14:
+            fwd.normalize()
+        if side.lengthSquared() < 1e-14:
+            continue
+        quad(mid - side * tie_hl - fwd * tie_hw,
+             mid + side * tie_hl - fwd * tie_hw,
+             mid + side * tie_hl + fwd * tie_hw,
+             mid - side * tie_hl + fwd * tie_hw, brown)
+
+    # the running rails ride OVER the ties: dark verge under each,
+    # silver on top
+    for off in (-gauge, gauge):
+        for hw_, col in ((verge_hw, verge_c), (rail_hw, silver)):
+            for i in range(len(pts) - 1):
+                s0, s1 = sides[i], sides[i + 1]
+                a = Vec3(pts[i]) + s0 * off
+                b = Vec3(pts[i + 1]) + s1 * off
+                quad(a - s0 * hw_, a + s0 * hw_,
+                     b + s1 * hw_, b - s1 * hw_, col)
+
+    geom = Geom(vdata)
+    geom.addPrimitive(tris)
+    node = GeomNode(name)
+    node.addGeom(geom)
+    return node

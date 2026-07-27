@@ -13,6 +13,7 @@ from panda3d.core import Vec3
 from panda3d.core import TextNode
 
 from config import (AIR_VISION_MULT, COMM_RADIUS_FACTOR, COUNTRIES,
+                    RAIL_LEG_MULT, RAIL_TRAIN_SPEED,
                     GLOBE_RADIUS, LIFT_AIR, LIFT_GROUND,
                     NIGHT_VISION_FACTOR, UNIT_SPEED_FACTOR,
                     UNIT_SPRITE_SCALE, VISION_SCALE)
@@ -26,7 +27,7 @@ from utils import (north_tangent, slerp, angle_between,
 UNIT_TYPES = {
     # ----- ARMY -----
     'infantry': {
-        'label': 'Infantry Section', 'domain': 'land', 'speed': 0.038,
+        'label': 'Enlisted', 'domain': 'land', 'speed': 0.038,
         'road_mult': 1.5,   # 4 km/h cross-country, 6 in column
         'vision': 0.7, 'hp': 60, 'cost': 100, 'build_time': 4,
         'damage': 7, 'range': 0.5, 'targets': ('land',), 'icon': 'INF'},
@@ -226,7 +227,7 @@ for _ut, _s in UNIT_TYPES.items():
 # range, Soviet mass -- while keeping overall faction power comparable.
 NATION_UNITS = {
     'germany': {
-        'infantry': ('Grenadier Division',
+        'infantry': ('Enlisted',
                      {'damage': 1.15, 'hp': 1.05, 'cost': 1.1},
                      "Doctrine-hardened Landser, dangerous in the attack."),
         'tank': ('Tiger I Panzer',
@@ -287,7 +288,7 @@ NATION_UNITS = {
                        "The Atlantic's most hunted ship."),
     },
     'usa': {
-        'infantry': ('G.I. Rifle Division',
+        'infantry': ('Enlisted',
                      {'damage': 1.25, 'hp': 1.3, 'cost': 0.85},
                      "The best-equipped rifleman of the war -- and plenty."),
         'tank': ('M4 Sherman', {'cost': 0.7, 'build_time': 0.8},
@@ -350,7 +351,7 @@ NATION_UNITS = {
                        "Fast battleships riding with the carriers."),
     },
     'britain': {
-        'infantry': ('Commonwealth Infantry', {'hp': 1.1},
+        'infantry': ('Enlisted', {'hp': 1.1},
                      "Steady regulars of Empire and Commonwealth."),
         'tank': ('Churchill Mk IV', {'hp': 1.25, 'speed': 0.85},
                  "Ponderous, but shrugs off hits going uphill."),
@@ -408,7 +409,7 @@ NATION_UNITS = {
                        "The Royal Navy's modern line."),
     },
     'japan': {
-        'infantry': ('Imperial Infantry',
+        'infantry': ('Enlisted',
                      {'cost': 0.75, 'speed': 1.15, 'damage': 1.1,
                       'hp': 0.85},
                      "Fanatic light infantry, fast through any country."),
@@ -470,7 +471,7 @@ NATION_UNITS = {
                        "The largest guns ever sent to sea."),
     },
     'soviet': {
-        'infantry': ('Rifle Division',
+        'infantry': ('Enlisted',
                      {'cost': 0.6, 'hp': 1.15, 'damage': 0.95,
                       'build_time': 0.8},
                      "Massed frontoviki: cheap, tough, and everywhere."),
@@ -841,7 +842,14 @@ class Unit:
             self.attack_target = self.sortie_targets.pop(0)
         self._combat(dt)
 
-        if self.current_order and not self.path:
+        # arrival-by-proximity orders complete the moment the unit is
+        # close enough, even with path legs left (a section that runs
+        # dry AT the gate still signs on); everything else completes
+        # when its path is walked out
+        near_kinds = ('station', 'garrison', 'board')
+        if self.current_order and (
+                not self.path
+                or self.current_order.get('kind') in near_kinds):
             done = self.game.order_finished(self, self.current_order)
             # order_finished may destroy this unit (e.g. an aircraft with
             # nowhere left to land); stop touching it if so
@@ -849,6 +857,7 @@ class Unit:
                 return
             if done:
                 self.current_order = None
+                self.path = []
         if moved:
             self.update_visual()
 
@@ -856,13 +865,20 @@ class Unit:
         if not self.path:
             return False
         target, speed_mult = self.path[0]
-        # on a road leg the ROUTING mult is only a flag: each chassis
-        # brings its own paved-road factor (feet gain little, wheels a
-        # lot), so column speeds stay true to life
-        eff_mult = (self.stats.get('road_mult', 3.0)
-                    if speed_mult > 1.001 else speed_mult)
-        speed = (self.stats['speed'] * UNIT_SPEED_FACTOR * eff_mult *
-                 self.game.game_speed)
+        on_rail = abs(speed_mult - RAIL_LEG_MULT) < 1e-6
+        if on_rail:
+            # the TRAIN sets the pace: every unit aboard -- marching
+            # Enlisted included -- rides at a lorry's road speed
+            speed = (RAIL_TRAIN_SPEED * UNIT_SPEED_FACTOR *
+                     self.game.game_speed)
+        else:
+            # on a road leg the ROUTING mult is only a flag: each
+            # chassis brings its own paved-road factor (feet gain
+            # little, wheels a lot), so column speeds stay true to life
+            eff_mult = (self.stats.get('road_mult', 3.0)
+                        if speed_mult > 1.001 else speed_mult)
+            speed = (self.stats['speed'] * UNIT_SPEED_FACTOR *
+                     eff_mult * self.game.game_speed)
         # the climb bites: off-road land movement pays the real grade
         # (roads are engineered and exempt; one sample per leg)
         if self.stats['domain'] == 'land' and speed_mult <= 1.001:
@@ -887,10 +903,12 @@ class Unit:
             # the fuel odometer: what a retasking mid-air may still ask
             # of the tanks is endurance minus this
             self._flown = getattr(self, '_flown', 0.0) + moved_wu
-        if self.stats['supply_cap'] > 0:
+        if self.stats['supply_cap'] > 0 and not on_rail:
             # the ORIGINAL harsh economy, by design: the column burns
             # stores every second it is under way, and no advance
-            # outlives its train -- supply reliance is a core mechanic
+            # outlives its train -- supply reliance is a core mechanic.
+            # RAIL legs are the one exemption: the railway carries the
+            # column's stores with it
             burn = self.stats['use_move'] * dt * self.game.game_speed
             if getattr(self, 'submerged', False):
                 burn *= 2.0             # running submerged drinks amps

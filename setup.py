@@ -10,7 +10,7 @@ from setuptools import setup
 
 setup(
     name='schattenfront',
-    version='0.1.0',
+    version='0.1.1',
     options={
         'build_apps': {
             'gui_apps': {'Schattenfront': 'main.py'},
@@ -41,7 +41,7 @@ setup(
                 'data/cache/etopo1_60s_i2.npy',
                 'data/cache/etopo1_5m_i2.npy',
                 'data/cache/etopo1_5ms_i2.npy',
-                'data/cache/land_stitch_v1_*.npz',
+                'data/cache/land_stitch_v2_*.npz',
             ],
             'exclude_patterns': [
                 'venv/**', 'packaging/**', 'build/**', 'dist/**',

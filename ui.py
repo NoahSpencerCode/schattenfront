@@ -77,26 +77,34 @@ def pill_button(parent, text, command, extraArgs=(), pos=(0, 0, 0),
 
 
 def add_tooltip(btn, text, font=None, dy=0.085, left=None):
-    """A hover slip naming the control: paper label that appears above
-    the button (or, with left=<button half-width>, off its left edge
-    for controls hugging the screen's right side)."""
+    """A hover slip naming the control: WHITE text on a dark plate
+    above the button (or, with left=<button half-width>, off its left
+    edge for controls hugging the screen's right side). The slip is
+    DEAD to the mouse -- an interactive tooltip near the cursor
+    steals the hover and flickers."""
     scale = 0.026
     hw = 0.31 * scale * len(text) + 0.014
     pos = ((-(left + hw + 0.015), 0, 0) if left is not None
            else (0, 0, dy))
-    f = DirectFrame(parent=btn, frameColor=PAPER,
+    f = DirectFrame(parent=btn, frameColor=(0.10, 0.09, 0.08, 0.94),
                     frameSize=(-hw, hw, -0.020, 0.032),
-                    relief=DGG.FLAT, pos=pos)
-    edge = DirectFrame(parent=f, frameColor=PAPER_EDGE,
-                       frameSize=(-hw - 0.004, hw + 0.004,
-                                  -0.024, 0.036), relief=DGG.FLAT)
+                    relief=DGG.FLAT, state=DGG.DISABLED, pos=pos)
+    edge = DirectFrame(parent=f, frameColor=(0.55, 0.48, 0.34, 1.0),
+                       frameSize=(-hw - 0.003, hw + 0.003,
+                                  -0.023, 0.035), relief=DGG.FLAT,
+                       state=DGG.DISABLED)
     edge.setBin('gui-popup', 0)
     f.setBin('gui-popup', 1)
+    for w in (f, edge):
+        try:
+            w.guiItem.setActive(False)
+        except Exception:
+            pass
     tn = TextNode('tip')
     tn.setAlign(TextNode.ACenter)
     if font:
         tn.setFont(font)
-    tn.setTextColor(*INK)
+    tn.setTextColor(0.96, 0.94, 0.88, 1.0)
     tn.setText(text)
     np_ = f.attachNewNode(tn)
     np_.setPos(0, 0, -0.008)
@@ -300,10 +308,12 @@ class BottomBar:
 
     def add_buttons(self, entries):
         """entries: (label, command, extraArgs[, icon_path[, selected
-        [, tip]]]).  Every control is a SQUARE console key bearing an
-        icon; the full name rides a hover tooltip and a short label
-        (an hp readout, a cost) prints as a caption under the icon.
-        A truthy 'selected' draws a white halo. Two rows of 16."""
+        [, tip[, dim]]]]).  Every control is a SQUARE console key
+        bearing an icon; the full name rides a hover tooltip and a
+        short label (an hp readout, a cost) prints as a caption under
+        the icon.  A truthy 'selected' draws a white halo.  A truthy
+        'dim' greys the whole key out -- not ready (no crew, still on
+        the ways); the tooltip still explains why. Two rows of 16."""
         self.clear_buttons()
         self.set_hint('')
         per_row = 16
@@ -313,6 +323,7 @@ class BottomBar:
             icon = entry[3] if len(entry) > 3 else None
             selected = entry[4] if len(entry) > 4 else False
             tip = entry[5] if len(entry) > 5 else label
+            dim = entry[6] if len(entry) > 6 else False
             row, col = divmod(i, per_row)
             x = -1.19 + col * 0.112
             y = 0.166 - row * 0.112
@@ -359,6 +370,11 @@ class BottomBar:
                 btn['text'] = label
                 btn['text_scale'] = min(0.030, fit)
                 btn['text_pos'] = (0, -0.010)
+            if dim:
+                # greyed key: the works aren't ready (no crew, still
+                # building) -- clicks fall through to the command,
+                # which explains itself over the wire
+                btn.setColorScale(0.55, 0.55, 0.55, 1.0)
             if tip:
                 # the slip clears the key's top edge, riding over the
                 # info line rather than the bar title
@@ -545,12 +561,22 @@ class DiplomacyLedger:
                            color=INK_FAINT)
                 continue
             if allied:
-                b = pill_button(self.frame, "BREAK PACT",
-                                g._diplo_break, extraArgs=[nat],
-                                pos=(bx + 0.13, 0, y), hw=0.13,
-                                hh=0.034, text_scale=0.024,
+                price = g.volunteer_price(nat)
+                b = pill_button(self.frame,
+                                "MEN $%d" % price if price else
+                                "MEN FREE",
+                                g._diplo_action,
+                                extraArgs=['volunteers', nat],
+                                pos=(bx - 0.005, 0, y), hw=0.062,
+                                hh=0.034, text_scale=0.020,
                                 font=self.base.hud_font)
                 self.widgets.append(b)
+                b2 = pill_button(self.frame, "BREAK",
+                                 g._diplo_break, extraArgs=[nat],
+                                 pos=(bx + 0.150, 0, y), hw=0.062,
+                                 hh=0.034, text_scale=0.022,
+                                 font=self.base.hud_font)
+                self.widgets.append(b2)
             elif at_war:
                 b = pill_button(self.frame, "OFFER PEACE",
                                 g._diplo_action,

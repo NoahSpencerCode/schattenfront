@@ -42,6 +42,11 @@ DETAIL_TEX_SIZE = 2048        # per-TILE render resolution
 UNIT_SPEED_FACTOR = 0.10      # global pace: down another 60%
 FORMATION_SPACING = 0.02      # just enough that counters don't overlap
                               # at full zoom
+# path legs carrying THIS mult are RAILROAD running: every unit --
+# Enlisted included -- rides at the same TRAIN speed (a transport
+# truck's road pace) and burns no stores under way
+RAIL_LEG_MULT = 8.25
+RAIL_TRAIN_SPEED = 0.564      # 0.141 lorry x 4.0 road mult
 UNIT_SPRITE_SCALE = 0.045     # fixed world-size of unit pictograms
                               # (tiny; vanishing when zoomed out is fine)
 ROAD_SPEED_MULTIPLIER = 4.0   # ROUTING preference for roads; actual
@@ -61,7 +66,7 @@ FOG_BRIGHTNESS = 0.8          # 20% darker
 FOG_SATURATION = 0.5          # 50% less saturated
 TERRAIN_LOS = False           # relief-warped vision fields (heavy);
                               # False = clean circles, flag kept for later
-GAME_VERSION = '0.1.0'        # shown on the menu as ALPHA <version>
+GAME_VERSION = '0.1.1'        # shown on the menu as ALPHA <version>
 MILES_PER_WU = 132            # one world unit is ~212 km = 132 statute mi
 BORDER_WASH_BAND = 0.022      # frontier ribbon width, radians (~140 km)
 BORDER_WASH_FLOOR = 0.06      # interior tint floor (near-transparent)
@@ -72,8 +77,8 @@ MAX_VISION_SOURCES = 320      # shader uniform budget (a big fleet
 # fortnight; the take depends on each city's tax rate and the health of
 # its industry (heavy taxation erodes the industrial base).
 STARTING_FUNDS = 40000
-CITY_GROSS_FORTNIGHT = 16000     # a city's gross product per fortnight
-CAPITAL_GROSS_FORTNIGHT = 36000  # the capital's gross product
+CITY_GROSS_FORTNIGHT = 5000      # a city's gross product per fortnight
+CAPITAL_GROSS_FORTNIGHT = 11000  # the capital's gross product
 TAX_DEFAULT = 30              # opening tax rate, percent
 TAX_EQUILIBRIUM = 30          # at this rate industry health holds steady
 INDUSTRY_DRIFT = 0.5          # industry %-points per tax point per

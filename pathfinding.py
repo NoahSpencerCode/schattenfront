@@ -15,7 +15,8 @@ import time
 import numpy as np
 from panda3d.core import Vec3
 
-from config import (GLOBE_RADIUS, ROAD_SPEED_MULTIPLIER,
+from config import (GLOBE_RADIUS, RAIL_LEG_MULT,
+                    ROAD_SPEED_MULTIPLIER,
                     BRIDGE_TOLERANCE_DEG)
 from utils import (latlon_to_vec, vec_to_latlon, angle_between, slerp,
                    segments_intersect, segment_intersection_point,
@@ -56,15 +57,37 @@ class MovementPlanner:
         self._river_ok_cache.clear()
         self._adj_cache = None
 
-    def add_custom_road(self, poly):
-        """Engineer-built road: the DRAWN centre-line polyline becomes a
-        chain of fast road edges (nodes at every bend plus evenly spaced
-        infill), identical in function to a map road -- traffic follows
-        the laid curve exactly and can join it anywhere along the way."""
+    def add_custom_road(self, poly, rail=False):
+        """Engineer-built road (or RAILROAD, with rail=True): the
+        DRAWN centre-line polyline becomes a chain of fast edges,
+        identical in function to a map road -- but a train on rail
+        edges burns no stores."""
+        flag = 'rail' if rail else True
         if self._static_edges is None:
             self._build_land_graph()
         nodes, edges = self._nodes, self._static_edges
         vecs = [Vec3(v) for v in poly]
+        lls = [vec_to_latlon(v) for v in vecs]
+
+        def crossings(i0, i1):
+            """River crossings along the drawn centre-line between
+            two graph nodes: each one demands a LIVE span at plan
+            time (the usability check reads the live bridge list, so
+            spans thrown later -- or restored from a save -- count)."""
+            hits = []
+            for (la1, lo1), (la2, lo2) in zip(lls[i0:i1],
+                                              lls[i0 + 1:i1 + 1]):
+                if abs(lo1 - lo2) > 180.0:
+                    continue
+                mid = ((lo1 + lo2) / 2.0, (la1 + la2) / 2.0)
+                for seg in self.world.river_segments_near(
+                        mid[0], mid[1]):
+                    hit = segment_intersection_point(
+                        (lo1, la1), (lo2, la2), seg[0], seg[1])
+                    if hit is not None:
+                        hits.append(hit)
+            return hits
+
         arc = [0.0]
         for va, vb in zip(vecs[:-1], vecs[1:]):
             arc.append(arc[-1] + angle_between(va, vb) * GLOBE_RADIUS)
@@ -92,8 +115,12 @@ class MovementPlanner:
                 nodes.append((vecs[idx], *vec_to_latlon(vecs[idx])))
             seg_len = max(1e-6, arc[idx] - arc[prev_i])
             geom = vecs[prev_i + 1:idx] or None
-            edges.append((prev, nn, seg_len / ROAD_SPEED_MULTIPLIER,
-                          True, [], geom))
+            # rails carry a routing preference: same true speed, but a
+            # column that CAN ride the line should (it burns nothing)
+            rate = ROAD_SPEED_MULTIPLIER * (1.15 if rail else 1.0)
+            xs = crossings(prev_i, idx)
+            gate = {'x': xs} if xs else []
+            edges.append((prev, nn, seg_len / rate, flag, gate, geom))
             prev, prev_i = nn, idx
             k += 1
         self._adj_cache = None
@@ -109,7 +136,10 @@ class MovementPlanner:
         import os as _os
         from geodata import CACHE_DIR as _CD
         base_n = len(nodes)
-        cache = _os.path.join(_CD, 'land_stitch_v1_%d.npz' % base_n)
+        # v2: station siting gained the clean-separation rule, which
+        # moved spur geometry -- the node COUNT alone could collide
+        # with a v1 survey of the old map
+        cache = _os.path.join(_CD, 'land_stitch_v2_%d.npz' % base_n)
         if _os.path.exists(cache):
             z = np.load(cache)
             for la, lo in z['pts']:
@@ -529,7 +559,16 @@ class MovementPlanner:
     def _land_edges_usable(self, edge):
         i, j, cost, is_road, bs = edge[:5]
         if is_road:
-            if not all(self.bridges[bi].alive for bi in (bs or [])):
+            if isinstance(bs, dict):
+                # a custom way (engineer road, railroad): every river
+                # crossing on the drawn line wants a LIVE span within
+                # bridge tolerance -- blow the span, sever the way
+                for hit in bs['x']:
+                    if not any(latlon_dist_deg((b.lon, b.lat), hit)
+                               <= BRIDGE_TOLERANCE_DEG
+                               for b in self.bridges if b.alive):
+                        return False
+            elif not all(self.bridges[bi].alive for bi in (bs or [])):
                 return False
             cuts = getattr(self, 'road_cuts', None)
             if cuts:
@@ -675,7 +714,9 @@ class MovementPlanner:
         path = []
         cur = goal_i
         while cur != start_i:
-            mult = ROAD_SPEED_MULTIPLIER if prev_road.get(cur) else 1.0
+            pr = prev_road.get(cur)
+            mult = (RAIL_LEG_MULT if pr == 'rail'
+                    else ROAD_SPEED_MULTIPLIER if pr else 1.0)
             path.append((Vec3(nodes[cur][0]), mult))
             geom, fwd = prev_geom.get(cur, (None, True))
             if geom:
