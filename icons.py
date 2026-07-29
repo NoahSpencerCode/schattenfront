@@ -1679,6 +1679,173 @@ def sheet_texture(kind):
                    SHEET_VERSION, lambda: _paint_sheet(kind))
 
 
+# ------------------------------------------------------- nation flags
+# Tiny standards flown above FOREIGN units and works on the map.
+# Simplified for legibility at counter scale; period palettes, no
+# devices finer than the size can carry.
+FLAG_VERSION = 1
+
+_WHITE_F = (244, 241, 232)
+_FLAG_SPECS = {
+    'germany':     ('h', ((28, 26, 26), _WHITE_F, (188, 42, 38))),
+    'britain':     ('jack',),
+    'usa':         ('usa',),
+    'japan':       ('disc', _WHITE_F, (198, 38, 34)),
+    'soviet':      ('star', (186, 32, 28), (238, 198, 68)),
+    'france':      ('v', ((36, 58, 128), _WHITE_F, (190, 38, 40))),
+    'italy':       ('v', ((36, 108, 62), _WHITE_F, (190, 38, 40))),
+    'china':       ('china',),
+    'poland':      ('h', (_WHITE_F, (196, 34, 44))),
+    'netherlands': ('h', ((178, 34, 40), _WHITE_F, (36, 58, 128))),
+    'belgium':     ('v', ((30, 28, 28), (238, 198, 68), (190, 38, 40))),
+    'norway':      ('nordic', (188, 38, 46), _WHITE_F, (36, 48, 112)),
+    'denmark':     ('nordic', (186, 32, 40), _WHITE_F, None),
+    'finland':     ('nordic', _WHITE_F, (46, 72, 148), None),
+    'greece':      ('greece',),
+    'yugoslavia':  ('h', ((36, 58, 128), _WHITE_F, (190, 38, 40))),
+    'romania':     ('v', ((36, 58, 128), (238, 198, 68), (190, 38, 40))),
+    'hungary':     ('h', ((190, 38, 40), _WHITE_F, (52, 110, 62))),
+    'bulgaria':    ('h', (_WHITE_F, (52, 110, 62), (190, 38, 40))),
+    'iraq':        ('iraq',),
+    'iran':        ('h', ((52, 110, 62), _WHITE_F, (190, 38, 40))),
+    'siam':        ('siam',),
+    'brit_med':    ('ensign', (32, 52, 108)),
+    'raj':         ('ensign', (168, 40, 38)),
+    'fareast':     ('ensign', (40, 84, 108)),
+    'australia':   ('ensign_star', (30, 48, 104)),
+    'neutral':     ('h', ((150, 146, 136), (120, 116, 108))),
+}
+
+
+def _paint_jack(d, x0, y0, x1, y1):
+    """The Union flag, simplified to what a tiny standard can carry."""
+    d.rectangle([x0, y0, x1, y1], fill=(34, 52, 110))
+    w = x1 - x0
+    d.line([(x0, y0), (x1, y1)], fill=_WHITE_F, width=int(w * 0.13))
+    d.line([(x0, y1), (x1, y0)], fill=_WHITE_F, width=int(w * 0.13))
+    d.line([(x0, y0), (x1, y1)], fill=(184, 38, 40), width=int(w * 0.05))
+    d.line([(x0, y1), (x1, y0)], fill=(184, 38, 40), width=int(w * 0.05))
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+    d.rectangle([x0, cy - int(w * 0.085), x1, cy + int(w * 0.085)],
+                fill=_WHITE_F)
+    d.rectangle([cx - int(w * 0.085), y0, cx + int(w * 0.085), y1],
+                fill=_WHITE_F)
+    d.rectangle([x0, cy - int(w * 0.05), x1, cy + int(w * 0.05)],
+                fill=(184, 38, 40))
+    d.rectangle([cx - int(w * 0.05), y0, cx + int(w * 0.05), y1],
+                fill=(184, 38, 40))
+
+
+def _star_pts(cx, cy, r):
+    import math as _m
+    pts = []
+    for i in range(10):
+        rr = r if i % 2 == 0 else r * 0.4
+        a = _m.pi * (i / 5.0) - _m.pi / 2
+        pts.append((cx + rr * _m.sin(a), cy - rr * _m.cos(a)))
+    return pts
+
+
+def _paint_flag(country):
+    W, H = 720, 480
+    img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    spec = _FLAG_SPECS.get(country, _FLAG_SPECS['neutral'])
+    kind = spec[0]
+    if kind == 'h':
+        bands = spec[1]
+        bh = H / len(bands)
+        for i, c in enumerate(bands):
+            d.rectangle([0, i * bh, W, (i + 1) * bh], fill=c)
+    elif kind == 'v':
+        bands = spec[1]
+        bw = W / len(bands)
+        for i, c in enumerate(bands):
+            d.rectangle([i * bw, 0, (i + 1) * bw, H], fill=c)
+    elif kind == 'disc':
+        d.rectangle([0, 0, W, H], fill=spec[1])
+        r = H * 0.30
+        d.ellipse([W / 2 - r, H / 2 - r, W / 2 + r, H / 2 + r],
+                  fill=spec[2])
+    elif kind == 'star':
+        d.rectangle([0, 0, W, H], fill=spec[1])
+        d.polygon(_star_pts(W * 0.28, H * 0.34, H * 0.22),
+                  fill=spec[2])
+    elif kind == 'nordic':
+        field, cross, inner = spec[1], spec[2], spec[3]
+        d.rectangle([0, 0, W, H], fill=field)
+        cw = int(H * 0.20)
+        cx = int(W * 0.38)
+        d.rectangle([0, H // 2 - cw, W, H // 2 + cw], fill=cross)
+        d.rectangle([cx - cw, 0, cx + cw, H], fill=cross)
+        if inner:
+            iw = int(cw * 0.5)
+            d.rectangle([0, H // 2 - iw, W, H // 2 + iw], fill=inner)
+            d.rectangle([cx - iw, 0, cx + iw, H], fill=inner)
+    elif kind == 'usa':
+        sh = H / 7.0
+        for i in range(7):
+            d.rectangle([0, i * sh, W, (i + 1) * sh],
+                        fill=((178, 34, 40) if i % 2 == 0 else _WHITE_F))
+        d.rectangle([0, 0, W * 0.42, H * 4 / 7.0], fill=(38, 52, 108))
+    elif kind == 'jack':
+        _paint_jack(d, 0, 0, W, H)
+    elif kind == 'china':
+        d.rectangle([0, 0, W, H], fill=(186, 32, 30))
+        d.rectangle([0, 0, W * 0.45, H * 0.5], fill=(30, 46, 110))
+        r = H * 0.13
+        d.ellipse([W * 0.225 - r, H * 0.25 - r,
+                   W * 0.225 + r, H * 0.25 + r], fill=_WHITE_F)
+    elif kind == 'greece':
+        blue = (44, 78, 148)
+        sh = H / 9.0
+        for i in range(9):
+            d.rectangle([0, i * sh, W, (i + 1) * sh],
+                        fill=(blue if i % 2 == 0 else _WHITE_F))
+        d.rectangle([0, 0, W * 0.37, H * 5 / 9.0], fill=blue)
+        cw = int(H * 0.055)
+        d.rectangle([0, H * 5 / 18.0 - cw, W * 0.37, H * 5 / 18.0 + cw],
+                    fill=_WHITE_F)
+        d.rectangle([W * 0.185 - cw, 0, W * 0.185 + cw, H * 5 / 9.0],
+                    fill=_WHITE_F)
+    elif kind == 'iraq':
+        for i, c in enumerate(((30, 28, 28), _WHITE_F, (52, 110, 62))):
+            d.rectangle([0, i * H / 3, W, (i + 1) * H / 3], fill=c)
+        d.polygon([(0, 0), (W * 0.30, H / 2), (0, H)],
+                  fill=(178, 34, 40))
+    elif kind == 'siam':
+        for (a, b, c) in ((0.0, 1 / 6, (190, 38, 40)),
+                          (1 / 6, 2 / 6, _WHITE_F),
+                          (2 / 6, 4 / 6, (36, 48, 112)),
+                          (4 / 6, 5 / 6, _WHITE_F),
+                          (5 / 6, 1.0, (190, 38, 40))):
+            d.rectangle([0, a * H, W, b * H], fill=c)
+    elif kind in ('ensign', 'ensign_star'):
+        d.rectangle([0, 0, W, H], fill=spec[1])
+        _paint_jack(d, 0, 0, int(W * 0.5), int(H * 0.5))
+        if kind == 'ensign_star':
+            d.polygon(_star_pts(W * 0.72, H * 0.62, H * 0.20),
+                      fill=_WHITE_F)
+    # the standard hangs with a little life in it: shaded foot, lit
+    # head, a dark rim so it reads against any ground
+    import numpy as _np
+    arr = _np.asarray(img, dtype=_np.float32)
+    ramp = _np.linspace(1.06, 0.86, H, dtype=_np.float32)[:, None, None]
+    arr[..., :3] = _np.clip(arr[..., :3] * ramp, 0, 255)
+    img = Image.fromarray(arr.astype('uint8'), 'RGBA')
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, W - 1, H - 1], outline=(30, 24, 20, 255),
+                width=int(H * 0.045))
+    return img.resize((180, 120), Image.LANCZOS)
+
+
+def flag_texture(country):
+    """Path to a nation's tiny standard, painted on first use (and
+    artist-replaceable like every other file in the folder)."""
+    return _ensure(os.path.join('flags', country + '.png'),
+                   FLAG_VERSION, lambda: _paint_flag(country))
+
+
 def prewarm_button_assets():
     """Paint every key shape the UI is known to use, so no menu or
     newspaper pays a first-use PIL render mid-game (a several-hundred-
@@ -1697,6 +1864,8 @@ def prewarm_button_assets():
         button_assets(kind, hw, hh, corner=corner)
     for kind in ('bar', 'paper', 'newsprint', 'plate'):
         sheet_texture(kind)
+    for country in _FLAG_SPECS:
+        flag_texture(country)
 
 
 # ------------------------------------------------- the ART REGISTER
@@ -1812,14 +1981,19 @@ def get_icon_path(unit_type, variant='dark', nation=None):
             img = _finish_icon(img, 'unit')
             return img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
     else:
-        rel = os.path.join('ui', '%s_%s.png' % (unit_type, variant))
+        # ONE image per pictogram: the old dark/light ink pair is
+        # folded into a single file (same colour and shade on every
+        # surface). Only the red alert ink keeps its own file.
+        suffix = '_red' if variant == 'red' else ''
+        rel = os.path.join('ui', unit_type + suffix + '.png')
 
         def paint(unit_type=unit_type, variant=variant):
             img = Image.new('RGBA', (SIZE * _SS, SIZE * _SS),
                             (0, 0, 0, 0))
             d = _ScaledDraw(ImageDraw.Draw(img), _SS)
-            ink = _INKS.get(variant, INK_DARK)
+            ink = INK_RED if variant == 'red' else INK_DARK
             _DRAWERS.get(unit_type, _draw_infantry)(d, ink)
-            img = _finish_icon(img, variant)
+            img = _finish_icon(img, 'red' if variant == 'red'
+                               else 'dark')
             return img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
     return _ensure(rel, ICON_VERSION, paint)

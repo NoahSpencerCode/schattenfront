@@ -10,8 +10,8 @@ from panda3d.core import TextNode, Vec3
 
 from config import COUNTRIES, GLOBE_RADIUS, LIFT_GROUND
 from globe import orient_to_surface
-from models import (make_flat_disc, make_flat_ring, make_icon_quad,
-                    set_marker_layer, LAYER_STRUCT)
+from models import (make_flat_disc, make_flat_ring, make_flag_quad,
+                    make_icon_quad, set_marker_layer, LAYER_STRUCT)
 from utils import latlon_to_vec
 
 AIRFIELD_STOCK_CAP = 6000.0     # lbs of aviation supply
@@ -50,6 +50,7 @@ class Structure:
         self.bb = self.holder.attachNewNode('bb')
         self.bb.setBillboardPointEye()
         self.marker = None
+        self.flag = None
         self.sel_ring = make_flat_ring('ssel', self.SEL_RING,
                                        (1.0, 0.9, 0.3, 0.95),
                                        thickness=2.0, segments=28)
@@ -58,12 +59,17 @@ class Structure:
         self.sel_ring.hide()
         self.refresh_marker()
 
-    TINT = 1.0                  # 1 = full owner tint, lower = muted
+    TINT = 0.0                  # every nation's works wear the same
+                                # ink; ownership flies on the standard
 
     def refresh_marker(self):
         if self.marker:
             self.marker.removeNode()
-        c = COUNTRIES[self.country]['color']
+        if getattr(self, 'flag', None):
+            self.flag.removeNode()
+            self.flag = None
+        c = COUNTRIES[self.country]['color'] if self.country else \
+            (1.0, 1.0, 1.0)
         self.marker = make_icon_quad(self.game.loader, self.ICON, 'dark',
                                      half=1.05, depth=5, flat=False)
         t = self.TINT
@@ -73,6 +79,16 @@ class Structure:
         self.marker.reparentTo(self.bb)
         self.marker.setLightOff()
         set_marker_layer(self.marker, LAYER_STRUCT)
+        # FOREIGN works fly their nation's standard above the mark --
+        # rebuilt here, so a capture re-hoists the new colours
+        if (self.country and self.country != 'neutral'
+                and self.country != self.game.player_country):
+            self.flag = make_flag_quad(self.game.loader, self.country,
+                                       half=0.44, flat=False)
+            self.flag.setPos(0, 0, 1.55)
+            self.flag.reparentTo(self.bb)
+            self.flag.setLightOff()
+            set_marker_layer(self.flag, LAYER_STRUCT + 2)
 
     def set_marker_scale(self, scale):
         pass                    # structures keep their fixed size

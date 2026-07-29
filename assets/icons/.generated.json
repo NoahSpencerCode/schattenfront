@@ -1,11 +1,119 @@
 {
+"flags/australia.png": {
+"h": "4f5aaeb0d0395f975584deefbc31ce79",
+"v": 1
+},
+"flags/belgium.png": {
+"h": "0df27960b115e77c22b228abc1fb531a",
+"v": 1
+},
+"flags/brit_med.png": {
+"h": "33d3a9da53066feeba7cc428b1e7a4a6",
+"v": 1
+},
+"flags/britain.png": {
+"h": "b5a9222eb9b236d1cbeab30a88b27fb9",
+"v": 1
+},
+"flags/bulgaria.png": {
+"h": "b6702b42c13fdeea471e07ac67e1eebe",
+"v": 1
+},
+"flags/china.png": {
+"h": "860db1048eaac672df4a3b31136c7818",
+"v": 1
+},
+"flags/denmark.png": {
+"h": "85b28102e3775f7e3d6cf18339cfdeb7",
+"v": 1
+},
+"flags/fareast.png": {
+"h": "a8ca8d31e38d103243b5c40be3d18fe5",
+"v": 1
+},
+"flags/finland.png": {
+"h": "4f198b13f4a4ccc05e81b7c441206673",
+"v": 1
+},
+"flags/france.png": {
+"h": "31065f99661a45bf0cadb7fb10af2111",
+"v": 1
+},
+"flags/germany.png": {
+"h": "07fddd950b54f730618060aee216cc97",
+"v": 1
+},
+"flags/greece.png": {
+"h": "e625d37e1af6e8183f2fa3906eee4511",
+"v": 1
+},
+"flags/hungary.png": {
+"h": "0d4885829f4c26977186206d2cdaf9c2",
+"v": 1
+},
+"flags/iran.png": {
+"h": "1e44aceb10918e5f918ab0683c40f740",
+"v": 1
+},
+"flags/iraq.png": {
+"h": "aefaeed2b23c97cd4d0ac1b2bd25b2cd",
+"v": 1
+},
+"flags/italy.png": {
+"h": "92703876d37da517bbd892500fbea8e2",
+"v": 1
+},
+"flags/japan.png": {
+"h": "f6ded9b4d7f814f0a296a9ef5fd14169",
+"v": 1
+},
+"flags/netherlands.png": {
+"h": "a4cbc46ba5c2699436c1eebcaf6ec1e6",
+"v": 1
+},
+"flags/neutral.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
+"v": 1
+},
+"flags/norway.png": {
+"h": "2a45db8eae4ac1752b640640b6c835fa",
+"v": 1
+},
+"flags/poland.png": {
+"h": "db01a8fc83354df414a4c21e0d21e142",
+"v": 1
+},
+"flags/raj.png": {
+"h": "7aac4465b294050b8345ac0f65f7a729",
+"v": 1
+},
+"flags/romania.png": {
+"h": "6866dc501e46f87d8d670bf53d57c16f",
+"v": 1
+},
+"flags/siam.png": {
+"h": "7a7f5f34400a5b894aa499614e7777b2",
+"v": 1
+},
+"flags/soviet.png": {
+"h": "71e0a0b2497888a3b77268c55ff5f57d",
+"v": 1
+},
+"flags/usa.png": {
+"h": "342575b62993f48c5e00f4cc922f8573",
+"v": 1
+},
+"flags/yugoslavia.png": {
+"h": "e3be5f757419dc15e5e3b578830d17a0",
+"v": 1
+},
 "keys/panel_hover_a1_00_r0_30.png": {
 "h": "9455fdb54ad11eef6c6dc523e8b55e8c",
 "v": 3
 },
 "keys/panel_hover_a1_00_r0_42.png": {
-"h": "bc625cc6634d4d86176edf287ff2cfce",
-"v": 2
+"h": "29dc7dc6a4aa82e546f4edac9c7c1bde",
+"v": 3
 },
 "keys/panel_hover_a1_75_r0_42.png": {
 "h": "ab308deed2d2b14c23c4b945f03e134e",
@@ -27,6 +135,10 @@
 "h": "2a27aa21f0d13e219cd97190715c0054",
 "v": 3
 },
+"keys/panel_hover_a6_00_r0_42.png": {
+"h": "f9033a431ac884793abefd8e964451f3",
+"v": 3
+},
 "keys/panel_hover_a6_50_r0_42.png": {
 "h": "06112bbb3b57a7bb17266a7338b650d7",
 "v": 2
@@ -36,16 +148,16 @@
 "v": 3
 },
 "keys/panel_hover_a9_25_r0_42.png": {
-"h": "c79682b545d07d0b92e69c5c4b0d1e27",
-"v": 2
+"h": "48dfb96b8b6b6d4a0370708141281430",
+"v": 3
 },
 "keys/panel_press_a1_00_r0_30.png": {
 "h": "4561067708f451327e0e65491db07a88",
 "v": 3
 },
 "keys/panel_press_a1_00_r0_42.png": {
-"h": "d12d3f91c52e673736c233b18a9c7212",
-"v": 2
+"h": "42febb4ea9e48c626f582c16013dda02",
+"v": 3
 },
 "keys/panel_press_a1_75_r0_42.png": {
 "h": "7da7a13dc70eb7cb7e357a82ca7a2ada",
@@ -67,6 +179,10 @@
 "h": "a1132de13b65aa6bece21b3c7ac58d58",
 "v": 3
 },
+"keys/panel_press_a6_00_r0_42.png": {
+"h": "a5fd9607e552796bd7cbfac768748d79",
+"v": 3
+},
 "keys/panel_press_a6_50_r0_42.png": {
 "h": "e5471d4e75cced914bf87da55cb3e1ac",
 "v": 2
@@ -76,16 +192,16 @@
 "v": 3
 },
 "keys/panel_press_a9_25_r0_42.png": {
-"h": "b95470a2fbc064b54538414db0e70ab3",
-"v": 2
+"h": "b720fb86befe2cc648c810f85d4da5de",
+"v": 3
 },
 "keys/panel_ready_a1_00_r0_30.png": {
 "h": "389b2e77956884228e9ad68433d967e2",
 "v": 3
 },
 "keys/panel_ready_a1_00_r0_42.png": {
-"h": "1f73982b83c79a79eb056e580394a0cc",
-"v": 2
+"h": "6121139f7218d489f824e8594c9c0116",
+"v": 3
 },
 "keys/panel_ready_a1_75_r0_42.png": {
 "h": "f14a0644cf602c6d95911ef91d39c95b",
@@ -107,6 +223,10 @@
 "h": "511ecf17e88ab9a792ba580a7493a454",
 "v": 3
 },
+"keys/panel_ready_a6_00_r0_42.png": {
+"h": "f28de8bf70dc5025768136035982ad87",
+"v": 3
+},
 "keys/panel_ready_a6_50_r0_42.png": {
 "h": "1a18f30fca8fd93f206f4e466053b939",
 "v": 2
@@ -116,8 +236,8 @@
 "v": 3
 },
 "keys/panel_ready_a9_25_r0_42.png": {
-"h": "2ee99e8a8f7ec6b8e12cfd40ec95036c",
-"v": 2
+"h": "2d14a35863a242b20c1043f5273f44a2",
+"v": 3
 },
 "keys/red_hover_a1_75_r0_42.png": {
 "h": "b6f31bc4f226f1e5d91480f71bfadf3c",
@@ -199,76 +319,40 @@
 "h": "9e4c62feb6525bcbea09b4ddc356f65b",
 "v": 17
 },
-"ui/panel_button_dark.png": {
+"ui/panel_button.png": {
 "h": "270d4229532203c8e58fdcec38129f8d",
 "v": 17
 },
-"ui/panel_button_hover_dark.png": {
+"ui/panel_button_hover.png": {
 "h": "249e31a0c4093763b3099b32c06d8f69",
 "v": 17
 },
-"ui/panel_button_hover_light.png": {
-"h": "4946cd15de216daece71645919684f64",
-"v": 17
-},
-"ui/panel_button_light.png": {
-"h": "6661dcbff92fa0e456f4281ea2874d68",
-"v": 17
-},
-"ui/panel_button_press_dark.png": {
+"ui/panel_button_press.png": {
 "h": "3939910e84e241bc5880e5933839c990",
 "v": 17
 },
-"ui/panel_button_press_light.png": {
-"h": "05f45f27869d3803925db67afc074051",
-"v": 17
-},
-"ui/panel_key_dark.png": {
+"ui/panel_key.png": {
 "h": "d53fa9f5ba0617e13ad0d294bd2b492d",
 "v": 17
 },
-"ui/panel_key_hover_dark.png": {
+"ui/panel_key_hover.png": {
 "h": "36351963145ae7dc4ee93b8690e6c477",
 "v": 17
 },
-"ui/panel_key_hover_light.png": {
-"h": "2055b235340ae9f32847364d6f4f65e0",
-"v": 17
-},
-"ui/panel_key_light.png": {
-"h": "617406652da575bc72fbf1d7d2e3029e",
-"v": 17
-},
-"ui/panel_key_press_dark.png": {
+"ui/panel_key_press.png": {
 "h": "b30b409dbb6c2c4ff7d2775afb6425fc",
 "v": 17
 },
-"ui/panel_key_press_light.png": {
-"h": "7dd70414ee1465169593730e2595e6b9",
-"v": 17
-},
-"ui/red_button_dark.png": {
+"ui/red_button.png": {
 "h": "32e12746cdab630bf3a36c3b60ff4510",
 "v": 17
 },
-"ui/red_button_hover_dark.png": {
+"ui/red_button_hover.png": {
 "h": "d1b7c4d564ff5b850c8be8f607d0458c",
 "v": 17
 },
-"ui/red_button_hover_light.png": {
-"h": "b1298fdf0d45926801cc61fa7bd81c88",
-"v": 17
-},
-"ui/red_button_light.png": {
-"h": "24d3de2c5cff8e177571a6c4995fb9a8",
-"v": 17
-},
-"ui/red_button_press_dark.png": {
+"ui/red_button_press.png": {
 "h": "40a99ef4fbd53911938f2950ddc01565",
-"v": 17
-},
-"ui/red_button_press_light.png": {
-"h": "e1e7f3f3d1ec88271653c7cbd4839254",
 "v": 17
 }
 }

@@ -18,8 +18,8 @@ from config import (AIR_VISION_MULT, COMM_RADIUS_FACTOR, COUNTRIES,
                     NIGHT_VISION_FACTOR, UNIT_SPEED_FACTOR,
                     UNIT_SPRITE_SCALE, VISION_SCALE)
 from globe import make_surface_ring, orient_to_surface
-from models import (make_flat_ring, make_icon_quad, set_marker_layer,
-                    unit_layer_base)
+from models import (make_flat_ring, make_flag_quad, make_icon_quad,
+                    set_marker_layer, unit_layer_base)
 from utils import (north_tangent, slerp, angle_between,
                    vec_to_latlon)
 
@@ -624,16 +624,25 @@ class Unit:
         self.holder = self.root.attachNewNode('holder')
         self.holder.setPos(0, 0, lift)
 
-        color = COUNTRIES[self.country]['color']
         base = unit_layer_base(self.id, self.stats['domain'] == 'air')
         self._layer_base = base
-        # the unit IS its pictogram: a faction-tinted top-down sprite
-        # that turns to face its direction of travel
+        # the unit IS its pictogram: every nation's counter wears the
+        # SAME ink (no faction tinting) and turns to face its
+        # direction of travel; ownership flies on the standard above
         self.counter = make_icon_quad(g.loader, self.unit_type, 'unit',
                                       half=1.0, nation=self.country)
-        self.counter.setColorScale(color[0], color[1], color[2], 1.0)
+        self.counter.setColorScale(0.93, 0.90, 0.83, 1.0)
         self.counter.reparentTo(self.holder)
         set_marker_layer(self.counter, base + 2)
+        # a FOREIGN unit flies its nation's tiny standard; your own
+        # men carry no flag (you know your own)
+        self.flag = None
+        if self.country != g.player_country:
+            self.flag = make_flag_quad(g.loader, self.country,
+                                       half=0.32)
+            self.flag.setPos(0, 1.48, 0)
+            self.flag.reparentTo(self.holder)
+            set_marker_layer(self.flag, base + 8)
 
         friendly = (self.country == g.player_country)
         ring_col = ((0.4, 1.0, 0.4, 0.95) if friendly
@@ -658,7 +667,7 @@ class Unit:
             from models import make_flat_disc
             self.count_badge = self.holder.attachNewNode('count_badge')
             pill = make_flat_disc('pill', 0.46,
-                                  (color[0], color[1], color[2], 0.96),
+                                  (0.93, 0.90, 0.83, 0.96),
                                   segments=20)
             pill.setPos(0, -1.38, 0)
             pill.reparentTo(self.count_badge)

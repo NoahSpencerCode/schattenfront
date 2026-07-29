@@ -16,20 +16,25 @@ just replace PNGs.
 | Folder    | Contents | Canvas |
 |-----------|----------|--------|
 | `units/`  | Top-down map sprites, one per piece of equipment | 384×384 RGBA, transparent background |
-| `ui/`     | Menu/bar pictograms, cursors, structure marks | 384×384 RGBA, transparent background |
+| `ui/`     | Menu/bar pictograms, cursors, structure marks — ONE file per name | 384×384 RGBA, transparent background |
+| `flags/`  | Nation standards flown above foreign units and works | 180×120 RGBA (3:2) |
 | `keys/`   | Console-key face textures (ready/press/hover, per aspect) | height 160 px × aspect, RGBA |
 | `sheets/` | Painted surfaces: console bar, fax paper, newsprint, tooltip plate | as found |
 
 ## Color rules
 
-- **`units/` sprites are tinted by nation color at runtime.**
-  Draw them in WHITE fill with BLACK detail lines on transparency
-  (grayscale is safe; hue is not — a red detail would tint oddly).
-  Shading baked into the sprite multiplies with the nation color,
-  so keep highlights ≤ white.
-- **`ui/` icons come in two inks:** `<name>_dark.png` is near-black
-  ink for the light console keys; `<name>_light.png` is cream ink
-  for dark plates. Both variants of a name must exist.
+- **Every nation's counters and works wear the SAME ink.** There is
+  no per-nation tinting and no dark/light ink pair any more: one
+  `ui/<name>.png` per pictogram, one `units/<name>.png` per piece
+  of equipment, drawn exactly as they should appear. (`units/`
+  sprites do still receive a single fixed warm-paper tone at
+  runtime — keep them white-with-black-detail and they will read
+  correctly.) The one exception: `ui/nosupply_red.png`, the red
+  out-of-supply alert.
+- **Ownership is shown by the flag,** not the paint: units and
+  works of every nation but the player's fly a tiny standard from
+  `flags/<country>.png`. Keep flags bold and simple — they render
+  around 20 px wide.
 - The current art carries a graded-ink finish, a letterpress rim and
   a soft drop shadow. Hand-made art may bake in whatever finish it
   likes — the game does no post-processing on files it reads.
