@@ -1,5 +1,5 @@
 """
-Schattenfront — game application.
+Zero Hour: 1939 — game application.
 
 State machine: main menu -> nation selection -> campaign on the globe.
 Controls follow Supreme Commander conventions: left-click / drag-box to
@@ -297,7 +297,7 @@ class WW2RTSGame(ShowBase):
         breaks every relative asset path. main.py records the true
         root; re-assert it whenever the window machinery had a chance
         to wander."""
-        root = os.environ.get('SCHATTENFRONT_ROOT')
+        root = os.environ.get('ZERO_HOUR_ROOT')
         if root and os.getcwd() != root and os.path.isdir(
                 os.path.join(root, 'assets')):
             os.chdir(root)
@@ -752,7 +752,7 @@ class WW2RTSGame(ShowBase):
             np_.setBin('gui-popup', 91)
             return tn
 
-        text("SCHATTENFRONT", 0.30, 0.14, (0.92, 0.87, 0.70, 1.0))
+        text("ZERO HOUR: 1939", 0.30, 0.14, (0.92, 0.87, 0.70, 1.0))
         text("++ MOBILIZATION IN PROGRESS ++", 0.14, 0.05,
              (0.70, 0.66, 0.55, 1.0))
         status_tn = text("DRAWING UP MAPS...", -0.10, 0.045,

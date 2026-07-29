@@ -169,7 +169,7 @@ class MenuScreen:
     # --------------------------------------------------------------- pages
     def show_main(self):
         self._clear()
-        self._text("SCHATTENFRONT", (0, 0.62), 0.15, TITLE_COLOR)
+        self._text("ZERO HOUR: 1939", (0, 0.62), 0.15, TITLE_COLOR)
         self._text("A WORLD AT WAR  *  1939 - 1945", (0, 0.50), 0.05,
                    SUB_COLOR)
         self._button("[N]  NEW GAME", (0, 0.24), self.show_country_select,

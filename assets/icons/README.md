@@ -1,4 +1,4 @@
-# Schattenfront — Icon & UI Art Folder
+# Zero Hour: 1939 — Icon & UI Art Folder
 
 This folder is the game's entire 2-D art inventory. Every file here
 can be replaced with hand-made art: keep the **same filename** and
@@ -23,21 +23,26 @@ just replace PNGs.
 
 ## Color rules
 
-- **Every nation's counters and works wear the SAME ink.** There is
-  no per-nation tinting and no dark/light ink pair any more: one
-  `ui/<name>.png` per pictogram, one `units/<name>.png` per piece
-  of equipment, drawn exactly as they should appear. (`units/`
-  sprites do still receive a single fixed warm-paper tone at
-  runtime — keep them white-with-black-detail and they will read
-  correctly.) The one exception: `ui/nosupply_red.png`, the red
-  out-of-supply alert.
+- **One file per name** (no dark/light pairs, no nation tinting):
+  one `ui/<name>.png` and one `units/<name>.png`. Exception:
+  `ui/nosupply_red.png` for the red out-of-supply alert.
+- **Three art styles by folder/role:**
+  - **`ui/` button/cursor icons** — simple solid **black**
+    silhouettes, bold and easy to read at small sizes.
+  - **`units/` map sprites** — simple top-down vehicle diagrams
+    with **slight** realistic colour (muted olive/grey), vehicle
+    only (no outer border, pad, or floating symbols).
+  - **Structure marks** (`airfield`, `army_post`, `depot`, `harbor`,
+    `bunker`, `bridge_map`, `capital`, `city`, `radar`) — lightly
+    coloured, more detailed top-down cartographic diagrams. Draw
+    buildings/runways/docks; do **not** fill grass, water, dirt, or
+    asphalt slabs under them. Empty space stays transparent.
 - **Ownership is shown by the flag,** not the paint: units and
   works of every nation but the player's fly a tiny standard from
   `flags/<country>.png`. Keep flags bold and simple — they render
   around 20 px wide.
-- The current art carries a graded-ink finish, a letterpress rim and
-  a soft drop shadow. Hand-made art may bake in whatever finish it
-  likes — the game does no post-processing on files it reads.
+- Hand-made art may bake in whatever finish it likes — the game
+  does no post-processing on files it reads.
 
 ## `units/` naming
 

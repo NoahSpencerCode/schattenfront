@@ -32,7 +32,7 @@ def save_dir():
     else under the user's documents (a translocated mac install is
     read-only)."""
     cands = [os.path.abspath('saves'),
-             os.path.expanduser('~/Documents/Schattenfront/saves')]
+             os.path.expanduser('~/Documents/Zero Hour 1939/saves')]
     for d in cands:
         try:
             os.makedirs(d, exist_ok=True)
@@ -50,7 +50,10 @@ def list_saves():
     """[(path, meta), ...] newest first; unreadable files skipped."""
     out = []
     seen = set()
+    # the last entry is the game's PRE-RENAME documents folder: old
+    # campaigns saved under the working title still show in LOAD GAME
     for d in (os.path.abspath('saves'),
+              os.path.expanduser('~/Documents/Zero Hour 1939/saves'),
               os.path.expanduser('~/Documents/Schattenfront/saves')):
         if not os.path.isdir(d) or d in seen:
             continue

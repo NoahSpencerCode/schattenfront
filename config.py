@@ -6,7 +6,7 @@ Game Configuration and Constants
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 FULLSCREEN = False
-WINDOW_TITLE = "Schattenfront"
+WINDOW_TITLE = "Zero Hour: 1939"
 SHOW_FPS_METER = False        # set True to display the frame-rate meter
 
 # Globe Settings
