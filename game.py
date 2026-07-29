@@ -1053,7 +1053,7 @@ class WW2RTSGame(ShowBase):
         DEMOLITION. Only while armed do roads, bridges and enemy
         works take the gunsight -- otherwise they never interfere
         with ordinary orders."""
-        from ui import pill_button, add_tooltip
+        from ui import pill_button, add_tooltip, crisp_image
         from icons import button_assets
         from direct.gui.OnscreenImage import OnscreenImage
         if getattr(self, 'demolish_btn', None) is not None:
@@ -1066,6 +1066,7 @@ class WW2RTSGame(ShowBase):
                                                 'dark'),
                             parent=b, scale=0.036, pos=(0, 0, 0.002))
         pic.setTransparency(True)
+        crisp_image(pic)
         add_tooltip(b, "DEMOLITION -- ARM TO TARGET ROADS, BRIDGES "
                        "AND WORKS", font=self.hud_font)
         self._demolish_imgs = button_assets('panel', 0.050, 0.050,
@@ -1114,7 +1115,7 @@ class WW2RTSGame(ShowBase):
     def _make_diplo_button(self):
         """Square key at the top of the right edge: opens the
         Foreign Office ledger."""
-        from ui import pill_button, add_tooltip
+        from ui import pill_button, add_tooltip, crisp_image
         from direct.gui.OnscreenImage import OnscreenImage
         if getattr(self, 'diplo_btn', None) is not None:
             self.diplo_btn.destroy()
@@ -1125,6 +1126,7 @@ class WW2RTSGame(ShowBase):
                                                 'dark'),
                             parent=b, scale=0.032, pos=(0, 0, 0.002))
         pic.setTransparency(True)
+        crisp_image(pic)
         add_tooltip(b, "DIPLOMACY LEDGER -- WARS, PACTS AND PEACE",
                     font=self.hud_font, left=0.048)
         self.diplo_btn = b
@@ -1147,7 +1149,7 @@ class WW2RTSGame(ShowBase):
         return by_type
 
     def _idle_roster_button(self, ut):
-        from ui import pill_button, add_tooltip
+        from ui import pill_button, add_tooltip, crisp_image
         from direct.gui.OnscreenImage import OnscreenImage
         b = pill_button(self.a2dRightCenter, '', self._idle_clicked,
                         extraArgs=[ut], pos=(-0.075, 0, 0.40),
@@ -1155,6 +1157,7 @@ class WW2RTSGame(ShowBase):
         pic = OnscreenImage(image=get_icon_path(ut, 'dark'),
                             parent=b, scale=0.032, pos=(0, 0, 0.004))
         pic.setTransparency(True)
+        crisp_image(pic)
         tn = TextNode('idle_' + ut)
         tn.setAlign(TextNode.ACenter)
         if self.hud_font:

@@ -12,9 +12,25 @@ import textwrap
 
 from direct.gui.OnscreenImage import OnscreenImage
 from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
-from panda3d.core import TextNode
+from panda3d.core import SamplerState, TextNode
 
 from icons import get_icon_path, sheet_texture
+
+
+def crisp_image(widget):
+    """UI pictograms are 384 px sources minified onto ~50 px keys:
+    DirectGui loads them with plain bilinear sampling, which skips
+    texels at that ratio and pixelates the art (the MAP icons set
+    mipmaps explicitly and stay clean). Give every texture under a
+    gui widget trilinear mipmaps and a touch of anisotropy. Textures
+    are shared by path, so one application covers every later user
+    of the same file."""
+    tc = widget.findAllTextures()
+    for i in range(tc.getNumTextures()):
+        tex = tc.getTexture(i)
+        tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
+        tex.setAnisotropicDegree(4)
+    return widget
 
 PAPER = (0.91, 0.88, 0.78, 0.97)
 PAPER_EDGE = (0.25, 0.22, 0.18, 1.0)
@@ -73,7 +89,7 @@ def pill_button(parent, text, command, extraArgs=(), pos=(0, 0, 0),
     kwargs.update(extra)
     b = DirectButton(**kwargs)
     b.setTransparency(True)
-    return b
+    return crisp_image(b)
 
 
 def add_tooltip(btn, text, font=None, dy=0.085, left=None):
@@ -165,6 +181,7 @@ class TopBar:
             frameSize=(-0.045, 0.045, -0.045, 0.045),
             pos=(1.76, 0, -0.062), command=on_factory)
         self.factory_btn.setTransparency(True)
+        crisp_image(self.factory_btn)
         # fourteen dots: the days of the running fortnight
         self.day_dots = []
         for i in range(14):
@@ -237,6 +254,7 @@ class BottomBar:
             frameSize=(-0.05, 0.05, -0.05, 0.05),
             pos=(1.28, 0, 0.285), command=None)
         self.info_btn.setTransparency(True)
+        crisp_image(self.info_btn)
         add_tooltip(self.info_btn, "UNIT BRIEFING", font=base.hud_font)
         self.info_btn.hide()
         # red CAPTURE button: appears on an enemy city's menu when the
@@ -352,6 +370,7 @@ class BottomBar:
                 pic = OnscreenImage(image=icon, parent=btn,
                                     scale=0.044, pos=(0, 0, pic_z))
                 pic.setTransparency(True)
+                crisp_image(pic)
                 if label and len(label) <= 8:
                     # short caption (hp, cost) on a paper chip at the
                     # key's foot, so it stays legible over the larger
@@ -1178,6 +1197,7 @@ class ProductionFax:
                              image_scale=0.036,
                              frameSize=(-0.04, 0.04, -0.04, 0.04),
                              pos=(x + 0.035, 0, y - 0.012))
+            crisp_image(ic)
             ic.setTransparency(True)
             self._grid.append(ic)
             text(label[:24], (x + 0.085, y), 0.028)
@@ -1313,6 +1333,7 @@ class TechFax:
                         frameSize=(-0.03, 0.03, -0.03, 0.03),
                         pos=(x - 0.30 + k * 0.075, 0, y - 0.095))
                     ic.setTransparency(True)
+                    crisp_image(ic)
                     self._dyn.append(ic)
                 if done:
                     self._text("RESEARCHED", (x + 0.20, y - 0.100),

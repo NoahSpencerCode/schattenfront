@@ -1307,7 +1307,7 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 16   # bump when drawings change to invalidate the cache
+ICON_VERSION = 17   # bump when drawings change to invalidate the cache
 
 
 def _shift_mask(mask, dx, dy):
@@ -1364,7 +1364,19 @@ def _finish_icon(img, variant):
     shadow.putalpha(_shift_mask(smask, int(k * 1.2), int(k * 1.6)))
     out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
     out = Image.alpha_composite(out, shadow)
-    return Image.alpha_composite(out, inked)
+    out = Image.alpha_composite(out, inked)
+    # MIPMAP BLEED: fully-transparent texels must carry the INK's
+    # colour, not black -- mip averaging samples their RGB, and a
+    # black void turns fine line art into inked mush at small sizes
+    fill = {'unit': (245, 245, 245),
+            'light': INK_LIGHT[:3],
+            'red': INK_RED[:3]}.get(variant, INK_DARK[:3])
+    farr = _np.asarray(out).copy()
+    void = farr[..., 3] == 0
+    farr[void, 0] = fill[0]
+    farr[void, 1] = fill[1]
+    farr[void, 2] = fill[2]
+    return Image.fromarray(farr, 'RGBA')
 
 
 class _ScaledDraw:
@@ -1420,7 +1432,7 @@ class _ScaledDraw:
         self._d.pieslice(self._xy(xy), start, end, **kw)
 
 
-BUTTON_VERSION = 2
+BUTTON_VERSION = 3
 _BTN_EDGE = {'panel': (54, 44, 34, 255), 'red': (38, 12, 8, 255)}
 _BTN_STATES = {
     'panel': {'ready': ((231, 219, 184), (186, 171, 134), None),
@@ -1528,7 +1540,12 @@ def _paint_button(w, h, top, bot, edge, glow=None, ss=3, corner=0.42):
     kd.rounded_rectangle([x0, y0, x1, y1], radius=r, outline=edge,
                          width=max(2, int(H * 0.032)))
     img = Image.alpha_composite(img, key)
-    return img.resize((w, h), Image.LANCZOS)
+    img = img.resize((w, h), Image.LANCZOS)
+    # mipmap bleed: transparent margins blend toward the shadow tone
+    arr = _np.asarray(img).copy()
+    void = arr[..., 3] == 0
+    arr[void, 0], arr[void, 1], arr[void, 2] = 18, 14, 10
+    return Image.fromarray(arr, 'RGBA')
 
 
 def button_assets(kind, hw, hh, corner=0.42):
