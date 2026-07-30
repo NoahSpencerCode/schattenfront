@@ -397,6 +397,7 @@ class WW2RTSGame(ShowBase):
         self.selected_harbor = None
         self.selected_depot = None
         self.selected_bunker = None
+        self.selected_deposit = None
         self.selected_armypost = None
         self.roster_base = None          # airfield/carrier whose menu is up
         self.garrison_sel = []           # stored land units picked to lift
@@ -652,6 +653,7 @@ class WW2RTSGame(ShowBase):
         self.selected_airfield = None
         self.selected_depot = None
         self.selected_bunker = None
+        self.selected_deposit = None
         self.selected_armypost = None
         self.roster_base = None
         self.garrison_sel = []
@@ -2026,6 +2028,14 @@ class WW2RTSGame(ShowBase):
             self.clear_selection()
             self._select_bunker(bunker)
             return
+        deps = [(d, d.pos * GLOBE_RADIUS) for d in self.deposits
+                if self._facing_camera(d.pos)]
+        dep = self._pick_object(mpos, deps,
+                                radius=self._struct_pick_radius(0.036))
+        if dep:
+            self.clear_selection()
+            self._select_deposit(dep)
+            return
         own_cities = [(c, c.label_pos * GLOBE_RADIUS)
                       for c in self.cities
                       if c.country == self.player_country
@@ -2136,6 +2146,7 @@ class WW2RTSGame(ShowBase):
         self._select_depot(None)
         self._select_armypost(None)
         self._select_bunker(None)
+        self._select_deposit(None)
         self._refresh_selection_ui()
 
     def _select_city(self, city):
@@ -2178,7 +2189,35 @@ class WW2RTSGame(ShowBase):
             depot.sel_ring.show()
         self._refresh_selection_ui()
 
+    def _select_deposit(self, dep):
+        if getattr(self, 'selected_deposit', None):
+            self.selected_deposit.sel_ring.hide()
+        self.selected_deposit = dep
+        if dep:
+            dep.sel_ring.show()
+        self._refresh_selection_ui()
+
     def _select_bunker(self, bunker):
+        if getattr(self, 'selected_deposit', None):
+            d = self.selected_deposit
+            from config import short_name
+            bar.set_title("%s -- %s FIELD" % (d.name,
+                                              d.resource.upper())
+                          if d.resource == 'oil' else
+                          "%s -- %s WORKS" % (d.name,
+                                              d.resource.upper()))
+            owner = short_name(d.country).upper() if d.country \
+                else 'NOBODY'
+            mine = d.country == self.player_country
+            bar.set_info(
+                "OUTPUT %d TONS OF %s A FORTNIGHT -- WORKED BY %s%s"
+                % (d.output, d.resource.upper(), owner,
+                   "" if mine else
+                   " (TAKE %s TO TAKE THE %s)"
+                   % (d.city.name.upper(), d.resource.upper())))
+            bar.add_buttons([])
+            bar.set_hint("THE DEPOSIT FOLLOWS ITS CITY'S FLAG")
+            return
         if getattr(self, 'selected_bunker', None):
             self.selected_bunker.sel_ring.hide()
         self.selected_bunker = bunker
@@ -6410,6 +6449,26 @@ void main() {
         if self.selected_depot:
             self._refresh_depot_ui(self.selected_depot)
             return
+        if getattr(self, 'selected_deposit', None):
+            d = self.selected_deposit
+            from config import short_name
+            bar.set_title("%s -- %s FIELD" % (d.name,
+                                              d.resource.upper())
+                          if d.resource == 'oil' else
+                          "%s -- %s WORKS" % (d.name,
+                                              d.resource.upper()))
+            owner = short_name(d.country).upper() if d.country \
+                else 'NOBODY'
+            mine = d.country == self.player_country
+            bar.set_info(
+                "OUTPUT %d TONS OF %s A FORTNIGHT -- WORKED BY %s%s"
+                % (d.output, d.resource.upper(), owner,
+                   "" if mine else
+                   " (TAKE %s TO TAKE THE %s)"
+                   % (d.city.name.upper(), d.resource.upper())))
+            bar.add_buttons([])
+            bar.set_hint("THE DEPOSIT FOLLOWS ITS CITY'S FLAG")
+            return
         if getattr(self, 'selected_bunker', None):
             b = self.selected_bunker
             bar.set_title("%s -- FIELD WORKS" % b.name.upper())
@@ -7147,6 +7206,7 @@ void main() {
                 parts.append("SPENT -%d" % rep['out'])
                 self.top_bar.set_resource_detail(
                     col, "%s: %s" % (col, "  ".join(parts)))
+        self.top_bar.set_stats(stats)
         self.top_bar.set_factory_alert(
             bool(self.bottlenecks.get(me)))
         self.top_bar.set_fortnight_day(self.fortnight_day())

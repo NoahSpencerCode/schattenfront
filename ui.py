@@ -152,14 +152,14 @@ class TopBar:
     """Main stats strip: each stat is a titled column, value beneath."""
 
     COLUMNS = [
-        ('NATION', -1.74, TextNode.ALeft),
-        ('TREASURY', -1.47, TextNode.ALeft),
-        ('OIL', -1.20, TextNode.ALeft),
-        ('STEEL', -1.00, TextNode.ALeft),
-        ('RUBBER', -0.78, TextNode.ALeft),
-        ('FORCES', -0.55, TextNode.ALeft),
-        ('CITIES', -0.33, TextNode.ALeft),
-        ('TIME', 0.00, TextNode.ACenter),
+        ('NATION', -1.56, TextNode.ALeft),
+        ('TREASURY', -1.31, TextNode.ALeft),
+        ('OIL', -1.09, TextNode.ALeft),
+        ('STEEL', -0.90, TextNode.ALeft),
+        ('RUBBER', -0.69, TextNode.ALeft),
+        ('FORCES', -0.47, TextNode.ALeft),
+        ('CITIES', -0.29, TextNode.ALeft),
+        ('TIME', 0.10, TextNode.ACenter),
         ('[OUT OF CONTACT]', 0.54, TextNode.ACenter),
         ('KILLS', 0.84, TextNode.ACenter),
         ('LOSSES', 1.02, TextNode.ACenter),
@@ -674,115 +674,188 @@ class DiplomacyLedger:
                     kind='red')
 
     def rebuild(self):
+        """Two pages, one sheet. The ROSTER: every nation as a big
+        flag card, plus the wars raging -- that is all. Click a card
+        for the DOSSIER: that nation's standing, wars, pacts, and
+        the player's diplomatic keys, writ large."""
         g = self.game
         for w in self.widgets:
             w.destroy() if hasattr(w, 'destroy') else w.removeNode()
         self.widgets = []
+        view = getattr(self, 'view', None)
+        if view is not None and (view in g.eliminated
+                                 or view == g.player_country):
+            view = self.view = None
+        if view is None:
+            self._build_roster()
+        else:
+            self._build_dossier(view)
+
+    def _open_dossier(self, nat):
+        self.view = nat
+        self.rebuild()
+
+    def _card(self, nat, x, y, big=False):
+        from icons import flag_texture
+        from config import short_name
+        g = self.game
+        fw = 0.075 if big else 0.056
+        chip = DirectButton(parent=self.frame, relief=None,
+                            frameColor=(0, 0, 0, 0),
+                            image=flag_texture(nat),
+                            image_scale=(fw, 1, fw * 2 / 3),
+                            frameSize=(-fw, fw, -fw * 2 / 3,
+                                       fw * 2 / 3),
+                            pos=(x, 0, y),
+                            command=self._open_dossier,
+                            extraArgs=[nat])
+        chip.setTransparency(True)
+        crisp_image(chip)
+        self.widgets.append(chip)
+        return chip
+
+    def _build_roster(self):
+        g = self.game
+        from config import short_name
         me = g.player_country
         nations = [c for c in self._COUNTRIES
                    if c not in (me, 'neutral')
                    and c not in g.eliminated]
-        # the majors head the ledger; then the world alphabetically
         nations.sort(key=lambda c: (c not in self._PLAYABLE,
-                                    self._COUNTRIES[c]['name']))
-        per_col = 13
-        all_nats = [c for c in self._COUNTRIES if c != 'neutral']
-        for i, nat in enumerate(nations[:26]):
-            col, row = divmod(i, per_col)
-            x0 = -1.36 + col * 1.44
-            y = 0.60 - row * 0.104
-            info = self._COUNTRIES[nat]
-            from icons import flag_texture
-            chip = DirectFrame(parent=self.frame, relief=None,
-                               frameColor=(0, 0, 0, 0),
-                               image=flag_texture(nat),
-                               image_scale=(0.034, 1, 0.0227),
-                               frameSize=(-0.034, 0.034,
-                                          -0.023, 0.023),
-                               pos=(x0 + 0.03, 0, y))
-            chip.setTransparency(True)
-            crisp_image(chip)
-            self.widgets.append(chip)
-            self._text(info['name'].upper()[:24], (x0 + 0.08, y - 0.004),
-                       0.030)
-            # the nation's own entanglements, in wire shorthand
-            wars = [NAT_CODE.get(o, o[:3].upper()) for o in all_nats
-                    if o != nat and g.at_war(nat, o)]
-            pacts = [NAT_CODE.get(o, o[:3].upper())
-                     for o in sorted(g.alliances.get(nat, ()))
-                     if o != nat]
-            rel = ""
-            if wars:
-                rel += "WAR: " + " ".join(wars[:6])
-                if len(wars) > 6:
-                    rel += " +%d" % (len(wars) - 6)
-            if pacts:
-                rel += ("   " if rel else "") + \
-                    "PACT: " + " ".join(pacts[:5])
-            self._text(rel or "NO ENTANGLEMENTS",
-                       (x0 + 0.08, y - 0.044), 0.0185,
-                       color=((0.52, 0.16, 0.10, 1.0) if wars
-                              else INK_FAINT))
+                                    short_name(c)))
+        # the roster: 5 columns of flag cards, names beneath, the
+        # stance toward YOU printed only when it matters
+        per_row = 5
+        for i, nat in enumerate(nations[:25]):
+            row, col = divmod(i, per_row)
+            x = -1.08 + col * 0.44
+            y = 0.55 - row * 0.27
+            self._card(nat, x, y)
             at_war = g.at_war(me, nat)
             allied = g.allied(me, nat)
-            pend = g.pouch_pending(nat)
-            stance = ("AT WAR" if at_war else
-                      "ALLIED" if allied else "AT PEACE")
-            scol = ((0.62, 0.14, 0.10, 1) if at_war else
-                    (0.16, 0.35, 0.14, 1) if allied else INK_FAINT)
-            self._text(stance, (x0 + 0.60, y - 0.010), 0.028,
-                       color=scol)
-            bx = x0 + 0.96
-            if pend is not None:
-                self._text("COURIER EN ROUTE...",
-                           (bx - 0.06, y - 0.010), 0.026,
-                           color=INK_FAINT)
-                continue
-            if allied:
-                price = g.volunteer_price(nat)
-                b = pill_button(self.frame,
-                                "MEN $%d" % price if price else
-                                "MEN FREE",
-                                g._diplo_action,
-                                extraArgs=['volunteers', nat],
-                                pos=(bx - 0.005, 0, y), hw=0.062,
-                                hh=0.034, text_scale=0.020,
-                                font=self.base.hud_font)
-                self.widgets.append(b)
-                b2 = pill_button(self.frame, "BREAK",
-                                 g._diplo_break, extraArgs=[nat],
-                                 pos=(bx + 0.150, 0, y), hw=0.062,
-                                 hh=0.034, text_scale=0.022,
-                                 font=self.base.hud_font)
-                self.widgets.append(b2)
-            elif at_war:
-                b = pill_button(self.frame, "OFFER PEACE",
-                                g._diplo_action,
-                                extraArgs=['peace', nat],
-                                pos=(bx + 0.13, 0, y), hw=0.13,
-                                hh=0.034, text_scale=0.024,
-                                font=self.base.hud_font)
-                self.widgets.append(b)
-            else:
-                b = pill_button(self.frame, "WAR", g._diplo_action,
-                                extraArgs=['war', nat],
-                                pos=(bx, 0, y), hw=0.062, hh=0.034,
-                                text_scale=0.024,
-                                font=self.base.hud_font, kind='red',
-                                text_fg=(0.97, 0.90, 0.80, 1.0))
-                self.widgets.append(b)
-                b2 = pill_button(self.frame, "ALLY", g._diplo_action,
-                                 extraArgs=['alliance', nat],
-                                 pos=(bx + 0.150, 0, y), hw=0.062,
-                                 hh=0.034, text_scale=0.024,
-                                 font=self.base.hud_font)
-                self.widgets.append(b2)
-        n_wars = len([w for w in g.wars if me in w])
-        n_allies = len(g.alliances.get(me, ()))
-        self._text("AT WAR WITH %d NATION(S)   BOUND TO %d ALLY(S)   "
-                   "DISPATCHES TRAVEL BY COURIER AND ARE ANSWERED IN "
-                   "KIND" % (n_wars, n_allies),
-                   (0, -0.80), 0.026, color=INK_FAINT,
+            self._text(short_name(nat).upper(), (x, y - 0.100),
+                       0.032, align=TextNode.ACenter)
+            if at_war or allied:
+                self._text("AT WAR" if at_war else "ALLY",
+                           (x, y - 0.140), 0.026,
+                           color=((0.62, 0.14, 0.10, 1) if at_war
+                                  else (0.16, 0.35, 0.14, 1)),
+                           align=TextNode.ACenter)
+        # the wars raging, on the right edge
+        wx = 1.24
+        self._text("++ WARS RAGING ++", (wx, 0.60), 0.030,
+                   color=(0.62, 0.14, 0.10, 1),
+                   align=TextNode.ACenter)
+        wars = sorted({tuple(sorted(w)) for w in g.wars})
+        if not wars:
+            self._text("ALL QUIET", (wx, 0.52), 0.026,
+                       color=INK_FAINT, align=TextNode.ACenter)
+        for i, (a, b) in enumerate(wars[:16]):
+            self._text("%s v %s" % (short_name(a).upper(),
+                                    short_name(b).upper()),
+                       (wx, 0.52 - i * 0.062), 0.023,
+                       color=INK_FAINT, align=TextNode.ACenter)
+        if len(wars) > 16:
+            self._text("+%d MORE" % (len(wars) - 16),
+                       (wx, 0.52 - 16 * 0.062), 0.023,
+                       color=INK_FAINT, align=TextNode.ACenter)
+        self._text("CLICK A NATION FOR ITS DOSSIER -- WAR, PACTS "
+                   "AND TERMS ARE OFFERED THERE",
+                   (-0.10, -0.80), 0.026, color=INK_FAINT,
+                   align=TextNode.ACenter)
+
+    def _build_dossier(self, nat):
+        g = self.game
+        from config import short_name
+        me = g.player_country
+        b = pill_button(self.frame, "<< THE WORLD",
+                        self._open_dossier, extraArgs=[None],
+                        pos=(-1.16, 0, 0.775), hw=0.17, hh=0.040,
+                        font=self.base.hud_font)
+        self.widgets.append(b)
+        # the nation, writ large
+        self._card(nat, -0.98, 0.42, big=True)
+        self._text(short_name(nat).upper(), (-0.72, 0.46), 0.075)
+        self._text(self._COUNTRIES[nat]['name'].upper(),
+                   (-0.72, 0.36), 0.028, color=INK_FAINT)
+        at_war = g.at_war(me, nat)
+        allied = g.allied(me, nat)
+        stance = ("AT WAR WITH US" if at_war else
+                  "OUR ALLY" if allied else "AT PEACE WITH US")
+        self._text(stance, (-0.72, 0.28), 0.040,
+                   color=((0.62, 0.14, 0.10, 1) if at_war else
+                          (0.16, 0.35, 0.14, 1) if allied
+                          else INK_FAINT))
+        # their wars and their pacts, in full
+        all_nats = [c for c in self._COUNTRIES if c != 'neutral']
+        wars = [o for o in all_nats
+                if o != nat and g.at_war(nat, o)]
+        pacts = [o for o in sorted(g.alliances.get(nat, ()))
+                 if o != nat]
+        self._text("AT WAR WITH:", (-1.10, 0.10), 0.032)
+        if wars:
+            for i, o in enumerate(wars[:8]):
+                self._text(short_name(o).upper(),
+                           (-0.78, 0.10 - i * 0.055), 0.030,
+                           color=(0.62, 0.14, 0.10, 1))
+        else:
+            self._text("NOBODY", (-0.78, 0.10), 0.030,
+                       color=INK_FAINT)
+        py0 = 0.10 - max(1, min(len(wars), 8)) * 0.055 - 0.06
+        self._text("BOUND TO:", (-1.10, py0), 0.032)
+        if pacts:
+            for i, o in enumerate(pacts[:6]):
+                self._text(short_name(o).upper(),
+                           (-0.78, py0 - i * 0.055), 0.030,
+                           color=(0.16, 0.35, 0.14, 1))
+        else:
+            self._text("NOBODY", (-0.78, py0), 0.030,
+                       color=INK_FAINT)
+        # the keys, big and few, on the right half
+        kx, f = 0.62, self.base.hud_font
+        if g.pouch_pending(nat) is not None:
+            self._text("COURIER EN ROUTE -- THE ANSWER COMES BY "
+                       "RETURN POUCH", (kx, 0.10), 0.030,
+                       color=INK_FAINT, align=TextNode.ACenter)
+        elif allied:
+            price = g.volunteer_price(nat)
+            b = pill_button(self.frame,
+                            "REQUEST VOLUNTEERS%s" %
+                            (" ($%d)" % price if price else " (FREE)"),
+                            g._diplo_action,
+                            extraArgs=['volunteers', nat],
+                            pos=(kx, 0, 0.16), hw=0.42, hh=0.062,
+                            text_scale=0.036, font=f)
+            self.widgets.append(b)
+            b = pill_button(self.frame, "BREAK THE PACT",
+                            g._diplo_break, extraArgs=[nat],
+                            pos=(kx, 0, 0.00), hw=0.42, hh=0.062,
+                            text_scale=0.036, font=f, kind='red',
+                            text_fg=(0.97, 0.90, 0.80, 1.0))
+            self.widgets.append(b)
+        elif at_war:
+            b = pill_button(self.frame, "OFFER PEACE",
+                            g._diplo_action,
+                            extraArgs=['peace', nat],
+                            pos=(kx, 0, 0.10), hw=0.42, hh=0.070,
+                            text_scale=0.042, font=f)
+            self.widgets.append(b)
+        else:
+            b = pill_button(self.frame, "PROPOSE ALLIANCE",
+                            g._diplo_action,
+                            extraArgs=['alliance', nat],
+                            pos=(kx, 0, 0.16), hw=0.42, hh=0.062,
+                            text_scale=0.038, font=f)
+            self.widgets.append(b)
+            b = pill_button(self.frame, "DECLARE WAR",
+                            g._diplo_action,
+                            extraArgs=['war', nat],
+                            pos=(kx, 0, 0.00), hw=0.42, hh=0.062,
+                            text_scale=0.038, font=f, kind='red',
+                            text_fg=(0.97, 0.90, 0.80, 1.0))
+            self.widgets.append(b)
+        self._text("DISPATCHES TRAVEL BY COURIER AND ARE ANSWERED "
+                   "IN KIND", (0, -0.80), 0.026, color=INK_FAINT,
                    align=TextNode.ACenter)
 
     def destroy(self):
@@ -1292,17 +1365,24 @@ class ProductionFax:
         tn, _ = _make_text(self.frame, self.f, (0, 0.655), 0.032, INK,
                            TextNode.ACenter)
         tn.setText("-" * 74)
-        # BOTTLENECKS: production lines halted for want of materials
-        by = -0.62
+        # BOTTLENECKS lead the page: halted lines are the news
+        self._bneck_drop = 0.0
         if self.bottlenecks:
+            by = 0.595
             tn, _ = _make_text(self.frame, self.f, (-1.04, by), 0.032,
                                (0.62, 0.14, 0.10, 1.0))
-            tn.setText("++ BOTTLENECKS ++")
-            for i, line in enumerate(self.bottlenecks[:4]):
+            tn.setText("++ BOTTLENECKS -- LINES HALTED FOR "
+                       "MATERIALS ++")
+            shown = self.bottlenecks[:3]
+            for i, line in enumerate(shown):
                 tn, _ = _make_text(self.frame, self.f,
-                                   (-1.04, by - 0.05 - i * 0.045),
-                                   0.028, INK_FAINT)
-                tn.setText(line)
+                                   (-1.04, by - 0.048 - i * 0.042),
+                                   0.027, INK_FAINT)
+                tn.setText(line + (
+                    "   (+%d MORE)" % (len(self.bottlenecks) - 3)
+                    if i == len(shown) - 1
+                    and len(self.bottlenecks) > 3 else ""))
+            self._bneck_drop = 0.048 + len(shown) * 0.042 + 0.03
         pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
                     self._close, pos=(0, 0, -0.772), hw=0.42, hh=0.046,
                     text_scale=0.040, font=self.f)
@@ -1366,7 +1446,7 @@ class ProductionFax:
             return
 
         col_x = (-1.02, 0.10)
-        row_y0 = 0.56
+        row_y0 = 0.56 - getattr(self, '_bneck_drop', 0.0)
         row_h = 0.111
         per_col = 11
         for i, slot in enumerate(slots[:22]):

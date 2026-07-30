@@ -228,6 +228,44 @@ NPC_NATIONS = {
                     'adjective': 'Australian'},
 }
 COUNTRIES.update(NPC_NATIONS)
+# short names for tight layouts (ledger cards, wire traffic):
+# no 'Kingdom of', no 'Republic of' -- just the country
+SHORT_NAMES = {
+    'britain': 'Britain',
+    'germany': 'Germany',
+    'usa': 'United States',
+    'japan': 'Japan',
+    'soviet': 'Soviet Union',
+    'france': 'France',
+    'italy': 'Italy',
+    'china': 'China',
+    'poland': 'Poland',
+    'netherlands': 'Netherlands',
+    'belgium': 'Belgium',
+    'norway': 'Norway',
+    'denmark': 'Denmark',
+    'finland': 'Finland',
+    'greece': 'Greece',
+    'yugoslavia': 'Yugoslavia',
+    'romania': 'Romania',
+    'hungary': 'Hungary',
+    'bulgaria': 'Bulgaria',
+    'iraq': 'Iraq',
+    'iran': 'Iran',
+    'siam': 'Siam',
+    'brit_med': 'Egypt',
+    'raj': 'India',
+    'fareast': 'Malaya',
+    'australia': 'Australia',
+    'neutral': 'Neutral',
+}
+
+
+def short_name(key):
+    return SHORT_NAMES.get(
+        key, COUNTRIES.get(key, {}).get('name', key))
+
+
 # not a nation: the fallback class for unowned ground
 COUNTRIES['neutral'] = {'color': (0.58, 0.56, 0.50), 'name': 'Neutral',
                         'adjective': 'Neutral'}

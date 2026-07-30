@@ -131,6 +131,10 @@
 "h": "356f2d5e59ebff2603b8f53e1677c9ae",
 "v": 3
 },
+"keys/panel_hover_a4_25_r0_42.png": {
+"h": "19a6ccd2ecb77a1a15e52e4e08eb0ed6",
+"v": 3
+},
 "keys/panel_hover_a4_75_r0_42.png": {
 "h": "e9bab6768e83737695e65b047baa4764",
 "v": 3
@@ -145,6 +149,10 @@
 },
 "keys/panel_hover_a6_50_r0_42.png": {
 "h": "62703085ee2fdd09fffdd4763d68580c",
+"v": 3
+},
+"keys/panel_hover_a6_75_r0_42.png": {
+"h": "b4098fa0019bf93ed48e6a7495560207",
 "v": 3
 },
 "keys/panel_hover_a7_25_r0_42.png": {
@@ -179,6 +187,10 @@
 "h": "7384c226d0fba02233e430fc62f533a2",
 "v": 3
 },
+"keys/panel_press_a4_25_r0_42.png": {
+"h": "d7b80320cfbacf7f838380b41f2bfcd7",
+"v": 3
+},
 "keys/panel_press_a4_75_r0_42.png": {
 "h": "afcd958417e7dad3cd362877154e8c9b",
 "v": 3
@@ -193,6 +205,10 @@
 },
 "keys/panel_press_a6_50_r0_42.png": {
 "h": "178287f4f674702d4f4680e870a4ed99",
+"v": 3
+},
+"keys/panel_press_a6_75_r0_42.png": {
+"h": "db908f05086e9f77965bc6b2fc650f52",
 "v": 3
 },
 "keys/panel_press_a7_25_r0_42.png": {
@@ -227,6 +243,10 @@
 "h": "3a4e3947031c28206601d15fab4aee33",
 "v": 3
 },
+"keys/panel_ready_a4_25_r0_42.png": {
+"h": "19ee9932c4c85d1cc39f57ea26b3828e",
+"v": 3
+},
 "keys/panel_ready_a4_75_r0_42.png": {
 "h": "9be9d07ba1d870b5d7df655330dcdaa5",
 "v": 3
@@ -241,6 +261,10 @@
 },
 "keys/panel_ready_a6_50_r0_42.png": {
 "h": "89d4f463eb9df77e1aec48f03294598d",
+"v": 3
+},
+"keys/panel_ready_a6_75_r0_42.png": {
+"h": "73d3cf9cefbe914c8bfde378d7920029",
 "v": 3
 },
 "keys/panel_ready_a7_25_r0_42.png": {
@@ -271,6 +295,10 @@
 "h": "dfb71bbafdc6c390b654abb7a4718cc7",
 "v": 3
 },
+"keys/red_hover_a6_75_r0_42.png": {
+"h": "e2f674008841703a0508a60c12eaebab",
+"v": 3
+},
 "keys/red_press_a1_75_r0_42.png": {
 "h": "1aab0b527f93779f12c2ae4923f46058",
 "v": 3
@@ -291,6 +319,10 @@
 "h": "a1dd7537c05d3573f3fac67659b43274",
 "v": 3
 },
+"keys/red_press_a6_75_r0_42.png": {
+"h": "95afed862e495e3bbc09e23843a32d93",
+"v": 3
+},
 "keys/red_ready_a1_75_r0_42.png": {
 "h": "b398af50f216faa31edba83725f3cc1f",
 "v": 3
@@ -309,6 +341,10 @@
 },
 "keys/red_ready_a5_25_r0_42.png": {
 "h": "ea52cc8d45cc03a2683a45ea08db846d",
+"v": 3
+},
+"keys/red_ready_a6_75_r0_42.png": {
+"h": "24e9c40188e5dd96215053612777078c",
 "v": 3
 },
 "sheets/bar.png": {
