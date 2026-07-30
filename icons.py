@@ -1577,7 +1577,7 @@ def button_assets(kind, hw, hh, corner=0.42):
              paths['ready']), hw / fx, hh / fz)
 
 
-SHEET_VERSION = 1
+SHEET_VERSION = 2
 
 
 def _grain(arr, rng, amp):
@@ -1649,11 +1649,22 @@ def _paint_sheet(kind):
         arr[..., 0] = 228; arr[..., 1] = 223; arr[..., 2] = 207
         arr[..., 3] = 253
         _grain(arr, rng, 7)
-        # the centre fold: a soft vertical shadow
         xs = _np.arange(W, dtype=_np.float32)
-        fold = 1.0 - 0.06 * _np.exp(-((xs - W / 2.0) ** 2) / 180.0)
-        arr[..., :3] = (arr[..., :3] *
-                        fold[None, :, None]).astype(_np.uint8)
+        # the centre fold: a soft vertical shadow
+        fold = 1.0 - 0.07 * _np.exp(-((xs - W / 2.0) ** 2) / 220.0)
+        # the FLY EDGE curls: reading right, the page rolls away --
+        # a broad dimming as the paper turns from the light, then a
+        # bright lip where the curled edge catches it, then the deep
+        # crease shadow at the very edge
+        curl_w = int(W * 0.14)
+        t = _np.linspace(0.0, 1.0, curl_w, dtype=_np.float32)
+        curve = (1.0 - 0.16 * _np.sin(t * 3.14159 * 0.5) ** 2)
+        curve[-6:-2] = 1.06          # the lit lip of the curl
+        curve[-2:] = 0.70            # the crease at the edge
+        fold[-curl_w:] *= curve
+        arr[..., :3] = _np.clip(arr[..., :3] *
+                                fold[None, :, None], 0,
+                                255).astype(_np.uint8)
         edge = 14
         fade = _np.linspace(0.86, 1.0, edge, dtype=_np.float32)
         arr[:edge, :, :3] = (arr[:edge, :, :3] *
@@ -1683,18 +1694,22 @@ def sheet_texture(kind):
 # Tiny standards flown above FOREIGN units and works on the map.
 # Simplified for legibility at counter scale; period palettes, no
 # devices finer than the size can carry.
-FLAG_VERSION = 1
+# Bump when flag geometry changes so artist-replaced files stay safe
+# and procedural paints refresh for unreplaced names.
+FLAG_VERSION = 2
 
 _WHITE_F = (244, 241, 232)
+# Period national standards (c. 1939–45), simplified for ~20 px map use.
 _FLAG_SPECS = {
-    'germany':     ('h', ((28, 26, 26), _WHITE_F, (188, 42, 38))),
+    # German Reich national flag 1935–45 (Hakenkreuzflagge)
+    'germany':     ('reich',),
     'britain':     ('jack',),
-    'usa':         ('usa',),
-    'japan':       ('disc', _WHITE_F, (198, 38, 34)),
-    'soviet':      ('star', (186, 32, 28), (238, 198, 68)),
+    'usa':         ('usa48',),           # 48-star Stars and Stripes 1912–59
+    'japan':       ('disc', _WHITE_F, (198, 38, 34)),  # Hinomaru
+    'soviet':      ('ussr',),            # hammer, sickle, star
     'france':      ('v', ((36, 58, 128), _WHITE_F, (190, 38, 40))),
-    'italy':       ('v', ((36, 108, 62), _WHITE_F, (190, 38, 40))),
-    'china':       ('china',),
+    'italy':       ('v', ((36, 108, 62), _WHITE_F, (190, 38, 40))),  # Kingdom tricolour
+    'china':       ('china',),           # ROC Blue Sky, White Sun, Wholly Red Earth
     'poland':      ('h', (_WHITE_F, (196, 34, 44))),
     'netherlands': ('h', ((178, 34, 40), _WHITE_F, (36, 58, 128))),
     'belgium':     ('v', ((30, 28, 28), (238, 198, 68), (190, 38, 40))),
@@ -1702,17 +1717,17 @@ _FLAG_SPECS = {
     'denmark':     ('nordic', (186, 32, 40), _WHITE_F, None),
     'finland':     ('nordic', _WHITE_F, (46, 72, 148), None),
     'greece':      ('greece',),
-    'yugoslavia':  ('h', ((36, 58, 128), _WHITE_F, (190, 38, 40))),
+    'yugoslavia':  ('h', ((36, 58, 128), _WHITE_F, (190, 38, 40))),  # Kingdom
     'romania':     ('v', ((36, 58, 128), (238, 198, 68), (190, 38, 40))),
     'hungary':     ('h', ((190, 38, 40), _WHITE_F, (52, 110, 62))),
     'bulgaria':    ('h', (_WHITE_F, (52, 110, 62), (190, 38, 40))),
-    'iraq':        ('iraq',),
-    'iran':        ('h', ((52, 110, 62), _WHITE_F, (190, 38, 40))),
-    'siam':        ('siam',),
+    'iraq':        ('iraq',),            # Kingdom of Iraq
+    'iran':        ('h', ((52, 110, 62), _WHITE_F, (190, 38, 40))),  # Pahlavi tricolour
+    'siam':        ('siam',),            # Trairanga (Thailand)
     'brit_med':    ('ensign', (32, 52, 108)),
-    'raj':         ('ensign', (168, 40, 38)),
+    'raj':         ('ensign', (168, 40, 38)),   # British India red ensign
     'fareast':     ('ensign', (40, 84, 108)),
-    'australia':   ('ensign_star', (30, 48, 104)),
+    'australia':   ('australia',),       # Blue Ensign + Commonwealth star + Southern Cross
     'neutral':     ('h', ((150, 146, 136), (120, 116, 108))),
 }
 
@@ -1746,6 +1761,54 @@ def _star_pts(cx, cy, r):
     return pts
 
 
+def _paint_swastika(d, cx, cy, arm, color):
+    """Black swastika centered at (cx, cy); arm is half-width of the device.
+    Historical national emblem of the German Reich 1935–45."""
+    import math as _m
+    # Build upright swastika as thick poly strokes, then rotate 45°
+    t = arm * 0.28  # bar thickness
+    a = arm
+    # horizontal bar and vertical bar of the cross
+    segs = [
+        # center cross
+        [(-a, -t), (a, -t), (a, t), (-a, t)],
+        [(-t, -a), (t, -a), (t, a), (-t, a)],
+        # hooks: top arm right, right arm down, bottom arm left, left arm up
+        [(a - t, -a), (a, -a), (a, -t), (a - t, -t)],
+        [(t, a - t), (a, a - t), (a, a), (t, a)],
+        [(-a, t), (-a + t, t), (-a + t, a), (-a, a)],
+        [(-a, -a), (-t, -a), (-t, -a + t), (-a, -a + t)],
+    ]
+    ang = _m.radians(45)
+    cos_a, sin_a = _m.cos(ang), _m.sin(ang)
+    for poly in segs:
+        rot = []
+        for x, y in poly:
+            rx = cx + x * cos_a - y * sin_a
+            ry = cy + x * sin_a + y * cos_a
+            rot.append((rx, ry))
+        d.polygon(rot, fill=color)
+
+
+def _paint_roc_sun(d, cx, cy, r, color):
+    """12-ray White Sun of the Republic of China (Nationalist) flag."""
+    import math as _m
+    # rays
+    for i in range(12):
+        a0 = _m.radians(i * 30 - 90)
+        a1 = _m.radians(i * 30 - 90 + 12)
+        pts = [(cx, cy),
+               (cx + r * 1.15 * _m.cos(a0), cy + r * 1.15 * _m.sin(a0)),
+               (cx + r * 1.15 * _m.cos(a1), cy + r * 1.15 * _m.sin(a1))]
+        d.polygon(pts, fill=color)
+    # disc
+    d.ellipse([cx - r * 0.42, cy - r * 0.42, cx + r * 0.42, cy + r * 0.42],
+              fill=color)
+    # ring cut (blue shows through as darker ring via smaller hole simulation:
+    # draw inner darker? canton is blue so draw blue ring)
+    # skip hole — solid white sun reads at tiny size
+
+
 def _paint_flag(country):
     W, H = 720, 480
     img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
@@ -1771,6 +1834,28 @@ def _paint_flag(country):
         d.rectangle([0, 0, W, H], fill=spec[1])
         d.polygon(_star_pts(W * 0.28, H * 0.34, H * 0.22),
                   fill=spec[2])
+    elif kind == 'ussr':
+        # USSR national flag: red field, gold star + hammer & sickle canton
+        d.rectangle([0, 0, W, H], fill=(186, 32, 28))
+        gold = (238, 198, 68)
+        # five-point star
+        d.polygon(_star_pts(W * 0.18, H * 0.22, H * 0.10), fill=gold)
+        # simplified hammer (handle + head) and sickle
+        hx, hy = W * 0.20, H * 0.42
+        d.rectangle([hx - H * 0.02, hy - H * 0.12, hx + H * 0.02, hy + H * 0.14],
+                    fill=gold)
+        d.rectangle([hx - H * 0.10, hy - H * 0.14, hx + H * 0.08, hy - H * 0.06],
+                    fill=gold)
+        # sickle arc
+        d.arc([W * 0.10, H * 0.28, W * 0.34, H * 0.58], 200, 50,
+              fill=gold, width=max(4, int(H * 0.045)))
+        d.ellipse([W * 0.26, H * 0.48, W * 0.32, H * 0.56], fill=gold)
+    elif kind == 'reich':
+        # German national flag 1935–45: red field, white disc, black swastika
+        d.rectangle([0, 0, W, H], fill=(186, 32, 28))
+        r = H * 0.32
+        d.ellipse([W / 2 - r, H / 2 - r, W / 2 + r, H / 2 + r], fill=_WHITE_F)
+        _paint_swastika(d, W / 2, H / 2, H * 0.22, (20, 18, 16))
     elif kind == 'nordic':
         field, cross, inner = spec[1], spec[2], spec[3]
         d.rectangle([0, 0, W, H], fill=field)
@@ -1782,20 +1867,28 @@ def _paint_flag(country):
             iw = int(cw * 0.5)
             d.rectangle([0, H // 2 - iw, W, H // 2 + iw], fill=inner)
             d.rectangle([cx - iw, 0, cx + iw, H], fill=inner)
-    elif kind == 'usa':
-        sh = H / 7.0
-        for i in range(7):
+    elif kind in ('usa', 'usa48'):
+        # 13 stripes, blue canton, 48 stars in 6×8 grid (1912–1959)
+        red, blue = (178, 34, 40), (38, 52, 108)
+        sh = H / 13.0
+        for i in range(13):
             d.rectangle([0, i * sh, W, (i + 1) * sh],
-                        fill=((178, 34, 40) if i % 2 == 0 else _WHITE_F))
-        d.rectangle([0, 0, W * 0.42, H * 4 / 7.0], fill=(38, 52, 108))
+                        fill=(red if i % 2 == 0 else _WHITE_F))
+        cw, ch = W * 0.40, H * 7 / 13.0
+        d.rectangle([0, 0, cw, ch], fill=blue)
+        # 6 rows × 8 stars
+        for row in range(6):
+            for col in range(8):
+                sx = cw * (col + 0.5) / 8.0
+                sy = ch * (row + 0.5) / 6.0
+                d.polygon(_star_pts(sx, sy, H * 0.035), fill=_WHITE_F)
     elif kind == 'jack':
         _paint_jack(d, 0, 0, W, H)
     elif kind == 'china':
+        # Republic of China (Nationalist) flag
         d.rectangle([0, 0, W, H], fill=(186, 32, 30))
         d.rectangle([0, 0, W * 0.45, H * 0.5], fill=(30, 46, 110))
-        r = H * 0.13
-        d.ellipse([W * 0.225 - r, H * 0.25 - r,
-                   W * 0.225 + r, H * 0.25 + r], fill=_WHITE_F)
+        _paint_roc_sun(d, W * 0.225, H * 0.25, H * 0.14, _WHITE_F)
     elif kind == 'greece':
         blue = (44, 78, 148)
         sh = H / 9.0
@@ -1809,10 +1902,13 @@ def _paint_flag(country):
         d.rectangle([W * 0.185 - cw, 0, W * 0.185 + cw, H * 5 / 9.0],
                     fill=_WHITE_F)
     elif kind == 'iraq':
+        # Kingdom of Iraq 1924–59: black / white / green with red triangle + 2 stars
         for i, c in enumerate(((30, 28, 28), _WHITE_F, (52, 110, 62))):
             d.rectangle([0, i * H / 3, W, (i + 1) * H / 3], fill=c)
         d.polygon([(0, 0), (W * 0.30, H / 2), (0, H)],
                   fill=(178, 34, 40))
+        for sy in (H * 0.38, H * 0.62):
+            d.polygon(_star_pts(W * 0.12, sy, H * 0.07), fill=_WHITE_F)
     elif kind == 'siam':
         for (a, b, c) in ((0.0, 1 / 6, (190, 38, 40)),
                           (1 / 6, 2 / 6, _WHITE_F),
@@ -1820,6 +1916,17 @@ def _paint_flag(country):
                           (4 / 6, 5 / 6, _WHITE_F),
                           (5 / 6, 1.0, (190, 38, 40))):
             d.rectangle([0, a * H, W, b * H], fill=c)
+    elif kind == 'australia':
+        # Australian Blue Ensign (1909–): Union Jack canton, 7-point Commonwealth
+        # star under jack, Southern Cross on fly
+        d.rectangle([0, 0, W, H], fill=(30, 48, 104))
+        _paint_jack(d, 0, 0, int(W * 0.5), int(H * 0.5))
+        d.polygon(_star_pts(W * 0.25, H * 0.75, H * 0.12), fill=_WHITE_F)
+        # Southern Cross (simplified 5 stars)
+        for (fx, fy, fr) in ((0.72, 0.28, 0.055), (0.82, 0.42, 0.045),
+                             (0.70, 0.55, 0.055), (0.78, 0.72, 0.05),
+                             (0.62, 0.45, 0.035)):
+            d.polygon(_star_pts(W * fx, H * fy, H * fr), fill=_WHITE_F)
     elif kind in ('ensign', 'ensign_star'):
         d.rectangle([0, 0, W, H], fill=spec[1])
         _paint_jack(d, 0, 0, int(W * 0.5), int(H * 0.5))

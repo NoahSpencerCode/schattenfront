@@ -393,6 +393,7 @@ class WW2RTSGame(ShowBase):
         self.selected_airfield = None
         self.selected_harbor = None
         self.selected_depot = None
+        self.selected_bunker = None
         self.selected_armypost = None
         self.roster_base = None          # airfield/carrier whose menu is up
         self.garrison_sel = []           # stored land units picked to lift
@@ -647,6 +648,7 @@ class WW2RTSGame(ShowBase):
         self._clear_road_plan()
         self.selected_airfield = None
         self.selected_depot = None
+        self.selected_bunker = None
         self.selected_armypost = None
         self.roster_base = None
         self.garrison_sel = []
@@ -1742,6 +1744,20 @@ class WW2RTSGame(ShowBase):
                 best, best_d = obj, d
         return best
 
+    def _struct_pick_radius(self, fixed_scale):
+        """Structures are billboards at FIXED WORLD SIZE: zoomed all
+        the way in they span a large slab of screen, and a constant
+        screen-space pick circle around their centre reads as a
+        SHRINKING hitbox. Grow the circle to cover the drawn mark."""
+        import math as _m
+        alt = max(0.05, self.cam_dist - GLOBE_RADIUS)
+        try:
+            fov_v = _m.radians(self.camLens.getFov()[1])
+        except Exception:
+            return CLICK_RADIUS * 1.9
+        on_screen = (fixed_scale * 1.4) / (alt * _m.tan(fov_v / 2.0))
+        return max(CLICK_RADIUS * 1.9, on_screen)
+
     def _unit_world_pos(self, u):
         return u.pos * (GLOBE_RADIUS * u.altitude())
 
@@ -1823,7 +1839,8 @@ class WW2RTSGame(ShowBase):
         own_fields = [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
                       if a.country == self.player_country
                       and self._facing_camera(a.pos)]
-        field = self._pick_object(mpos, own_fields, radius=CLICK_RADIUS * 1.9)
+        field = self._pick_object(mpos, own_fields,
+                                  radius=self._struct_pick_radius(0.034))
         if field:
             self.clear_selection()
             self._select_airfield(field)
@@ -1831,7 +1848,8 @@ class WW2RTSGame(ShowBase):
         own_harbors = [(h, h.pos * GLOBE_RADIUS) for h in self.harbors
                        if h.country == self.player_country
                        and self._facing_camera(h.pos)]
-        harbor = self._pick_object(mpos, own_harbors, radius=CLICK_RADIUS * 1.9)
+        harbor = self._pick_object(mpos, own_harbors,
+                                   radius=self._struct_pick_radius(0.045))
         if harbor:
             self.clear_selection()
             self._select_harbor(harbor)
@@ -1841,7 +1859,7 @@ class WW2RTSGame(ShowBase):
                      if p_.country == self.player_country
                      and self._facing_camera(p_.pos)]
         post = self._pick_object(mpos, own_posts,
-                                 radius=CLICK_RADIUS * 1.9)
+                                 radius=self._struct_pick_radius(0.045))
         if post:
             self.clear_selection()
             self._select_armypost(post)
@@ -1849,10 +1867,20 @@ class WW2RTSGame(ShowBase):
         own_depots = [(d, d.pos * GLOBE_RADIUS) for d in self.depots
                       if d.country == self.player_country
                       and self._facing_camera(d.pos)]
-        depot = self._pick_object(mpos, own_depots, radius=CLICK_RADIUS * 1.9)
+        depot = self._pick_object(mpos, own_depots,
+                                  radius=self._struct_pick_radius(0.03))
         if depot:
             self.clear_selection()
             self._select_depot(depot)
+            return
+        own_bunkers = [(b, b.pos * GLOBE_RADIUS) for b in self.bunkers
+                       if b.alive and b.country == self.player_country
+                       and self._facing_camera(b.pos)]
+        bunker = self._pick_object(mpos, own_bunkers,
+                                   radius=self._struct_pick_radius(0.042))
+        if bunker:
+            self.clear_selection()
+            self._select_bunker(bunker)
             return
         own_cities = [(c, c.label_pos * GLOBE_RADIUS)
                       for c in self.cities
@@ -1963,6 +1991,7 @@ class WW2RTSGame(ShowBase):
         self._select_harbor(None)
         self._select_depot(None)
         self._select_armypost(None)
+        self._select_bunker(None)
         self._refresh_selection_ui()
 
     def _select_city(self, city):
@@ -2003,6 +2032,14 @@ class WW2RTSGame(ShowBase):
         self.selected_depot = depot
         if depot:
             depot.sel_ring.show()
+        self._refresh_selection_ui()
+
+    def _select_bunker(self, bunker):
+        if getattr(self, 'selected_bunker', None):
+            self.selected_bunker.sel_ring.hide()
+        self.selected_bunker = bunker
+        if bunker:
+            bunker.sel_ring.show()
         self._refresh_selection_ui()
 
     def assign_group(self, n):
@@ -6211,6 +6248,24 @@ void main() {
             return
         if self.selected_depot:
             self._refresh_depot_ui(self.selected_depot)
+            return
+        if getattr(self, 'selected_bunker', None):
+            b = self.selected_bunker
+            bar.set_title("%s -- FIELD WORKS" % b.name.upper())
+            sheltered = sum(
+                1 for u in self.units
+                if u.alive and not u.carried_by
+                and u.unit_type == 'infantry'
+                and u.country == b.country
+                and angle_between(u.pos, b.pos) * GLOBE_RADIUS
+                <= BUNKER_RADIUS)
+            bar.set_info(
+                "STRENGTH %d/%d   SHELTERING %d SECTION(S) -- "
+                "BOMBS AND SHELLFIRE STRIKE AT ONE THIRD WITHIN "
+                "THE WALLS" % (int(b.hp), int(b.max_hp), sheltered))
+            bar.add_buttons([])
+            bar.set_hint("INFANTRY WITHIN THE PERIMETER FIGHT "
+                         "UNDER COVER")
             return
         if self.selected_city:
             city = self.selected_city

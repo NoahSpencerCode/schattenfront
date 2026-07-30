@@ -44,6 +44,18 @@ ALERT = (0.9, 0.45, 0.3, 1.0)
 BTN_PAPER = ((0.82, 0.78, 0.64, 0.95), (0.95, 0.90, 0.72, 1.0),
              (0.70, 0.66, 0.54, 0.95), (0.5, 0.5, 0.5, 0.6))
 
+# wire shorthand for the diplomatic traffic
+NAT_CODE = {
+    'britain': 'GBR', 'germany': 'GER', 'usa': 'USA', 'japan': 'JPN',
+    'soviet': 'SOV', 'france': 'FRA', 'italy': 'ITA', 'china': 'CHN',
+    'poland': 'POL', 'netherlands': 'NED', 'belgium': 'BEL',
+    'norway': 'NOR', 'denmark': 'DEN', 'finland': 'FIN',
+    'greece': 'GRE', 'yugoslavia': 'YUG', 'romania': 'ROM',
+    'hungary': 'HUN', 'bulgaria': 'BUL', 'iraq': 'IRQ', 'iran': 'IRN',
+    'siam': 'SIA', 'brit_med': 'MED', 'raj': 'RAJ', 'fareast': 'FEA',
+    'australia': 'AUS',
+}
+
 
 def _make_text(parent, font, pos, scale, color, align=TextNode.ALeft):
     tn = TextNode('uitext')
@@ -172,16 +184,19 @@ class TopBar:
         self.budget_btn = pill_button(
             self.frame, "BUDGET", on_budget, pos=(1.49, 0, -0.068),
             hw=0.19, hh=0.037, text_scale=0.036, font=base.hud_font)
-        # war-industries report, beside the budget
-        self.factory_btn = DirectButton(
-            parent=self.frame,
-            image=get_icon_path('factory_button', 'dark'),
-            image_scale=0.042, relief=None,
-            frameColor=(0, 0, 0, 0),
-            frameSize=(-0.045, 0.045, -0.045, 0.045),
-            pos=(1.76, 0, -0.062), command=on_factory)
-        self.factory_btn.setTransparency(True)
-        crisp_image(self.factory_btn)
+        # war-industries report, beside the budget: a proper console
+        # key, not a bare pictogram floating on the panel
+        self.factory_btn = pill_button(
+            self.frame, '', on_factory, pos=(1.76, 0, -0.062),
+            hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
+        pic = OnscreenImage(image=get_icon_path('factory_button',
+                                                'dark'),
+                            parent=self.factory_btn, scale=0.034,
+                            pos=(0, 0, 0))
+        pic.setTransparency(True)
+        crisp_image(pic)
+        add_tooltip(self.factory_btn, "WAR INDUSTRIES -- PRODUCTION "
+                    "REPORT", font=base.hud_font, dy=-0.105)
         # fourteen dots: the days of the running fortnight
         self.day_dots = []
         for i in range(14):
@@ -417,6 +432,43 @@ class BottomBar:
 NEWSPRINT = (0.89, 0.87, 0.80, 0.99)
 
 
+_WIRE_LEAD = (
+    "Reports reaching this desk", "Despatches from the frontier",
+    "A communique issued at dawn", "Travellers arriving by rail",
+    "The wireless from the coast", "Officials speaking last night",
+    "A correspondent at the front", "Sources close to the ministry")
+_WIRE_BODY = (
+    "speak of columns on the move before first light",
+    "describe heavy traffic on every road to the east",
+    "confirm that reserves have been called to the colours",
+    "tell of bridges watched and crossings counted",
+    "report the harbours working under blackout",
+    "note long trains of lorries moving under tarpaulin",
+    "insist the situation remains fluid but contained",
+    "count fresh batteries dug in along the ridge")
+_WIRE_TAIL = (
+    "No further detail was available at press time.",
+    "The ministry declined to comment.",
+    "Censors passed this despatch without amendment.",
+    "Confirmation is awaited from the capital.",
+    "The public is asked to remain calm.",
+    "More in the late edition.")
+
+
+def _wire_filler(seed, n_sent):
+    """Column filler in the house style: plausible wire-copy nonsense
+    so the sheet reads like a REAL broadsheet, deterministic per
+    edition so the paper doesn't rewrite itself on a glance."""
+    import random as _random
+    rng = _random.Random(seed)
+    out = []
+    for _ in range(n_sent):
+        out.append("%s %s. %s" % (rng.choice(_WIRE_LEAD),
+                                  rng.choice(_WIRE_BODY),
+                                  rng.choice(_WIRE_TAIL)))
+    return "  ".join(out)
+
+
 class Newspaper:
     """A broadsheet on the stand: masthead, dateline, banner headline
     and the deck beneath, in the manner of the wire-service extras.
@@ -473,6 +525,34 @@ class Newspaper:
         y -= 0.075 * (1 + headline.count(' ') // 12)
         y -= 0.075
         text(deck, y, 0.034, wordwrap=46.0)
+        if final is None:
+            # below the fold the sheet reads like a REAL broadsheet:
+            # a rule, then three columns of wire copy behind thin
+            # column rules (filler, deterministic per edition)
+            ry = y - 0.055
+            DirectFrame(parent=self.frame, frameColor=INK,
+                        frameSize=(-0.90, 0.90, ry, ry + 0.003))
+            col_w, gap = 0.56, 0.05
+            x_left = -0.90
+            seed = hash((headline, deck)) & 0xffffffff
+            for ci in range(3):
+                cx = x_left + ci * (col_w + gap)
+                tn = TextNode('wire')
+                tn.setAlign(TextNode.ALeft)
+                if base.hud_font:
+                    tn.setFont(base.hud_font)
+                tn.setTextColor(0.32, 0.28, 0.23, 1.0)
+                tn.setWordwrap(col_w / 0.021)
+                tn.setText(_wire_filler(seed + ci, 2))
+                np_ = self.frame.attachNewNode(tn)
+                np_.setPos(cx, 0, ry - 0.045)
+                np_.setScale(0.021)
+                if ci:
+                    DirectFrame(parent=self.frame,
+                                frameColor=(0.55, 0.51, 0.44, 1.0),
+                                frameSize=(cx - gap / 2 - 0.0012,
+                                           cx - gap / 2 + 0.0012,
+                                           -tall + 0.13, ry - 0.02))
         if final is not None:
             y -= 0.30
             text("++ %s ++" % ("TOTAL VICTORY" if final == 'victory'
@@ -564,18 +644,43 @@ class DiplomacyLedger:
         nations.sort(key=lambda c: (c not in self._PLAYABLE,
                                     self._COUNTRIES[c]['name']))
         per_col = 13
+        all_nats = [c for c in self._COUNTRIES if c != 'neutral']
         for i, nat in enumerate(nations[:26]):
             col, row = divmod(i, per_col)
             x0 = -1.36 + col * 1.44
             y = 0.60 - row * 0.104
             info = self._COUNTRIES[nat]
-            chip = DirectFrame(parent=self.frame,
-                               frameColor=tuple(info['color']) + (1.0,),
-                               frameSize=(-0.020, 0.020, -0.020, 0.020),
-                               relief=DGG.FLAT, pos=(x0 + 0.02, 0, y))
+            from icons import flag_texture
+            chip = DirectFrame(parent=self.frame, relief=None,
+                               frameColor=(0, 0, 0, 0),
+                               image=flag_texture(nat),
+                               image_scale=(0.034, 1, 0.0227),
+                               frameSize=(-0.034, 0.034,
+                                          -0.023, 0.023),
+                               pos=(x0 + 0.03, 0, y))
+            chip.setTransparency(True)
+            crisp_image(chip)
             self.widgets.append(chip)
-            self._text(info['name'].upper()[:24], (x0 + 0.06, y - 0.010),
+            self._text(info['name'].upper()[:24], (x0 + 0.08, y - 0.004),
                        0.030)
+            # the nation's own entanglements, in wire shorthand
+            wars = [NAT_CODE.get(o, o[:3].upper()) for o in all_nats
+                    if o != nat and g.at_war(nat, o)]
+            pacts = [NAT_CODE.get(o, o[:3].upper())
+                     for o in sorted(g.alliances.get(nat, ()))
+                     if o != nat]
+            rel = ""
+            if wars:
+                rel += "WAR: " + " ".join(wars[:6])
+                if len(wars) > 6:
+                    rel += " +%d" % (len(wars) - 6)
+            if pacts:
+                rel += ("   " if rel else "") + \
+                    "PACT: " + " ".join(pacts[:5])
+            self._text(rel or "NO ENTANGLEMENTS",
+                       (x0 + 0.08, y - 0.044), 0.0185,
+                       color=((0.52, 0.16, 0.10, 1.0) if wars
+                              else INK_FAINT))
             at_war = g.at_war(me, nat)
             allied = g.allied(me, nat)
             pend = g.pouch_pending(nat)
@@ -847,8 +952,15 @@ class BudgetFax:
                 text(row[1], (x, y), 0.036, INK_FAINT)
                 continue
             ut, stats, available = row[1], row[2], row[3]
-            label = "%s %s" % (stats['icon'].ljust(4), stats['label'][:24])
-            text(label, (x, y), 0.030)
+            ic = DirectFrame(parent=self.frame, relief=None,
+                             frameColor=(0, 0, 0, 0),
+                             image=get_icon_path(ut, 'dark'),
+                             image_scale=0.026,
+                             frameSize=(-0.027, 0.027, -0.027, 0.027),
+                             pos=(x + 0.024, 0, y + 0.009))
+            ic.setTransparency(True)
+            crisp_image(ic)
+            text(stats['label'][:24], (x + 0.06, y), 0.030)
             text("$%d" % stats['cost'], (x + 0.62, y), 0.030, INK_FAINT)
             if not available:
                 text("NO HARBOR", (x + 0.80, y), 0.028, INK_FAINT)

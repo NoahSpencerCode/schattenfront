@@ -19,6 +19,7 @@ AIRFIELD_HP = 260.0             # demolishable, like bridges
 DEPOT_STOCK_CAP = 20000.0
 HARBOR_STOCK_CAP = 24000.0
 BUNKER_RADIUS = 0.2             # infantry sheltered within this range
+BUNKER_HP = 220.0               # field works take a pounding first
 SORTIE_COST = 600.0             # lbs per aircraft takeoff
 
 
@@ -114,9 +115,6 @@ class Airfield(Structure):
         self.garrison = []              # land units stored on the field
         self.shells = []                # finished airframes, no crews
         self.crews = 0                  # Enlisted stationed here
-        # every field is laid out on its own compass bearing
-        import zlib as _zlib
-        self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
         Structure.__init__(self, game, lat, lon, country, name)
 
         # parked-aircraft badge (plane pictogram + count)
@@ -218,8 +216,6 @@ class Harbor(Structure):
         self.shells = []                # finished hulls awaiting crews
         self.crews = 0                  # Enlisted stationed at the quay
         self.stock = 0.0                # the quayside supply cache
-        import zlib as _zlib
-        self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
         Structure.__init__(self, game, lat, lon, country, name)
 
         # ways badge (ship pictogram + count of hulls building)
@@ -288,8 +284,6 @@ class ArmyPost(Structure):
         self.shells = []                # finished, waiting for crews
         self.crews = 0                  # Enlisted stationed here
         self.stock = 0.0
-        import zlib as _zlib
-        self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
         Structure.__init__(self, game, lat, lon, country, name)
         c = COUNTRIES[country]['color']
         self.badge = self.holder.attachNewNode('shell_badge')
@@ -333,6 +327,12 @@ class Bunker(Structure):
     bombs and naval shellfire."""
 
     ICON = 'bunker'
+    FIXED_SCALE = 0.042         # reads smaller than a depot
+
+    def __init__(self, game, lat, lon, country, name):
+        self.hp = BUNKER_HP
+        self.max_hp = BUNKER_HP
+        Structure.__init__(self, game, lat, lon, country, name)
 
 
 class Radar(Structure):

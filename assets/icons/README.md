@@ -27,8 +27,10 @@ just replace PNGs.
   one `ui/<name>.png` and one `units/<name>.png`. Exception:
   `ui/nosupply_red.png` for the red out-of-supply alert.
 - **Three art styles by folder/role:**
-  - **`ui/` button/cursor icons** — simple solid **black**
-    silhouettes, bold and easy to read at small sizes.
+  - **`ui/` button/cursor icons** — monochrome SF Symbols style
+    with **dimensional shading** (dark greys + depth), refined
+    proportions and internal detail so icons read clearly and stay
+    distinct at small sizes.
   - **`units/` map sprites** — simple top-down vehicle diagrams
     with **slight** realistic colour (muted olive/grey), vehicle
     only (no outer border, pad, or floating symbols).
