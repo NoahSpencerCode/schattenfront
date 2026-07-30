@@ -181,10 +181,14 @@ for _ut, _s in UNIT_TYPES.items():
         _s.setdefault('supply_cap', 1200.0)
         _s.setdefault('use_move', 5.0)      # lbs per second under way
     else:
-        # tight: a column burns most of its stores crossing one country,
-        # so the supply chain is a critical mechanic, not a garnish
+        # tight: a column burns its stores crossing a small country,
+        # so the supply chain is a critical mechanic, not a garnish.
+        # (2.5 gave infantry a quarter-degree unsupported range --
+        # every advance died at the border; 1.0 keeps the chain
+        # essential over any real distance without strangling the
+        # first march.)
         _s.setdefault('supply_cap', 80.0)
-        _s.setdefault('use_move', 2.5)
+        _s.setdefault('use_move', 1.0)
 FIRE_SUPPLY_FACTOR = 1.8                    # lbs per point of damage dealt
 
 # ---- strategic material costs -----------------------------------------
