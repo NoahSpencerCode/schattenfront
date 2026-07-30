@@ -171,12 +171,15 @@ NPC_NATIONS = {
                     'adjective': 'Siamese'},
     # dominions and colonial commands of the playable empires stand as
     # their own nations, so the majors begin with their HOME cities
-    # only and the wider empires enter the war by diplomacy
-    'brit_med':    {'color': (0.35, 0.48, 0.70), 'name': 'British Mediterranean',
-                    'adjective': 'Levantine'},
-    'raj':         {'color': (0.30, 0.52, 0.58), 'name': 'British Raj',
+    # only and the wider empires enter the war by diplomacy. They wear
+    # PLAIN names on every ledger and paper -- "Egypt", not "British
+    # Mediterranean" -- so players read them as countries, not
+    # command abbreviations (internal keys unchanged for saves).
+    'brit_med':    {'color': (0.35, 0.48, 0.70), 'name': 'Egypt',
+                    'adjective': 'Egyptian'},
+    'raj':         {'color': (0.30, 0.52, 0.58), 'name': 'India',
                     'adjective': 'Indian'},
-    'fareast':     {'color': (0.42, 0.55, 0.52), 'name': 'British Far East',
+    'fareast':     {'color': (0.42, 0.55, 0.52), 'name': 'Malaya',
                     'adjective': 'Malayan'},
     'australia':   {'color': (0.38, 0.58, 0.45), 'name': 'Australia',
                     'adjective': 'Australian'},

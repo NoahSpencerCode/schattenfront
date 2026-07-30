@@ -1452,6 +1452,26 @@ class WW2RTSGame(ShowBase):
             total += c.fortnight_revenue(rate)
         return total
 
+    def _clamp_budget(self, country, counts, funds):
+        """A manifest never plans money that will not exist: the
+        standing counts were drawn against an earlier, richer till,
+        so trim one piece at a time from the costliest line until
+        the sheet fits what the fortnight will actually hold."""
+        counts = dict(counts)
+        alloc = sum(stats_for(ut, country)['cost'] * n
+                    for ut, n in counts.items())
+        while alloc > funds:
+            worst, w_cost = None, -1
+            for ut, n in counts.items():
+                c = stats_for(ut, country)['cost']
+                if n > 0 and c > w_cost:
+                    worst, w_cost = ut, c
+            if worst is None:
+                break
+            counts[worst] -= 1
+            alloc -= w_cost
+        return counts
+
     def open_budget(self):
         if self.game_state != 'playing' or self.budget_fax:
             return
@@ -1468,7 +1488,9 @@ class WW2RTSGame(ShowBase):
             self, self, treasury + revenue,
             self.buyable_units(self.player_country),
             has_harbor, self._budget_transmit, self._budget_discard,
-            initial=self.budget_counts,
+            initial=self._clamp_budget(self.player_country,
+                                       self.budget_counts,
+                                       treasury + revenue),
             subtitle="PROJECTED TAX REVENUE $%d + TREASURY $%d = $%d "
                      "PLANNABLE NEXT FORTNIGHT" %
                      (revenue, treasury, revenue + treasury))

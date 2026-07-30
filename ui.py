@@ -52,7 +52,7 @@ NAT_CODE = {
     'norway': 'NOR', 'denmark': 'DEN', 'finland': 'FIN',
     'greece': 'GRE', 'yugoslavia': 'YUG', 'romania': 'ROM',
     'hungary': 'HUN', 'bulgaria': 'BUL', 'iraq': 'IRQ', 'iran': 'IRN',
-    'siam': 'SIA', 'brit_med': 'MED', 'raj': 'RAJ', 'fareast': 'FEA',
+    'siam': 'SIA', 'brit_med': 'EGY', 'raj': 'IND', 'fareast': 'MAL',
     'australia': 'AUS',
 }
 
