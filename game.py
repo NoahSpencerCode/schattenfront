@@ -33,7 +33,7 @@ from ai import NationAI
 from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     BASELINE_IMPORTS, DEPOSITS, OIL_PER_LB,
                     OIL_PER_SORTIE, PLAYABLE, RESOURCES,
-                    RESOURCE_CAP, STARTING_RESOURCES,
+                    RESOURCE_CAP, STARTING_RESOURCES, short_name,
                     AIR_VISION_MULT, VISION_SCALE,
                     BRIDGE_HP, BRIDGE_REPAIR_RATE, BUDGET_PERIOD_DAYS,
                     CAM_MAX_DIST, CAM_MIN_DIST, CAM_START_DIST,
@@ -59,7 +59,8 @@ from tech import (TECH_TREES, TECH_BRANCHES, RESEARCH_DOLLARS_PER_POINT,
                   RESEARCH_PCT_CHOICES, unlocked_units, radar_unlocked,
                   next_tier)
 from icons import get_icon_path
-from models import (make_bridge_marker, make_flat_ring, make_icon_quad,
+from models import (make_bridge_marker, make_flag_quad,
+                    make_flat_ring, make_icon_quad,
                     make_hit_flash_template, set_marker_layer,
                     LAYER_BRIDGE, LAYER_FLASH, LAYER_HOVER, LAYER_STRUCT)
 from pathfinding import MovementPlanner
@@ -67,7 +68,7 @@ from structures import (Airfield, ArmyPost, Bunker, Depot, Harbor,
                         AIRFIELD_STOCK_CAP,
                         BUNKER_RADIUS, DEPOT_STOCK_CAP, SORTIE_COST)
 from ui import (TopBar, BottomBar, FaxPanel, BudgetFax, BriefingFax,
-                ProductionFax, TaxFax, B)
+                ProductionFax, ResourcesFax, TaxFax, B)
 from config import UNIT_SPEED_FACTOR
 from units import (Unit, UNIT_TYPES, BRANCH_OF, FIRE_SUPPLY_FACTOR,
                    NATION_UNIT_STATS, material_cost, stats_for)
@@ -151,11 +152,23 @@ class City:
         self.label.setLightOff()
         self.label.setTransparency(TransparencyAttrib.MAlpha)
         set_marker_layer(self.label, LAYER_STRUCT + 4)
+        self.title_flag = None
+        self._flag_country = None
         self.refresh_marker()
 
     def refresh_marker(self):
         # the city itself is sketched onto the map texture; ownership
-        # shows in the colour of its name
+        # shows in the colour of its name AND the standard above it
+        if self._flag_country != self.country:
+            if self.title_flag is not None:
+                self.title_flag.removeNode()
+            self.title_flag = make_flag_quad(
+                self.game.loader, self.country, half=0.85, flat=False)
+            self.title_flag.reparentTo(self.label)
+            self.title_flag.setPos(0, 0, 1.35)
+            self.title_flag.setLightOff()
+            set_marker_layer(self.title_flag, LAYER_STRUCT + 4)
+            self._flag_country = self.country
         c = COUNTRIES[self.country]['color']
         self.label_tn.setTextColor(min(1.0, c[0] * 1.5 + 0.25),
                                    min(1.0, c[1] * 1.5 + 0.25),
@@ -884,6 +897,7 @@ class WW2RTSGame(ShowBase):
         self.resources = {c: dict(STARTING_RESOURCES) for c in PLAYABLE}
         self.resource_flows = {c: {} for c in PLAYABLE}
         self._oil_spent = {c: 0.0 for c in PLAYABLE}
+        self._pump_lbs = {c: 0.0 for c in PLAYABLE}
         self._mat_spent = {c: {'steel': 0, 'rubber': 0}
                            for c in PLAYABLE}
         self.bottlenecks = {c: [] for c in PLAYABLE}
@@ -909,7 +923,8 @@ class WW2RTSGame(ShowBase):
         self._scale_ref_dist = 0.0      # force a marker-scale pass
 
         self.top_bar = TopBar(self, self.open_budget,
-                              self.open_factory_report)
+                              self.open_factory_report,
+                              on_resources=self.open_resources_report)
         self.bottom_bar = BottomBar(self)
         self.bottom_bar.set_title("ALL QUIET")
         self.bottom_bar.set_hint(CONTROLS_HINT)
@@ -1475,6 +1490,7 @@ class WW2RTSGame(ShowBase):
                                'out': spent[res]}
             self.resource_flows[country] = report
             self._oil_spent[country] = 0.0
+            self._pump_lbs[country] = 0.0
             self._mat_spent[country] = {'steel': 0, 'rubber': 0}
 
     def _pump(self, unit, lbs):
@@ -1498,6 +1514,8 @@ class WW2RTSGame(ShowBase):
         stock['oil'] -= need
         self._oil_spent[unit.country] = \
             self._oil_spent.get(unit.country, 0.0) + need
+        self._pump_lbs[unit.country] = \
+            self._pump_lbs.get(unit.country, 0.0) + lbs
         return lbs
 
     def _pump_sortie(self, country):
@@ -1793,6 +1811,57 @@ class WW2RTSGame(ShowBase):
         if self.tech_fax:
             self.tech_fax.destroy()
             self.tech_fax = None
+
+    def open_resources_report(self):
+        """The quartermaster's ledger: stocks, sources, the
+        fortnight's spending so far, and the supply net in plain
+        figures."""
+        if self.game_state != 'playing' or self.briefing_fax:
+            return
+        from config import short_name
+        me = self.player_country
+        stock = self.resources[me]
+        spent = {'oil': int(self._oil_spent.get(me, 0)),
+                 'steel': self._mat_spent[me]['steel'],
+                 'rubber': self._mat_spent[me]['rubber']}
+        data = {}
+        for res in RESOURCES:
+            income = [('IMPORTS', BASELINE_IMPORTS[res])]
+            foreign = []
+            for dep in self.deposits:
+                if dep.city.country == me:
+                    income.append((dep.city.name.upper(), dep.output))
+                elif dep.resource == res:
+                    foreign.append((dep.city.name.upper(),
+                                    short_name(dep.city.country)
+                                    .upper(), dep.output))
+            income = [(n, v) for n, v in income
+                      if n == 'IMPORTS' or any(
+                          d.city.name.upper() == n
+                          and d.resource == res
+                          for d in self.deposits)]
+            foreign.sort(key=lambda t: -t[2])
+            data[res] = {
+                'stock': int(stock[res]),
+                'income': income,
+                'more_income': max(0, len(income) - 6),
+                'spent': spent[res],
+                'foreign': foreign,
+            }
+        net = sum(int(getattr(c, 'stock', 0)) for c in self.cities
+                  if c.country == me)
+        net += sum(int(st.stock) for st in
+                   list(self.depots) + list(self.harbors)
+                   + list(self.armyposts) + list(self.airfields)
+                   if st.alive and st.country == me)
+        aboard = sum(int(u.supply) for u in self.units
+                     if u.alive and u.country == me)
+        data['net_stocks'] = net
+        data['unit_stores'] = aboard
+        data['pump_lbs'] = self._pump_lbs.get(me, 0.0)
+        data['pump_oil'] = self._oil_spent.get(me, 0.0)
+        self.briefing_fax = ResourcesFax(self, data,
+                                         self._close_briefing)
 
     def open_factory_report(self):
         """The war-industries FAX: the fortnight order by branch, live
@@ -5115,16 +5184,32 @@ void main() {
             self.stats_ledger['wars_declared'] = \
                 self.stats_ledger.get('wars_declared', 0) + 1
         self._rebuild_war_sets()
-        dragged = sorted((bloc_a | bloc_b) - {aggressor, defender})
-        deck = "%s and its allies enter the war against %s" % (
-            COUNTRIES[aggressor]['name'], COUNTRIES[defender]['name'])
-        if dragged:
-            deck += " -- treaty obligations bring in %s" % ", ".join(
-                COUNTRIES[d]['name'] for d in dragged)
+        from config import short_name
+
+        def roll(names):
+            names = [short_name(n) for n in names]
+            if len(names) == 1:
+                return names[0]
+            return "%s and %s" % (", ".join(names[:-1]), names[-1])
+
+        side_a = sorted(bloc_a - {aggressor})
+        side_b = sorted(bloc_b - {defender})
+        if side_a:
+            march = ("%s marches with %s at its side"
+                     % (short_name(aggressor), roll(side_a)))
+        else:
+            march = ("%s marches alone -- not one power stands "
+                     "at its side" % short_name(aggressor))
+        if side_b:
+            faces = (", against %s and its allies %s"
+                     % (short_name(defender), roll(side_b)))
+        else:
+            faces = (", against %s, which faces the storm without "
+                     "a single ally" % short_name(defender))
         self.post_news(
             "%s DECLARES WAR ON %s" %
-            (COUNTRIES[aggressor]['name'].upper(),
-             COUNTRIES[defender]['name'].upper()), deck + ".")
+            (short_name(aggressor).upper(),
+             short_name(defender).upper()), march + faces + ".")
         player = self.player_country
         if player in bloc_a or player in bloc_b:
             other = (bloc_b if player in bloc_a else bloc_a)
@@ -5151,7 +5236,7 @@ void main() {
                 self.stats_ledger.get('allies_made', 0) + 1
         self.post_news(
             "%s AND %s SIGN PACT OF ALLIANCE" %
-            (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
+            (short_name(a).upper(), short_name(b).upper()),
             "The two powers bind their wars together: an attack upon "
             "one is now an attack upon both.")
         if self.diplo_fax:
@@ -5171,7 +5256,7 @@ void main() {
         self.alliances[b].discard(a)
         self.post_news(
             "%s RENOUNCES ITS PACT WITH %s" %
-            (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
+            (short_name(a).upper(), short_name(b).upper()),
             "The alliance is dissolved by note delivered in the small "
             "hours; each power's wars are its own again.")
         return True
@@ -5184,7 +5269,7 @@ void main() {
         self._rebuild_war_sets()
         self.post_news(
             "PEACE BETWEEN %s AND %s" %
-            (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
+            (short_name(a).upper(), short_name(b).upper()),
             "Guns fall silent along the whole frontier under a peace "
             "signed without indemnity or annexation.")
         if self.diplo_fax:
@@ -5518,10 +5603,10 @@ void main() {
                     allies.discard(country)
                 self.alliances[country] = set()
                 self.post_news(
-                    "%s CAPITULATES" % COUNTRIES[country]['name'].upper(),
+                    "%s CAPITULATES" % short_name(country).upper(),
                     "With its last city fallen, %s signs the instrument "
                     "of surrender; its forces lay down their arms." %
-                    COUNTRIES[country]['name'])
+                    short_name(country))
                 for u in self.units:
                     if u.alive and u.country == country:
                         self.unit_destroyed(u, None)

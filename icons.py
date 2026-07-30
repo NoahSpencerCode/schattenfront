@@ -754,6 +754,27 @@ def _draw_radar(d, ink):
     d.line([(48, 44), (60, 24)], fill=ink, width=4)
 
 
+def _draw_crossed_swords(d, ink):
+    """Two blades crossed at the guard: the mark of war."""
+    for (a, b) in (((22, 22), (74, 74)), ((74, 22), (22, 74))):
+        d.line([a, b], fill=ink, width=7)                      # blades
+    for (gx, gy, ang) in ((33, 61, 1), (61, 61, -1)):
+        d.line([(gx - 8 * ang, gy - 8), (gx + 8 * ang, gy + 8)],
+               fill=ink, width=5)                              # guards
+    d.ellipse([18, 18, 28, 28], fill=ink)                      # pommels
+    d.ellipse([68, 18, 78, 28], fill=ink)
+
+
+def _draw_resource_button(d, ink):
+    """The quartermaster's ledger mark: oil drum and steel ingot."""
+    d.rectangle([20, 30, 48, 74], outline=ink, width=5)        # the drum
+    for y in (42, 60):
+        d.line([(20, y), (48, y)], fill=ink, width=3)
+    d.ellipse([28, 20, 40, 32], outline=ink, width=4)          # filler cap
+    d.polygon([(52, 74), (60, 52), (84, 52), (76, 74)], fill=ink)
+    d.polygon([(60, 52), (66, 44), (90, 44), (84, 52)], fill=ink)
+
+
 def _draw_derrick(d, ink):
     """Oil field: the lattice derrick over its wellhead."""
     d.line([(30, 84), (48, 16)], fill=ink, width=5)
@@ -794,6 +815,8 @@ def _draw_plantation(d, ink):
 
 
 _DRAWERS = {
+    'crossed_swords': _draw_crossed_swords,
+    'resource_button': _draw_resource_button,
     'derrick': _draw_derrick,
     'foundry': _draw_foundry,
     'plantation': _draw_plantation,

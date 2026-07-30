@@ -363,6 +363,10 @@
 "h": "2f1a1034ee72756294cf8811e8ef6ef3",
 "v": 2
 },
+"ui/crossed_swords.png": {
+"h": "f940114bab8a0c420058fb0d98df4643",
+"v": 17
+},
 "ui/derrick.png": {
 "h": "95ba9eef3324fc94c34d5b42ca95e26d",
 "v": 17
@@ -413,6 +417,10 @@
 },
 "ui/red_button_press.png": {
 "h": "40a99ef4fbd53911938f2950ddc01565",
+"v": 17
+},
+"ui/resource_button.png": {
+"h": "195d0988e0306e9d0a8a78d99ef79e69",
 "v": 17
 },
 "units/blimp_up.png": {

@@ -168,7 +168,8 @@ class TopBar:
 
     RESOURCE_COLS = ('OIL', 'STEEL', 'RUBBER')
 
-    def __init__(self, base, on_budget, on_factory=None):
+    def __init__(self, base, on_budget, on_factory=None,
+                 on_resources=None):
         self.base = base
         self.frame = DirectFrame(parent=base.a2dTopCenter,
                                  frameColor=(1, 1, 1, 0.92),
@@ -188,12 +189,12 @@ class TopBar:
                                 (x, -0.118), 0.040, color, align)
             self.values[title] = val
         self.budget_btn = pill_button(
-            self.frame, "BUDGET", on_budget, pos=(1.49, 0, -0.068),
-            hw=0.19, hh=0.037, text_scale=0.036, font=base.hud_font)
+            self.frame, "BUDGET", on_budget, pos=(1.44, 0, -0.068),
+            hw=0.155, hh=0.037, text_scale=0.034, font=base.hud_font)
         # war-industries report, beside the budget: a proper console
         # key, not a bare pictogram floating on the panel
         self.factory_btn = pill_button(
-            self.frame, '', on_factory, pos=(1.76, 0, -0.062),
+            self.frame, '', on_factory, pos=(1.645, 0, -0.062),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('factory_button',
                                                 'dark'),
@@ -203,10 +204,23 @@ class TopBar:
         crisp_image(pic)
         add_tooltip(self.factory_btn, "WAR INDUSTRIES -- PRODUCTION "
                     "REPORT", font=base.hud_font, dy=-0.105)
+        # the quartermaster's ledger, beside the factory key
+        self.resource_btn = pill_button(
+            self.frame, '', on_resources, pos=(1.755, 0, -0.062),
+            hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
+        pic = OnscreenImage(image=get_icon_path('resource_button',
+                                                'dark'),
+                            parent=self.resource_btn, scale=0.034,
+                            pos=(0, 0, 0))
+        pic.setTransparency(True)
+        crisp_image(pic)
+        add_tooltip(self.resource_btn, "STRATEGIC RESOURCES -- "
+                    "STOCKS AND SUPPLY", font=base.hud_font,
+                    dy=-0.105)
         # fourteen dots: the days of the running fortnight
         self.day_dots = []
         for i in range(14):
-            x = 1.49 - 0.169 + i * 0.026
+            x = 1.44 - 0.169 + i * 0.026
             dot = DirectFrame(parent=self.frame,
                               frameColor=(0.32, 0.30, 0.26, 1.0),
                               frameSize=(-0.008, 0.008, -0.008, 0.008),
@@ -717,6 +731,7 @@ class DiplomacyLedger:
     def _build_roster(self):
         g = self.game
         from config import short_name
+        from icons import flag_texture
         me = g.player_country
         nations = [c for c in self._COUNTRIES
                    if c not in (me, 'neutral')
@@ -741,24 +756,51 @@ class DiplomacyLedger:
                            color=((0.62, 0.14, 0.10, 1) if at_war
                                   else (0.16, 0.35, 0.14, 1)),
                            align=TextNode.ACenter)
-        # the wars raging, on the right edge
-        wx = 1.24
-        self._text("++ WARS RAGING ++", (wx, 0.60), 0.030,
+        # THE WARS RAGING: the right edge is a battle-board -- each
+        # war a pair of standards crossed by the swords
+        wx = 1.18
+        self._text("++ WARS RAGING ++", (wx, 0.63), 0.040,
                    color=(0.62, 0.14, 0.10, 1),
                    align=TextNode.ACenter)
         wars = sorted({tuple(sorted(w)) for w in g.wars})
         if not wars:
-            self._text("ALL QUIET", (wx, 0.52), 0.026,
-                       color=INK_FAINT, align=TextNode.ACenter)
-        for i, (a, b) in enumerate(wars[:16]):
+            self._text("ALL QUIET ON EVERY FRONT", (wx, 0.50),
+                       0.026, color=INK_FAINT,
+                       align=TextNode.ACenter)
+        for i, (a, b) in enumerate(wars[:8]):
+            wy = 0.49 - i * 0.165
+            for nat, dx in ((a, -0.115), (b, 0.115)):
+                chip = DirectFrame(parent=self.frame, relief=None,
+                                   frameColor=(0, 0, 0, 0),
+                                   image=flag_texture(nat),
+                                   image_scale=(0.050, 1, 0.0333),
+                                   frameSize=(-0.05, 0.05,
+                                              -0.034, 0.034),
+                                   pos=(wx + dx, 0, wy))
+                chip.setTransparency(True)
+                crisp_image(chip)
+                self.widgets.append(chip)
+            swords = DirectFrame(parent=self.frame, relief=None,
+                                 frameColor=(0, 0, 0, 0),
+                                 image=get_icon_path('crossed_swords',
+                                                     'dark'),
+                                 image_scale=0.036,
+                                 frameSize=(-0.04, 0.04,
+                                            -0.04, 0.04),
+                                 pos=(wx, 0, wy))
+            swords.setTransparency(True)
+            crisp_image(swords)
+            self.widgets.append(swords)
             self._text("%s v %s" % (short_name(a).upper(),
                                     short_name(b).upper()),
-                       (wx, 0.52 - i * 0.062), 0.023,
+                       (wx, wy - 0.070), 0.021,
                        color=INK_FAINT, align=TextNode.ACenter)
-        if len(wars) > 16:
-            self._text("+%d MORE" % (len(wars) - 16),
-                       (wx, 0.52 - 16 * 0.062), 0.023,
-                       color=INK_FAINT, align=TextNode.ACenter)
+        if len(wars) > 8:
+            self._text("AND %d MORE FRONTS AFLAME"
+                       % (len(wars) - 8),
+                       (wx, 0.49 - 8 * 0.165), 0.023,
+                       color=(0.62, 0.14, 0.10, 1),
+                       align=TextNode.ACenter)
         self._text("CLICK A NATION FOR ITS DOSSIER -- WAR, PACTS "
                    "AND TERMS ARE OFFERED THERE",
                    (-0.10, -0.80), 0.026, color=INK_FAINT,
@@ -1492,6 +1534,100 @@ class ProductionFax:
 
     def _close(self):
         self.on_close()
+
+    def destroy(self):
+        self.frame.destroy()
+
+
+class ResourcesFax:
+    """The quartermaster's ledger: what the nation holds, where it
+    comes from, what the fortnight has drunk so far -- and the plain
+    statement of how stores and oil relate."""
+
+    def __init__(self, base, data, on_close):
+        self.base = base
+        self.on_close = on_close
+        f = base.hud_font
+        self.frame = DirectFrame(parent=base.aspect2d,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
+                                 frameSize=(-1.18, 1.18, -0.92, 0.92),
+                                 state=DGG.NORMAL)
+        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                    frameSize=(-1.18, 1.18, 0.895, 0.92))
+
+        def text(t, pos, scale=0.030, color=INK,
+                 align=TextNode.ALeft):
+            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
+            tn.setText(t)
+            return tn
+
+        text("*** STRATEGIC RESOURCES -- THE QUARTERMASTER'S "
+             "LEDGER ***", (0, 0.82), 0.043, INK, TextNode.ACenter)
+        text("STOCKS ON HAND, THE FORTNIGHT'S TAKE, AND THE PUMPS",
+             (0, 0.755), 0.027, INK_FAINT, TextNode.ACenter)
+        cols = {'oil': -0.78, 'steel': 0.0, 'rubber': 0.78}
+        for res, cx in cols.items():
+            d = data[res]
+            text(res.upper(), (cx, 0.66), 0.045, INK,
+                 TextNode.ACenter)
+            text("%d TONS IN STOCK" % d['stock'], (cx, 0.585),
+                 0.036, INK, TextNode.ACenter)
+            y = 0.505
+            text("THE TAKE, EACH FORTNIGHT:", (cx - 0.33, y),
+                 0.026, INK_FAINT)
+            y -= 0.048
+            for name, n in d['income'][:6]:
+                text("%s +%d" % (name, n), (cx - 0.29, y), 0.027)
+                y -= 0.044
+            if d['more_income']:
+                text("+%d MORE SITES" % d['more_income'],
+                     (cx - 0.29, y), 0.025, INK_FAINT)
+                y -= 0.044
+            text("SPENT SO FAR THIS FORTNIGHT: %d" % d['spent'],
+                 (cx - 0.33, y - 0.010), 0.026,
+                 (0.62, 0.14, 0.10, 1.0))
+            y -= 0.070
+            if d['foreign']:
+                text("FOREIGN SOURCES OF NOTE:", (cx - 0.33, y),
+                     0.025, INK_FAINT)
+                y -= 0.044
+                for name, owner, n in d['foreign'][:3]:
+                    text("%s +%d  (%s)" % (name, n, owner),
+                         (cx - 0.29, y), 0.024, INK_FAINT)
+                    y -= 0.040
+        # THE SUPPLY NET: the plain statement of the relationship
+        ry = -0.42
+        tn, _ = _make_text(self.frame, f, (0, ry), 0.032, INK,
+                           TextNode.ACenter)
+        tn.setText("-" * 74)
+        text("THE SUPPLY NET", (0, ry - 0.055), 0.034, INK,
+             TextNode.ACenter)
+        text("%s LBS OF STORES IN TOWN AND STATION STOCKS   //   "
+             "%s LBS ABOARD THE COLUMNS AND FLEETS"
+             % ("{:,}".format(data['net_stocks']),
+                "{:,}".format(data['unit_stores'])),
+             (0, ry - 0.105), 0.027, INK_FAINT, TextNode.ACenter)
+        text("THE PUMPS: %s LBS ISSUED TO MACHINES SO FAR THIS "
+             "FORTNIGHT DREW %d TONS OF OIL"
+             % ("{:,}".format(int(data['pump_lbs'])),
+                int(data['pump_oil'])),
+             (0, ry - 0.155), 0.027, INK_FAINT, TextNode.ACenter)
+        text("ONE TON OF OIL MOVES 150 LBS OF STORES INTO A "
+             "MACHINE -- MEN AND THE RAILWAYS DRAW NONE",
+             (0, ry - 0.205), 0.027, INK, TextNode.ACenter)
+        pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
+                    self._close, pos=(0, 0, -0.79), hw=0.42,
+                    hh=0.046, text_scale=0.040, font=f)
+        snd = getattr(base, 'fax_snd', None)
+        if snd is not None:
+            snd.play()
+
+    def _close(self):
+        cb = self.on_close
+        self.on_close = None
+        if cb:
+            cb()
 
     def destroy(self):
         self.frame.destroy()
