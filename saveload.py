@@ -217,6 +217,7 @@ def snapshot(game):
         'stats_ledger': dict(game.stats_ledger),
         'funds': dict(game.funds),
         'resources': {c: dict(r) for c, r in game.resources.items()},
+        'trade': [dict(t) for t in game.trade_deals],
         'research_points': dict(game.research_points),
         'researched': {c: sorted(s) for c, s in game.researched.items()},
         'research_pct': dict(game.research_pct),
@@ -397,6 +398,7 @@ def restore(game, data):
         for c, r in data.get('resources', {}).items():
             if c in g.resources:
                 g.resources[c].update(r)
+        g.trade_deals = [dict(t) for t in data.get('trade', [])]
         g.research_points.update(data['research_points'])
         for c, lst in data['researched'].items():
             g.researched[c] = set(lst)

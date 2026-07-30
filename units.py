@@ -192,20 +192,22 @@ FIRE_SUPPLY_FACTOR = 1.8                    # lbs per point of damage dealt
 # tracks) alongside money. Men cost neither. Derived from the dollar
 # cost by domain, with flavour overrides where the history insists.
 _RUBBER_COST = {
-    'supply_truck': 3, 'transport_truck': 3, 'engineer': 2,
-    'tank': 2, 'heavy_tank': 3, 'aa_artillery': 1, 'artillery': 1,
-    'army_command': 2, 'fighter': 1, 'bomber': 2, 'heavy_bomber': 3,
-    'jet_fighter': 2, 'transport_air': 2, 'airforce_command': 2,
+    'supply_truck': 2, 'transport_truck': 2, 'engineer': 1,
+    'tank': 1, 'heavy_tank': 2, 'aa_artillery': 1,
+    'army_command': 1, 'fighter': 1, 'bomber': 1, 'heavy_bomber': 2,
+    'jet_fighter': 1, 'transport_air': 1, 'airforce_command': 1,
 }
 
 
 def material_cost(unit_type, country=None):
-    """{'steel': n, 'rubber': n} for one piece of equipment."""
+    """{'steel': n, 'rubber': n} for one piece of equipment.
+    Tuned so a money-limited fortnight's slate bills roughly one
+    fortnight's deposit income -- materials pinch, never strangle."""
     s = stats_for(unit_type, country) if country else UNIT_TYPES[unit_type]
     if unit_type == 'infantry':
         return {'steel': 0, 'rubber': 0}
     dom = s['domain']
-    div = 15 if dom == 'sea' else 25 if dom == 'air' else 30
+    div = 50 if dom == 'sea' else 80 if dom == 'air' else 100
     return {'steel': max(1, int(s['cost'] // div)),
             'rubber': _RUBBER_COST.get(unit_type, 0)}
 

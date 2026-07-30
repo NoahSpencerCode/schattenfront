@@ -33,7 +33,8 @@ from ai import NationAI
 from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     BASELINE_IMPORTS, DEPOSITS, OIL_PER_LB,
                     OIL_PER_SORTIE, PLAYABLE, RESOURCES,
-                    RESOURCE_CAP, STARTING_RESOURCES, short_name,
+                    RESOURCE_CAP, STARTING_RESOURCES,
+                    TRADE_PRICES, short_name,
                     AIR_VISION_MULT, VISION_SCALE,
                     BRIDGE_HP, BRIDGE_REPAIR_RATE, BUDGET_PERIOD_DAYS,
                     CAM_MAX_DIST, CAM_MIN_DIST, CAM_START_DIST,
@@ -898,6 +899,9 @@ class WW2RTSGame(ShowBase):
         self.resource_flows = {c: {} for c in PLAYABLE}
         self._oil_spent = {c: 0.0 for c in PLAYABLE}
         self._pump_lbs = {c: 0.0 for c in PLAYABLE}
+        # standing trade treaties: [{'with': nat, 'res': r,
+        #  'amount': n, 'price': $/ftn, 'dir': 'in'|'out'}, ...]
+        self.trade_deals = []
         self._mat_spent = {c: {'steel': 0, 'rubber': 0}
                            for c in PLAYABLE}
         self.bottlenecks = {c: [] for c in PLAYABLE}
@@ -1463,6 +1467,109 @@ class WW2RTSGame(ShowBase):
             (B("$%d" % spent), lines),
             sender="EXCHEQUER")
 
+    def seller_capacity(self, nat, res):
+        """Tons a nation can put on the market each fortnight: its
+        deposits' output, less what its standing exports already
+        promise. Majors also keep half their take at home."""
+        out = sum(d.output for d in self.deposits
+                  if d.city.country == nat and d.resource == res)
+        if nat in PLAYABLE:
+            out = out // 2
+        sold = sum(t['amount'] for t in self.trade_deals
+                   if t['with'] == nat and t['dir'] == 'in'
+                   and t['res'] == res)
+        return max(0, out - sold)
+
+    def trade_price(self, nat, res, direction):
+        """$ per fortnight for 1 ton/ftn: allies trade a quarter
+        cheaper; selling always fetches a fifth under the market."""
+        base = TRADE_PRICES[res]
+        if self.allied(self.player_country, nat):
+            base = base * 0.75
+        if direction == 'out':
+            base = base * 0.8
+        return base
+
+    def propose_trade(self, nat, res, amount, direction):
+        """The player proposes a standing treaty line; answered at
+        once by wire (couriers are for war and peace)."""
+        me = self.player_country
+        if self.at_war(me, nat) or nat in self.eliminated:
+            return
+        if direction == 'in' and self.seller_capacity(nat, res) < amount:
+            self.fax.post("TRADE REFUSED",
+                          "%s has no %s to spare." %
+                          (B(short_name(nat)), res.upper()),
+                          sender="TRADE MISSION")
+            return
+        if direction == 'out' and nat not in PLAYABLE:
+            return              # the minors buy nothing
+        price = int(amount * self.trade_price(nat, res, direction))
+        self.trade_deals.append({'with': nat, 'res': res,
+                                 'amount': amount, 'price': price,
+                                 'dir': direction})
+        word = ("%d %s A FORTNIGHT FOR $%d"
+                % (amount, res.upper(), price))
+        self.fax.post("TREATY SIGNED",
+                      "%s: %s, settled each fortnight until "
+                      "cancelled." % (B(short_name(nat).upper()),
+                                      word),
+                      sender="TRADE MISSION")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+
+    def cancel_trade(self, deal):
+        if deal in self.trade_deals:
+            self.trade_deals.remove(deal)
+            self.fax_short("TREATY WITH %s CANCELLED"
+                           % short_name(deal['with']).upper())
+            if self.diplo_fax:
+                self.diplo_fax.rebuild()
+
+    def _settle_trade(self):
+        """Fortnight settlement: goods move, money moves, and a
+        treaty that cannot be honoured lapses with a fax."""
+        me = self.player_country
+        stock = self.resources[me]
+        for deal in list(self.trade_deals):
+            nat, res = deal['with'], deal['res']
+            if (self.at_war(me, nat) or nat in self.eliminated):
+                self.trade_deals.remove(deal)
+                self.fax_short("TREATY WITH %s LAPSES -- THE WAR"
+                               % short_name(nat).upper())
+                continue
+            if deal['dir'] == 'in':
+                if self.funds[me] < deal['price']:
+                    self.trade_deals.remove(deal)
+                    self.fax_short("TREATY WITH %s LAPSES -- THE "
+                                   "TREASURY CANNOT PAY"
+                                   % short_name(nat).upper())
+                    continue
+                if self.seller_capacity(nat, res) < 0:
+                    continue
+                self.funds[me] -= deal['price']
+                self.funds[nat] = self.funds.get(nat, 0) \
+                    + deal['price']
+                stock[res] = min(RESOURCE_CAP,
+                                 stock[res] + deal['amount'])
+                if nat in PLAYABLE:
+                    self.resources[nat][res] = max(
+                        0, self.resources[nat][res] - deal['amount'])
+            else:
+                if stock[res] < deal['amount']:
+                    self.trade_deals.remove(deal)
+                    self.fax_short("EXPORT TO %s LAPSES -- NOTHING "
+                                   "TO SHIP" % short_name(nat).upper())
+                    continue
+                stock[res] -= deal['amount']
+                self.funds[me] += deal['price']
+                if nat in PLAYABLE:
+                    self.resources[nat][res] = min(
+                        RESOURCE_CAP,
+                        self.resources[nat][res] + deal['amount'])
+                    self.funds[nat] = max(
+                        0, self.funds.get(nat, 0) - deal['price'])
+
     def _collect_resources(self):
         """The fortnight's strategic take: every major's deposits pay
         into the national stockpile, plus the civilian import
@@ -1479,6 +1586,13 @@ class WW2RTSGame(ShowBase):
                 if dep.city.country == country:
                     flows[dep.resource].append(
                         (dep.city.name.upper(), dep.output))
+            if country == self.player_country:
+                for deal in self.trade_deals:
+                    if deal['dir'] == 'in':
+                        flows[deal['res']].append(
+                            ('TREATY: %s'
+                             % short_name(deal['with']).upper(),
+                             deal['amount']))
             spent = {'oil': int(self._oil_spent.get(country, 0)),
                      'steel': self._mat_spent[country]['steel'],
                      'rubber': self._mat_spent[country]['rubber']}
@@ -1539,6 +1653,7 @@ class WW2RTSGame(ShowBase):
         """The fortnight turns: decreed tax rates bind, every treasury
         collects its cities' taxes, industry drifts under the new rates,
         annexations complete, and the standing budget is executed."""
+        self._settle_trade()
         self._collect_resources()
         take = {c: 0 for c in COUNTRIES}
         for city in self.cities:
@@ -1827,6 +1942,11 @@ class WW2RTSGame(ShowBase):
         data = {}
         for res in RESOURCES:
             income = [('IMPORTS', BASELINE_IMPORTS[res])]
+            for t in self.trade_deals:
+                if t['dir'] == 'in' and t['res'] == res:
+                    income.append(('TREATY: %s'
+                                   % short_name(t['with']).upper(),
+                                   t['amount']))
             foreign = []
             for dep in self.deposits:
                 if dep.city.country == me:
@@ -1860,6 +1980,13 @@ class WW2RTSGame(ShowBase):
         data['unit_stores'] = aboard
         data['pump_lbs'] = self._pump_lbs.get(me, 0.0)
         data['pump_oil'] = self._oil_spent.get(me, 0.0)
+        data['trade'] = [
+            ("%s %d %s %s %s ($%d/FTN)"
+             % ("IMPORTING" if t['dir'] == 'in' else "EXPORTING",
+                t['amount'], t['res'].upper(),
+                "FROM" if t['dir'] == 'in' else "TO",
+                short_name(t['with']).upper(), t['price']))
+            for t in self.trade_deals]
         self.briefing_fax = ResourcesFax(self, data,
                                          self._close_briefing)
 

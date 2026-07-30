@@ -76,14 +76,19 @@ GAME_VERSION = '1.2.0'        # shown on the menu as ALPHA <version>
 # supply net feeds machines (oil). Per-unit supply burn is untouched.
 RESOURCES = ('oil', 'steel', 'rubber')
 RESOURCE_CAP = 999            # national stockpile ceiling per resource
-# sized so the OPENING slate builds clean (its steel bill runs to
-# ~1,900 tons); scarcity is meant to bite on reinforcement, not
-# strangle the mobilization fortnight
-STARTING_RESOURCES = {'oil': 400, 'steel': 2000, 'rubber': 200}
-BASELINE_IMPORTS = {'oil': 40, 'steel': 60, 'rubber': 20}
-OIL_PER_LB = 1.0 / 150.0      # tons of oil per lb of stores pumped
+# sized so the OPENING slate builds clean (~530 tons of steel);
+# a money-limited fortnight thereafter bills roughly one
+# fortnight's deposit income -- materials pinch, never strangle
+STARTING_RESOURCES = {'oil': 400, 'steel': 800, 'rubber': 150}
+BASELINE_IMPORTS = {'oil': 40, 'steel': 60, 'rubber': 30}
+OIL_PER_LB = 1.0 / 250.0      # tons of oil per lb of stores pumped
                               # into MACHINES (men and rail burn none)
-OIL_PER_SORTIE = 4            # aviation spirit per takeoff
+OIL_PER_SORTIE = 3            # aviation spirit per takeoff
+
+# the open market: base $/ton for treaty trade, discounted between
+# allies the same way volunteers are
+TRADE_PRICES = {'oil': 8, 'steel': 6, 'rubber': 10}
+TRADE_STEPS = (20, 40)        # tonnages a treaty line may carry
 
 # Deposits sit beside their historical cities; own the city, work
 # the deposit. Output is tons per fortnight into the owner's

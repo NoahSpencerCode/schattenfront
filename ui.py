@@ -896,8 +896,68 @@ class DiplomacyLedger:
                             text_scale=0.038, font=f, kind='red',
                             text_fg=(0.97, 0.90, 0.80, 1.0))
             self.widgets.append(b)
+        # THE TRADE LEDGER: buy their surplus, sell them yours;
+        # every standing line printed with its cancel key
+        from config import TRADE_STEPS
+        if not at_war:
+            ty = -0.24
+            self._text("++ TRADE ++", (kx, ty), 0.036,
+                       align=TextNode.ACenter)
+            ty -= 0.062
+            for res in ('oil', 'steel', 'rubber'):
+                cap = g.seller_capacity(nat, res)
+                self._text("%s:" % res.upper(), (kx - 0.42, ty),
+                           0.028)
+                if cap > 0:
+                    for j, amt in enumerate(TRADE_STEPS):
+                        if amt > cap:
+                            continue
+                        price = int(amt * g.trade_price(nat, res,
+                                                        'in'))
+                        b = pill_button(
+                            self.frame, "BUY %d ($%d)" % (amt, price),
+                            g.propose_trade,
+                            extraArgs=[nat, res, amt, 'in'],
+                            pos=(kx - 0.10 + j * 0.30, 0, ty + 0.008),
+                            hw=0.135, hh=0.036, text_scale=0.022,
+                            font=f)
+                        self.widgets.append(b)
+                else:
+                    self._text("NONE TO SELL", (kx - 0.10, ty),
+                               0.024, color=INK_FAINT)
+                if nat in self._PLAYABLE:
+                    price = int(TRADE_STEPS[0]
+                                * g.trade_price(nat, res, 'out'))
+                    b = pill_button(
+                        self.frame, "SELL %d ($%d)"
+                        % (TRADE_STEPS[0], price),
+                        g.propose_trade,
+                        extraArgs=[nat, res, TRADE_STEPS[0], 'out'],
+                        pos=(kx + 0.44, 0, ty + 0.008),
+                        hw=0.135, hh=0.036, text_scale=0.022, font=f)
+                    self.widgets.append(b)
+                ty -= 0.075
+            deals = [t for t in g.trade_deals if t['with'] == nat]
+            for deal in deals[:3]:
+                word = ("IMPORTING %d %s ($%d/FTN)"
+                        if deal['dir'] == 'in' else
+                        "EXPORTING %d %s (+$%d/FTN)") % (
+                    deal['amount'], deal['res'].upper(),
+                    deal['price'])
+                self._text(word, (kx - 0.42, ty), 0.025,
+                           color=(0.16, 0.35, 0.14, 1.0))
+                b = pill_button(self.frame, "CANCEL",
+                                g.cancel_trade, extraArgs=[deal],
+                                pos=(kx + 0.34, 0, ty + 0.008),
+                                hw=0.085, hh=0.030,
+                                text_scale=0.022, font=f,
+                                kind='red',
+                                text_fg=(0.97, 0.90, 0.80, 1.0))
+                self.widgets.append(b)
+                ty -= 0.062
         self._text("DISPATCHES TRAVEL BY COURIER AND ARE ANSWERED "
-                   "IN KIND", (0, -0.80), 0.026, color=INK_FAINT,
+                   "IN KIND -- TRADE IS SETTLED EACH FORTNIGHT",
+                   (0, -0.80), 0.026, color=INK_FAINT,
                    align=TextNode.ACenter)
 
     def destroy(self):
@@ -1613,9 +1673,16 @@ class ResourcesFax:
              % ("{:,}".format(int(data['pump_lbs'])),
                 int(data['pump_oil'])),
              (0, ry - 0.155), 0.027, INK_FAINT, TextNode.ACenter)
-        text("ONE TON OF OIL MOVES 150 LBS OF STORES INTO A "
+        text("ONE TON OF OIL MOVES 250 LBS OF STORES INTO A "
              "MACHINE -- MEN AND THE RAILWAYS DRAW NONE",
              (0, ry - 0.205), 0.027, INK, TextNode.ACenter)
+        if data.get('trade'):
+            text("IMPORTS & EXPORTS BY TREATY:", (-1.04, ry - 0.265),
+                 0.028, INK)
+            for i, line in enumerate(data['trade'][:4]):
+                text(line, (-1.00 + (i % 2) * 1.10,
+                            ry - 0.310 - (i // 2) * 0.045),
+                     0.025, INK_FAINT)
         pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
                     self._close, pos=(0, 0, -0.79), hw=0.42,
                     hh=0.046, text_scale=0.040, font=f)
