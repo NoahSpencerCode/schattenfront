@@ -10,7 +10,7 @@ from setuptools import setup
 
 setup(
     name='zero-hour-1939',
-    version='0.1.2',
+    version='1.2.0',
     options={
         'build_apps': {
             'gui_apps': {'Zero Hour 1939': 'main.py'},
