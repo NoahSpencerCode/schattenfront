@@ -140,6 +140,7 @@ def add_tooltip(btn, text, font=None, dy=0.085, left=None):
     np_.setPos(0, 0, -0.008)
     np_.setScale(scale)
     np_.setBin('gui-popup', 2)
+    f._tip_tn = tn
     f.hide()
     btn.bind(DGG.WITHIN, lambda e, f=f: f.show())
     btn.bind(DGG.WITHOUT, lambda e, f=f: f.hide())
@@ -151,16 +152,21 @@ class TopBar:
     """Main stats strip: each stat is a titled column, value beneath."""
 
     COLUMNS = [
-        ('NATION', -1.42, TextNode.ALeft),
-        ('TREASURY', -1.06, TextNode.ALeft),
-        ('FORCES', -0.72, TextNode.ALeft),
-        ('CITIES', -0.48, TextNode.ALeft),
-        ('TIME', -0.02, TextNode.ACenter),
-        ('[OUT OF CONTACT]', 0.52, TextNode.ACenter),
-        ('KILLS', 0.82, TextNode.ACenter),
-        ('LOSSES', 1.00, TextNode.ACenter),
-        ('SPEED', 1.18, TextNode.ACenter),
+        ('NATION', -1.74, TextNode.ALeft),
+        ('TREASURY', -1.47, TextNode.ALeft),
+        ('OIL', -1.20, TextNode.ALeft),
+        ('STEEL', -1.00, TextNode.ALeft),
+        ('RUBBER', -0.78, TextNode.ALeft),
+        ('FORCES', -0.55, TextNode.ALeft),
+        ('CITIES', -0.33, TextNode.ALeft),
+        ('TIME', 0.00, TextNode.ACenter),
+        ('[OUT OF CONTACT]', 0.54, TextNode.ACenter),
+        ('KILLS', 0.84, TextNode.ACenter),
+        ('LOSSES', 1.02, TextNode.ACenter),
+        ('SPEED', 1.20, TextNode.ACenter),
     ]
+
+    RESOURCE_COLS = ('OIL', 'STEEL', 'RUBBER')
 
     def __init__(self, base, on_budget, on_factory=None):
         self.base = base
@@ -207,6 +213,42 @@ class TopBar:
                               pos=(x, 0, -0.132))
             self.day_dots.append(dot)
         self._fortnight_day = 0
+        # the RESOURCE STRIP explains itself on hover: each column
+        # carries an invisible plate whose tooltip itemizes the flow
+        self.res_tips = {}
+        for res, x, _a in self.COLUMNS:
+            if res not in self.RESOURCE_COLS:
+                continue
+            hov = DirectButton(parent=self.frame, relief=None,
+                              frameColor=(0, 0, 0, 0),
+                              frameSize=(-0.02, 0.18, -0.150, -0.02),
+                              pos=(x, 0, 0), state=DGG.NORMAL)
+            tip = add_tooltip(
+                hov, "AWAITING THE FORTNIGHT'S FIRST RETURNS",
+                font=base.hud_font, dy=-0.175)
+            self.res_tips[res] = tip
+        # a red pip on the factory key while any line stands halted
+        self.factory_pip = DirectFrame(
+            parent=self.factory_btn, relief=DGG.FLAT,
+            frameColor=(0.72, 0.18, 0.10, 1.0),
+            frameSize=(-0.009, 0.009, -0.009, 0.009),
+            pos=(0.036, 0, 0.036))
+        self.factory_pip.hide()
+
+    def set_resource_detail(self, res, text):
+        tip = self.res_tips.get(res)
+        if tip is not None:
+            tip._tip_tn.setText(text)
+
+    def set_resource_color(self, res, color):
+        if res in self.values:
+            self.values[res].setTextColor(*color)
+
+    def set_factory_alert(self, on):
+        if on and self.factory_pip.isHidden():
+            self.factory_pip.show()
+        elif not on and not self.factory_pip.isHidden():
+            self.factory_pip.hide()
 
     def set_stats(self, stats):
         """stats: dict keyed by column title."""
@@ -899,10 +941,13 @@ class BudgetFax:
     TRANSMITs (locking the budget for two weeks) or DISCARDs."""
 
     def __init__(self, base, game, funds, unit_types, has_harbor,
-                 on_transmit, on_discard, initial=None, subtitle=None):
+                 on_transmit, on_discard, initial=None, subtitle=None,
+                 mat_costs=None, stock=None):
         self.base = base
         self.game = game
         self.funds = int(funds)
+        self.mat_costs = mat_costs or {}
+        self.stock = stock or {}
         self.unit_types = unit_types
         self.has_harbor = has_harbor
         self.on_transmit = on_transmit
@@ -961,7 +1006,13 @@ class BudgetFax:
             ic.setTransparency(True)
             crisp_image(ic)
             text(stats['label'][:24], (x + 0.06, y), 0.030)
-            text("$%d" % stats['cost'], (x + 0.62, y), 0.030, INK_FAINT)
+            mat = self.mat_costs.get(ut, {})
+            cost_s = "$%d" % stats['cost']
+            if mat.get('steel'):
+                cost_s += " %dS" % mat['steel']
+            if mat.get('rubber'):
+                cost_s += " %dR" % mat['rubber']
+            text(cost_s, (x + 0.56, y), 0.024, INK_FAINT)
             if not available:
                 text("NO HARBOR", (x + 0.80, y), 0.028, INK_FAINT)
                 continue
@@ -1011,10 +1062,21 @@ class BudgetFax:
         return sum(self.unit_types[ut]['cost'] * n
                    for ut, n in self.counts.items())
 
+    def _mat_alloc(self, res):
+        return sum(self.mat_costs.get(ut, {}).get(res, 0) * n
+                   for ut, n in self.counts.items())
+
     def _adjust(self, ut, delta):
         cost = self.unit_types[ut]['cost']
         if delta > 0 and self._allocated() + cost > self.funds:
             return
+        if delta > 0:
+            mat = self.mat_costs.get(ut, {})
+            for res in ('steel', 'rubber'):
+                if (mat.get(res) and self.stock
+                        and self._mat_alloc(res) + mat[res]
+                        > self.stock.get(res, 0)):
+                    return          # the yards lack the material
         self.counts[ut] = max(0, self.counts[ut] + delta)
         self.qty_tns[ut].setText(str(self.counts[ut]))
         self._refresh_totals()
@@ -1211,9 +1273,10 @@ class ProductionFax:
 
     BAR_W = 0.40
 
-    def __init__(self, base, sections, on_close):
+    def __init__(self, base, sections, on_close, bottlenecks=()):
         self.base = base
         self.on_close = on_close
+        self.bottlenecks = list(bottlenecks)
         self.f = base.hud_font
         self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
                                  frameTexture=sheet_texture('paper'),
@@ -1229,6 +1292,17 @@ class ProductionFax:
         tn, _ = _make_text(self.frame, self.f, (0, 0.655), 0.032, INK,
                            TextNode.ACenter)
         tn.setText("-" * 74)
+        # BOTTLENECKS: production lines halted for want of materials
+        by = -0.62
+        if self.bottlenecks:
+            tn, _ = _make_text(self.frame, self.f, (-1.04, by), 0.032,
+                               (0.62, 0.14, 0.10, 1.0))
+            tn.setText("++ BOTTLENECKS ++")
+            for i, line in enumerate(self.bottlenecks[:4]):
+                tn, _ = _make_text(self.frame, self.f,
+                                   (-1.04, by - 0.05 - i * 0.045),
+                                   0.028, INK_FAINT)
+                tn.setText(line)
         pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
                     self._close, pos=(0, 0, -0.772), hw=0.42, hh=0.046,
                     text_scale=0.040, font=self.f)

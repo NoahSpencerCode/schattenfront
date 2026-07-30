@@ -335,6 +335,38 @@ class Bunker(Structure):
         Structure.__init__(self, game, lat, lon, country, name)
 
 
+class Deposit(Structure):
+    """A strategic-resource site beside its city: own the city, work
+    the deposit. Output flows to the owner's national stockpile each
+    fortnight; the mark is the map's strategic geography."""
+
+    FIXED_SCALE = 0.036
+    _ICONS = {'oil': 'derrick', 'steel': 'foundry',
+              'rubber': 'plantation'}
+
+    def __init__(self, game, lat, lon, country, name, resource,
+                 output, city=None):
+        self.resource = resource
+        self.output = output
+        self.city = city
+        self.ICON = self._ICONS[resource]
+        Structure.__init__(self, game, lat, lon, country, name)
+
+        # output badge: +N each fortnight, printed under the mark
+        tn = TextNode('yield')
+        tn.setAlign(TextNode.ACenter)
+        if game.hud_font:
+            tn.setFont(game.hud_font)
+        tn.setTextColor(0.16, 0.13, 0.10, 1)
+        tn.setText("+%d" % output)
+        np_ = self.holder.attachNewNode(tn)
+        np_.setP(-90)
+        np_.setScale(0.55)
+        np_.setPos(0, -1.55, 0)
+        np_.setDepthOffset(8)
+        set_marker_layer(np_, LAYER_STRUCT + 2)
+
+
 class Radar(Structure):
     """Research-gated early-warning station: a tall mast that watches
     and relays far beyond any field observer, day and night."""

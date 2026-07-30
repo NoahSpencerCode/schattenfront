@@ -327,6 +327,14 @@
 "h": "2f1a1034ee72756294cf8811e8ef6ef3",
 "v": 2
 },
+"ui/derrick.png": {
+"h": "95ba9eef3324fc94c34d5b42ca95e26d",
+"v": 17
+},
+"ui/foundry.png": {
+"h": "e4b1d3f2f15c79857e39538cd58e5e2d",
+"v": 17
+},
 "ui/nosupply_red.png": {
 "h": "9e4c62feb6525bcbea09b4ddc356f65b",
 "v": 17
@@ -353,6 +361,10 @@
 },
 "ui/panel_key_press.png": {
 "h": "b30b409dbb6c2c4ff7d2775afb6425fc",
+"v": 17
+},
+"ui/plantation.png": {
+"h": "e59cb7253b70438dd9fb127b92d53c80",
 "v": 17
 },
 "ui/red_button.png": {

@@ -66,7 +66,50 @@ FOG_BRIGHTNESS = 0.8          # 20% darker
 FOG_SATURATION = 0.5          # 50% less saturated
 TERRAIN_LOS = False           # relief-warped vision fields (heavy);
                               # False = clean circles, flag kept for later
-GAME_VERSION = '0.1.2'        # shown on the menu as ALPHA <version>
+GAME_VERSION = '1.2.0'        # shown on the menu as ALPHA <version>
+
+# ------------------------------------------------ strategic resources
+# Exactly three: OIL is operations, STEEL is production, RUBBER is
+# motorization. Stockpiles are national, filled each fortnight by
+# the deposits a power holds (and a small civilian import baseline),
+# spent by production (steel/rubber) and by the PUMPS whenever the
+# supply net feeds machines (oil). Per-unit supply burn is untouched.
+RESOURCES = ('oil', 'steel', 'rubber')
+RESOURCE_CAP = 999            # national stockpile ceiling per resource
+# sized so the OPENING slate builds clean (its steel bill runs to
+# ~1,900 tons); scarcity is meant to bite on reinforcement, not
+# strangle the mobilization fortnight
+STARTING_RESOURCES = {'oil': 400, 'steel': 2000, 'rubber': 200}
+BASELINE_IMPORTS = {'oil': 40, 'steel': 60, 'rubber': 20}
+OIL_PER_LB = 1.0 / 150.0      # tons of oil per lb of stores pumped
+                              # into MACHINES (men and rail burn none)
+OIL_PER_SORTIE = 4            # aviation spirit per takeoff
+
+# Deposits sit beside their historical cities; own the city, work
+# the deposit. Output is tons per fortnight into the owner's
+# stockpile (playable powers only -- NPC nations run no economy;
+# their deposits matter when captured, courted or embargoed).
+DEPOSITS = {
+    # ---- OIL
+    'Ploiesti': ('oil', 90), 'Baghdad': ('oil', 60),
+    'Tehran': ('oil', 60), 'Houston': ('oil', 120),
+    'Oklahoma City': ('oil', 60), 'Palembang': ('oil', 80),
+    'Novorossiysk': ('oil', 100), 'Kuybyshev': ('oil', 40),
+    'Rangoon': ('oil', 30),
+    # ---- STEEL
+    'Essen': ('steel', 110), 'Birmingham': ('steel', 80),
+    'Glasgow': ('steel', 40), 'Pittsburgh': ('steel', 120),
+    'Chicago': ('steel', 60), 'Stalingrad': ('steel', 60),
+    'Kharkov': ('steel', 60), 'Gorky': ('steel', 40),
+    'Osaka': ('steel', 60), 'Mukden': ('steel', 60),
+    'Liege': ('steel', 40), 'Prague': ('steel', 40),
+    'Milan': ('steel', 40),
+    # ---- RUBBER
+    'Kuala Lumpur': ('rubber', 80), 'Singapore': ('rubber', 40),
+    'Saigon': ('rubber', 60), 'Surabaya': ('rubber', 40),
+    'Colombo': ('rubber', 30), 'Manila': ('rubber', 30),
+    'Hanoi': ('rubber', 30),
+}
 MILES_PER_WU = 132            # one world unit is ~212 km = 132 statute mi
 BORDER_WASH_BAND = 0.022      # frontier ribbon width, radians (~140 km)
 BORDER_WASH_FLOOR = 0.06      # interior tint floor (near-transparent)

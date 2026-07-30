@@ -31,6 +31,9 @@ from panda3d.core import (AmbientLight, AntialiasAttrib, CardMaker,
 
 from ai import NationAI
 from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
+                    BASELINE_IMPORTS, DEPOSITS, OIL_PER_LB,
+                    OIL_PER_SORTIE, PLAYABLE, RESOURCES,
+                    RESOURCE_CAP, STARTING_RESOURCES,
                     AIR_VISION_MULT, VISION_SCALE,
                     BRIDGE_HP, BRIDGE_REPAIR_RATE, BUDGET_PERIOD_DAYS,
                     CAM_MAX_DIST, CAM_MIN_DIST, CAM_START_DIST,
@@ -67,7 +70,7 @@ from ui import (TopBar, BottomBar, FaxPanel, BudgetFax, BriefingFax,
                 ProductionFax, TaxFax, B)
 from config import UNIT_SPEED_FACTOR
 from units import (Unit, UNIT_TYPES, BRANCH_OF, FIRE_SUPPLY_FACTOR,
-                   NATION_UNIT_STATS, stats_for)
+                   NATION_UNIT_STATS, material_cost, stats_for)
 from utils import (angle_between, find_regular_font_path,
                    find_typewriter_font_path, latlon_dist_deg,
                    latlon_to_vec, north_tangent, vec_to_latlon)
@@ -849,6 +852,20 @@ class WW2RTSGame(ShowBase):
                 self.armyposts.append(
                     ArmyPost(self, aps[0], aps[1], c.country,
                              "%s POST" % c.name.upper(), city=c))
+        # the strategic map: deposits beside their historical cities
+        from structures import Deposit
+        self.deposits = []
+        for c in self.cities:
+            dep = DEPOSITS.get(c.name)
+            if dep is None:
+                continue
+            res, out = dep
+            dla, dlo = self.world.nearest_land(c.lat - 0.45,
+                                               c.lon - 0.45)
+            self.deposits.append(
+                Deposit(self, dla, dlo, c.country,
+                        "%s %s" % (c.name.upper(), res.upper()),
+                        res, out, city=c))
         self._pending_ai_orders = []
 
         self.funds = {c: (STARTING_FUNDS if c == country else
@@ -860,10 +877,17 @@ class WW2RTSGame(ShowBase):
         self.research_pct = {c: (0 if c == country else 15)
                              for c in COUNTRIES}
         self.tech_fax = None
+        # the strategic stockpiles: OIL runs the engines, STEEL the
+        # yards, RUBBER the wheels; only the majors keep accounts
+        self.resources = {c: dict(STARTING_RESOURCES) for c in PLAYABLE}
+        self.resource_flows = {c: {} for c in PLAYABLE}
+        self._oil_spent = {c: 0.0 for c in PLAYABLE}
+        self._mat_spent = {c: {'steel': 0, 'rubber': 0}
+                           for c in PLAYABLE}
+        self.bottlenecks = {c: [] for c in PLAYABLE}
         # every computer POWER gets a general staff playing by the
         # player's own rules (budget, production, orders, annexation);
         # the NPC nations field a standing home-defense garrison only
-        from config import PLAYABLE
         self._nation_ais = {c: NationAI(self, c) for c in PLAYABLE
                             if c != country}
 
@@ -1374,13 +1398,36 @@ class WW2RTSGame(ShowBase):
     def _execute_budget(self, country, counts, announce):
         buy = {}
         spent = 0
+        stock = self.resources.get(country)
+        halted = []
         for ut, n in dict(counts).items():
             cost = stats_for(ut, country)['cost']
+            mat = material_cost(ut, country)
             for _ in range(n):
                 if self.funds[country] - spent < cost:
                     break
+                if stock is not None and (
+                        stock['steel'] < mat['steel']
+                        or stock['rubber'] < mat['rubber']):
+                    res = ('steel' if stock['steel'] < mat['steel']
+                           else 'rubber')
+                    halted.append(
+                        "%s LINE HALTED -- WANTS %d %s, HAS %d"
+                        % (stats_for(ut, country)['label'].upper(),
+                           mat[res], res.upper(), int(stock[res])))
+                    break
+                if stock is not None:
+                    stock['steel'] -= mat['steel']
+                    stock['rubber'] -= mat['rubber']
+                    self._mat_spent[country]['steel'] += mat['steel']
+                    self._mat_spent[country]['rubber'] += mat['rubber']
                 buy[ut] = buy.get(ut, 0) + 1
                 spent += cost
+        self.bottlenecks[country] = halted
+        if halted and announce:
+            self.fax_short("WAR INDUSTRIES: %d LINE(S) HALTED FOR "
+                           "MATERIALS -- SEE THE FACTORY KEY"
+                           % len(halted))
         if spent <= 0:
             return
         self.funds[country] -= spent
@@ -1399,10 +1446,80 @@ class WW2RTSGame(ShowBase):
             (B("$%d" % spent), lines),
             sender="EXCHEQUER")
 
+    def _collect_resources(self):
+        """The fortnight's strategic take: every major's deposits pay
+        into the national stockpile, plus the civilian import
+        baseline. Outflows (oil at the pumps, materials at the
+        yards) were charged live; here they are only remembered for
+        the strip's tooltip, then the meters reset."""
+        for country in PLAYABLE:
+            if country in self.eliminated:
+                continue
+            stock = self.resources[country]
+            flows = {res: [('IMPORTS', BASELINE_IMPORTS[res])]
+                     for res in RESOURCES}
+            for dep in self.deposits:
+                if dep.city.country == country:
+                    flows[dep.resource].append(
+                        (dep.city.name.upper(), dep.output))
+            spent = {'oil': int(self._oil_spent.get(country, 0)),
+                     'steel': self._mat_spent[country]['steel'],
+                     'rubber': self._mat_spent[country]['rubber']}
+            report = {}
+            for res in RESOURCES:
+                income = sum(v for _, v in flows[res])
+                stock[res] = min(RESOURCE_CAP, stock[res] + income)
+                report[res] = {'in': flows[res], 'income': income,
+                               'out': spent[res]}
+            self.resource_flows[country] = report
+            self._oil_spent[country] = 0.0
+            self._mat_spent[country] = {'steel': 0, 'rubber': 0}
+
+    def _pump(self, unit, lbs):
+        """OIL AT THE PUMPS: stores bound for a MACHINE draw the
+        owner's oil stockpile at the moment of transfer; men and
+        rail burn none, and per-unit supply law is untouched. A dry
+        stockpile stops feeding engines -- the transfer is refused
+        and the despatch says so."""
+        if lbs <= 0 or unit.unit_type == 'infantry':
+            return lbs
+        stock = self.resources.get(unit.country)
+        if stock is None:               # NPC garrisons keep no books
+            return lbs
+        need = lbs * OIL_PER_LB
+        if stock['oil'] <= 0:
+            self._fuel_dry_signal(unit.country)
+            return 0.0
+        if need > stock['oil']:
+            lbs = stock['oil'] / OIL_PER_LB
+            need = stock['oil']
+        stock['oil'] -= need
+        self._oil_spent[unit.country] = \
+            self._oil_spent.get(unit.country, 0.0) + need
+        return lbs
+
+    def _pump_sortie(self, country):
+        stock = self.resources.get(country)
+        if stock is not None:
+            take = min(stock['oil'], OIL_PER_SORTIE)
+            stock['oil'] -= take
+            self._oil_spent[country] = \
+                self._oil_spent.get(country, 0.0) + take
+
+    def _fuel_dry_signal(self, country):
+        if country != self.player_country:
+            return
+        now = globalClock.getFrameTime()
+        if now - getattr(self, '_fuel_dry_t', -999.0) > 60.0:
+            self._fuel_dry_t = now
+            self.fax_short("PUMPS DRY -- ENGINES ON RESERVE UNTIL "
+                           "OIL FLOWS")
+
     def _fortnight_rollover(self):
         """The fortnight turns: decreed tax rates bind, every treasury
         collects its cities' taxes, industry drifts under the new rates,
         annexations complete, and the standing budget is executed."""
+        self._collect_resources()
         take = {c: 0 for c in COUNTRIES}
         for city in self.cities:
             if city.pending_tax is not None:
@@ -1491,6 +1608,10 @@ class WW2RTSGame(ShowBase):
             initial=self._clamp_budget(self.player_country,
                                        self.budget_counts,
                                        treasury + revenue),
+            mat_costs={ut: material_cost(ut, self.player_country)
+                       for ut in
+                       self.buyable_units(self.player_country)},
+            stock=dict(self.resources[self.player_country]),
             subtitle="PROJECTED TAX REVENUE $%d + TREASURY $%d = $%d "
                      "PLANNABLE NEXT FORTNIGHT" %
                      (revenue, treasury, revenue + treasury))
@@ -1677,8 +1798,9 @@ class WW2RTSGame(ShowBase):
         if self.game_state != 'playing' or self.briefing_fax:
             return
         self._factory_timer = 0.5
-        self.briefing_fax = ProductionFax(self, self._factory_sections(),
-                                          self._close_briefing)
+        self.briefing_fax = ProductionFax(
+            self, self._factory_sections(), self._close_briefing,
+            bottlenecks=self.bottlenecks.get(self.player_country, ()))
 
     def _distribute_production(self, country, counts):
         cities = [c for c in self.cities if c.country == country]
@@ -2421,6 +2543,7 @@ class WW2RTSGame(ShowBase):
         unit.based_at = None            # wheels up
         unit._flown = 0.0
         self._draw_base_stock(was_base, SORTIE_COST)
+        self._pump_sortie(unit.country)
         # own aircraft appear at once; enemy aircraft stay dark until a
         # friendly vision field actually spots them
         if unit.country == self.player_country:
@@ -2588,6 +2711,7 @@ class WW2RTSGame(ShowBase):
         unit.based_at = None            # wheels up
         unit._flown = 0.0
         self._draw_base_stock(base, SORTIE_COST)
+        self._pump_sortie(unit.country)
         unit.root.show()
         tgts = [o['target'] for o in plan
                 if o['kind'] == 'attack'
@@ -4095,10 +4219,12 @@ void main() {
                         d.stock += move
                     elif has_job and u.supply < cap and d.stock > 0:
                         move = min(cap - u.supply, d.stock)
+                        move = self._pump(u, move)
                         u.supply += move
                         d.stock -= move
                 elif d.stock > 0 and u.supply < cap:
                     move = min(cap - u.supply, d.stock)
+                    move = self._pump(u, move)
                     u.supply += move
                     d.stock -= move
 
@@ -4141,7 +4267,9 @@ void main() {
                     continue
                 if need <= 0:
                     continue
-                move = min(need, avail)
+                move = self._pump(u, min(need, avail))
+                if move <= 0:
+                    continue
                 u.supply += move
                 src.supply -= move
                 avail -= move
@@ -4433,6 +4561,7 @@ void main() {
                         target = cap if hungry_out else cap * 0.6
                         draw = max(0.0, min(target - truck.supply,
                                             c0.stock))
+                        draw = self._pump(truck, draw)
                         truck.supply += draw
                         c0.stock -= draw
                         truck._drew_from = (id(c0), Vec3(c0.pos))
@@ -4465,6 +4594,7 @@ void main() {
                             <= self._cache_reach(c0)):
                         draw = min(cap - truck.supply,
                                    need - truck.supply, c0.stock)
+                        draw = self._pump(truck, draw)
                         truck.supply += draw
                         c0.stock -= draw
                 if (truck.dist_to(d.pos) > 0.5
@@ -5317,6 +5447,15 @@ void main() {
             ap.country = new_owner
             ap.crews = 0
             ap.refresh_marker()
+        for dep in self.deposits:
+            if dep.city is city:
+                dep.country = new_owner
+                dep.refresh_marker()
+                if new_owner == self.player_country:
+                    self.fax_short("%s IN OUR HANDS -- +%d %s A "
+                                   "FORTNIGHT" % (dep.name,
+                                                  dep.output,
+                                                  dep.resource.upper()))
         field = self.airfield_of_city(city)
         if field is not None:
             for u in list(self.units):
@@ -6975,9 +7114,11 @@ void main() {
                       if u.alive and u.country == self.player_country)
         n_cities = sum(1 for c in self.cities
                        if c.country == self.player_country)
-        self.top_bar.set_stats({
-            'NATION': COUNTRIES[self.player_country]['adjective'].upper(),
-            'TREASURY': "$%d" % int(self.funds[self.player_country]),
+        me = self.player_country
+        stock = self.resources.get(me, {})
+        stats = {
+            'NATION': COUNTRIES[me]['adjective'].upper(),
+            'TREASURY': "$%d" % int(self.funds[me]),
             'FORCES': n_units,
             'CITIES': n_cities,
             'TIME': self.campaign_clock_text(),
@@ -6987,7 +7128,27 @@ void main() {
             'LOSSES': self.losses,
             'SPEED': ("PAUSED" if self.is_paused
                       else "x%g" % self.game_speed),
-        })
+        }
+        flows = self.resource_flows.get(me, {})
+        for res in RESOURCES:
+            col = res.upper()
+            stats[col] = "%d" % int(stock.get(res, 0))
+            rep = flows.get(res)
+            if rep:
+                net = rep['income'] - rep['out']
+                self.top_bar.set_resource_color(
+                    col, (0.88, 0.85, 0.72, 1.0) if net >= 0
+                    else (0.9, 0.45, 0.3, 1.0))
+                parts = ["%s +%d" % (name, v)
+                         for name, v in rep['in'][:4]]
+                if len(rep['in']) > 4:
+                    parts.append("+%d MORE SITES"
+                                 % (len(rep['in']) - 4))
+                parts.append("SPENT -%d" % rep['out'])
+                self.top_bar.set_resource_detail(
+                    col, "%s: %s" % (col, "  ".join(parts)))
+        self.top_bar.set_factory_alert(
+            bool(self.bottlenecks.get(me)))
         self.top_bar.set_fortnight_day(self.fortnight_day())
 
     # ====================================================== main loop

@@ -754,7 +754,49 @@ def _draw_radar(d, ink):
     d.line([(48, 44), (60, 24)], fill=ink, width=4)
 
 
+def _draw_derrick(d, ink):
+    """Oil field: the lattice derrick over its wellhead."""
+    d.line([(30, 84), (48, 16)], fill=ink, width=5)
+    d.line([(66, 84), (48, 16)], fill=ink, width=5)
+    for t in (0.28, 0.52, 0.76):
+        y = 16 + (84 - 16) * t
+        xl = 48 + (30 - 48) * t
+        xr = 48 + (66 - 48) * t
+        d.line([(xl, y), (xr, y)], fill=ink, width=4)
+        if t < 0.76:
+            y2 = 16 + (84 - 16) * (t + 0.24)
+            xl2 = 48 + (30 - 48) * (t + 0.24)
+            xr2 = 48 + (66 - 48) * (t + 0.24)
+            d.line([(xl, y), (xr2, y2)], fill=ink, width=3)
+            d.line([(xr, y), (xl2, y2)], fill=ink, width=3)
+    d.rectangle([24, 84, 72, 90], fill=ink)                    # sill
+    d.ellipse([42, 8, 54, 20], fill=ink)                       # crown
+
+
+def _draw_foundry(d, ink):
+    """Steel works: the shed, twin stacks, and the pour."""
+    d.rectangle([16, 56, 80, 84], outline=ink, width=5)        # shed
+    d.polygon([(16, 56), (48, 38), (80, 56)], fill=ink)        # roof
+    d.rectangle([26, 20, 34, 56], fill=ink)                    # stacks
+    d.rectangle([44, 26, 52, 56], fill=ink)
+    d.ellipse([60, 64, 74, 78], fill=ink)                      # crucible
+    d.line([(67, 78), (67, 88)], fill=ink, width=5)            # the pour
+
+
+def _draw_plantation(d, ink):
+    """Rubber estate: tapped trees in their rows."""
+    for x in (30, 60):
+        d.line([(x, 30), (x, 78)], fill=ink, width=5)          # trunks
+        d.ellipse([x - 12, 14, x + 12, 38], outline=ink, width=5)
+        d.line([(x, 52), (x + 10, 62)], fill=ink, width=3)     # tap cut
+        d.ellipse([x + 8, 62, x + 14, 68], fill=ink)           # the cup
+    d.rectangle([18, 80, 78, 86], fill=ink)                    # row bed
+
+
 _DRAWERS = {
+    'derrick': _draw_derrick,
+    'foundry': _draw_foundry,
+    'plantation': _draw_plantation,
     'city': _draw_city,
     'capital': _draw_capital,
     'airfield': _draw_airfield,

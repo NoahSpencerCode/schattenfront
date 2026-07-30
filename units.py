@@ -187,6 +187,28 @@ for _ut, _s in UNIT_TYPES.items():
         _s.setdefault('use_move', 2.5)
 FIRE_SUPPLY_FACTOR = 1.8                    # lbs per point of damage dealt
 
+# ---- strategic material costs -----------------------------------------
+# Production spends STEEL (hulls heaviest) and RUBBER (tyres and
+# tracks) alongside money. Men cost neither. Derived from the dollar
+# cost by domain, with flavour overrides where the history insists.
+_RUBBER_COST = {
+    'supply_truck': 3, 'transport_truck': 3, 'engineer': 2,
+    'tank': 2, 'heavy_tank': 3, 'aa_artillery': 1, 'artillery': 1,
+    'army_command': 2, 'fighter': 1, 'bomber': 2, 'heavy_bomber': 3,
+    'jet_fighter': 2, 'transport_air': 2, 'airforce_command': 2,
+}
+
+
+def material_cost(unit_type, country=None):
+    """{'steel': n, 'rubber': n} for one piece of equipment."""
+    s = stats_for(unit_type, country) if country else UNIT_TYPES[unit_type]
+    if unit_type == 'infantry':
+        return {'steel': 0, 'rubber': 0}
+    dom = s['domain']
+    div = 15 if dom == 'sea' else 25 if dom == 'air' else 30
+    return {'steel': max(1, int(s['cost'] // div)),
+            'rubber': _RUBBER_COST.get(unit_type, 0)}
+
 # ---- sprite sizes: real-world proportions ------------------------------
 # Relative to the fleet carrier (1.0, the largest thing afloat). The
 # smallest unit (infantry) is a tenth of her, so the size spread reads as
