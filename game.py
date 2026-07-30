@@ -2198,26 +2198,6 @@ class WW2RTSGame(ShowBase):
         self._refresh_selection_ui()
 
     def _select_bunker(self, bunker):
-        if getattr(self, 'selected_deposit', None):
-            d = self.selected_deposit
-            from config import short_name
-            bar.set_title("%s -- %s FIELD" % (d.name,
-                                              d.resource.upper())
-                          if d.resource == 'oil' else
-                          "%s -- %s WORKS" % (d.name,
-                                              d.resource.upper()))
-            owner = short_name(d.country).upper() if d.country \
-                else 'NOBODY'
-            mine = d.country == self.player_country
-            bar.set_info(
-                "OUTPUT %d TONS OF %s A FORTNIGHT -- WORKED BY %s%s"
-                % (d.output, d.resource.upper(), owner,
-                   "" if mine else
-                   " (TAKE %s TO TAKE THE %s)"
-                   % (d.city.name.upper(), d.resource.upper())))
-            bar.add_buttons([])
-            bar.set_hint("THE DEPOSIT FOLLOWS ITS CITY'S FLAG")
-            return
         if getattr(self, 'selected_bunker', None):
             self.selected_bunker.sel_ring.hide()
         self.selected_bunker = bunker
@@ -6457,6 +6437,25 @@ void main() {
                           if d.resource == 'oil' else
                           "%s -- %s WORKS" % (d.name,
                                               d.resource.upper()))
+            owner = short_name(d.country).upper() if d.country \
+                else 'NOBODY'
+            mine = d.country == self.player_country
+            bar.set_info(
+                "OUTPUT %d TONS OF %s A FORTNIGHT -- WORKED BY %s%s"
+                % (d.output, d.resource.upper(), owner,
+                   "" if mine else
+                   " (TAKE %s TO TAKE THE %s)"
+                   % (d.city.name.upper(), d.resource.upper())))
+            bar.add_buttons([])
+            bar.set_hint("THE DEPOSIT FOLLOWS ITS CITY'S FLAG")
+            return
+        if getattr(self, 'selected_deposit', None):
+            d = self.selected_deposit
+            from config import short_name
+            bar.set_title(
+                "%s -- %s FIELD" % (d.name, d.resource.upper())
+                if d.resource == 'oil' else
+                "%s -- %s WORKS" % (d.name, d.resource.upper()))
             owner = short_name(d.country).upper() if d.country \
                 else 'NOBODY'
             mine = d.country == self.player_country
