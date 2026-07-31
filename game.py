@@ -163,10 +163,13 @@ class City:
         if self._flag_country != self.country:
             if self.title_flag is not None:
                 self.title_flag.removeNode()
+            # a small standard INLINE after the name, like a ledger
+            # entry -- not a banner floating over the town
             self.title_flag = make_flag_quad(
-                self.game.loader, self.country, half=0.85, flat=False)
+                self.game.loader, self.country, half=0.42, flat=False)
             self.title_flag.reparentTo(self.label)
-            self.title_flag.setPos(0, 0, 1.35)
+            self.title_flag.setPos(
+                self.label_tn.getWidth() * 0.5 + 0.70, 0, 0.26)
             self.title_flag.setLightOff()
             set_marker_layer(self.title_flag, LAYER_STRUCT + 4)
             self._flag_country = self.country

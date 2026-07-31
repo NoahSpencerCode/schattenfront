@@ -740,25 +740,37 @@ class DiplomacyLedger:
                                     short_name(c)))
         # the roster: 5 columns of flag cards, names beneath, the
         # stance toward YOU printed only when it matters
+        for ry in (0.675, 0.667):
+            self._rule(-1.30, 1.30, ry,
+                       color=(0.25, 0.21, 0.17, 0.9), w=0.0024)
         per_row = 5
         for i, nat in enumerate(nations[:25]):
             row, col = divmod(i, per_row)
             x = -1.08 + col * 0.44
-            y = 0.55 - row * 0.27
+            y = 0.53 - row * 0.27
             self._card(nat, x, y)
             at_war = g.at_war(me, nat)
             allied = g.allied(me, nat)
             self._text(short_name(nat).upper(), (x, y - 0.100),
                        0.032, align=TextNode.ACenter)
             if at_war or allied:
-                self._text("AT WAR" if at_war else "ALLY",
-                           (x, y - 0.140), 0.026,
-                           color=((0.62, 0.14, 0.10, 1) if at_war
-                                  else (0.16, 0.35, 0.14, 1)),
-                           align=TextNode.ACenter)
+                self._stamp(x, y - 0.152,
+                            "AT WAR" if at_war else "ALLY",
+                            (0.62, 0.14, 0.10, 1.0) if at_war
+                            else (0.16, 0.38, 0.14, 1.0),
+                            scale=0.020, center=True)
         # THE WARS RAGING: the right edge is a battle-board -- each
         # war a pair of standards crossed by the swords
         wx = 1.18
+        box = DirectFrame(parent=self.frame, relief=DGG.FLAT,
+                          frameColor=(0.45, 0.40, 0.33, 0.55),
+                          frameSize=(-0.222, 0.222, -1.475, 0.075),
+                          pos=(wx, 0, 0.62), state=DGG.DISABLED)
+        inner = DirectFrame(parent=box, relief=DGG.FLAT,
+                            frameColor=PAPER[:3] + (1.0,),
+                            frameSize=(-0.218, 0.218, -1.471,
+                                       0.071), state=DGG.DISABLED)
+        self.widgets.append(box)
         self._text("++ WARS RAGING ++", (wx, 0.63), 0.040,
                    color=(0.62, 0.14, 0.10, 1),
                    align=TextNode.ACenter)
@@ -806,158 +818,214 @@ class DiplomacyLedger:
                    (-0.10, -0.80), 0.026, color=INK_FAINT,
                    align=TextNode.ACenter)
 
+    def _rule(self, x0, x1, y, color=None, w=0.0022):
+        r = DirectFrame(parent=self.frame,
+                        frameColor=color or (0.45, 0.40, 0.33, 0.8),
+                        frameSize=(x0, x1, y - w / 2, y + w / 2),
+                        relief=DGG.FLAT, state=DGG.DISABLED)
+        self.widgets.append(r)
+        return r
+
+    def _panel_head(self, x0, x1, y, title):
+        self._text(title, (x0, y), 0.026, color=INK_FAINT)
+        self._rule(x0, x1, y - 0.018)
+
+    def _stamp(self, x, y, text, color, scale=0.030,
+               center=False):
+        """A rubber-stamped chip: bordered, inked, a hair off true."""
+        w = 0.31 * scale * len(text) + scale
+        hh = scale + 0.002
+        box = DirectFrame(parent=self.frame, relief=DGG.FLAT,
+                          frameColor=(0, 0, 0, 0),
+                          frameSize=(-w, w, -hh, hh),
+                          pos=(x if center else x + w, 0, y),
+                          state=DGG.DISABLED)
+        for inset, a in ((0.0, 0.9), (0.006, 0.0)):
+            edge = DirectFrame(parent=box, relief=DGG.FLAT,
+                              frameColor=color[:3] + (a,),
+                              frameSize=(-w + inset, w - inset,
+                                         -hh + inset, hh - inset),
+                              state=DGG.DISABLED)
+            if a == 0.0:
+                edge['frameColor'] = PAPER[:3] + (1.0,)
+        tn = TextNode('stamp')
+        tn.setAlign(TextNode.ACenter)
+        if self.base.hud_font:
+            tn.setFont(self.base.hud_font)
+        tn.setTextColor(*color)
+        tn.setText(text)
+        np_ = box.attachNewNode(tn)
+        np_.setScale(scale)
+        np_.setPos(0, 0, -scale * 0.34)
+        box.setR(-2.5)
+        self.widgets.append(box)
+        return box
+
     def _build_dossier(self, nat):
         g = self.game
-        from config import short_name
+        from config import short_name, TRADE_STEPS
         me = g.player_country
+        f = self.base.hud_font
         b = pill_button(self.frame, "<< THE WORLD",
                         self._open_dossier, extraArgs=[None],
                         pos=(-1.16, 0, 0.775), hw=0.17, hh=0.040,
-                        font=self.base.hud_font)
+                        font=f)
         self.widgets.append(b)
-        # the nation, writ large
-        self._card(nat, -0.98, 0.42, big=True)
-        self._text(short_name(nat).upper(), (-0.72, 0.46), 0.075)
+
+        # ---- header band: flag . name . stamp, on one baseline
+        self._card(nat, -1.10, 0.56, big=True)
+        self._text(short_name(nat).upper(), (-0.90, 0.560), 0.068)
         self._text(self._COUNTRIES[nat]['name'].upper(),
-                   (-0.72, 0.36), 0.028, color=INK_FAINT)
+                   (-0.90, 0.478), 0.026, color=INK_FAINT)
         at_war = g.at_war(me, nat)
         allied = g.allied(me, nat)
-        stance = ("AT WAR WITH US" if at_war else
-                  "OUR ALLY" if allied else "AT PEACE WITH US")
-        self._text(stance, (-0.72, 0.28), 0.040,
-                   color=((0.62, 0.14, 0.10, 1) if at_war else
-                          (0.16, 0.35, 0.14, 1) if allied
-                          else INK_FAINT))
-        # their wars and their pacts, in full
+        self._stamp(0.62, 0.565,
+                    "AT WAR" if at_war else
+                    "ALLIED" if allied else "AT PEACE",
+                    (0.62, 0.14, 0.10, 1.0) if at_war else
+                    (0.16, 0.38, 0.14, 1.0) if allied else
+                    (0.40, 0.36, 0.30, 1.0))
+        self._rule(-1.30, 1.30, 0.415)
+
+        # ---- left panel: STANDING (their wars and pacts, inline)
         all_nats = [c for c in self._COUNTRIES if c != 'neutral']
-        wars = [o for o in all_nats
+        wars = [short_name(o).upper() for o in all_nats
                 if o != nat and g.at_war(nat, o)]
-        pacts = [o for o in sorted(g.alliances.get(nat, ()))
+        pacts = [short_name(o).upper()
+                 for o in sorted(g.alliances.get(nat, ()))
                  if o != nat]
-        self._text("AT WAR WITH:", (-1.10, 0.10), 0.032)
-        if wars:
-            for i, o in enumerate(wars[:8]):
-                self._text(short_name(o).upper(),
-                           (-0.78, 0.10 - i * 0.055), 0.030,
-                           color=(0.62, 0.14, 0.10, 1))
-        else:
-            self._text("NOBODY", (-0.78, 0.10), 0.030,
-                       color=INK_FAINT)
-        py0 = 0.10 - max(1, min(len(wars), 8)) * 0.055 - 0.06
-        self._text("BOUND TO:", (-1.10, py0), 0.032)
-        if pacts:
-            for i, o in enumerate(pacts[:6]):
-                self._text(short_name(o).upper(),
-                           (-0.78, py0 - i * 0.055), 0.030,
-                           color=(0.16, 0.35, 0.14, 1))
-        else:
-            self._text("NOBODY", (-0.78, py0), 0.030,
-                       color=INK_FAINT)
-        # the keys, big and few, on the right half
-        kx, f = 0.62, self.base.hud_font
+        self._panel_head(-1.30, -0.10, 0.355, "STANDING")
+        self._text("AT WAR WITH", (-1.30, 0.285), 0.026,
+                   color=INK_FAINT)
+        self._text(", ".join(wars) if wars else "NOBODY",
+                   (-0.86, 0.285), 0.028,
+                   color=((0.62, 0.14, 0.10, 1.0) if wars
+                          else INK_FAINT))
+        self._text("BOUND TO", (-1.30, 0.225), 0.026,
+                   color=INK_FAINT)
+        self._text(", ".join(pacts) if pacts else "NOBODY",
+                   (-0.86, 0.225), 0.028,
+                   color=((0.16, 0.38, 0.14, 1.0) if pacts
+                          else INK_FAINT))
+
+        # ---- right panel: ACTIONS, uniform keys on one column
+        self._panel_head(0.30, 1.30, 0.355, "ACTIONS")
+        kx, ky = 0.80, 0.270
         if g.pouch_pending(nat) is not None:
-            self._text("COURIER EN ROUTE -- THE ANSWER COMES BY "
-                       "RETURN POUCH", (kx, 0.10), 0.030,
-                       color=INK_FAINT, align=TextNode.ACenter)
+            self._text("COURIER EN ROUTE -- ANSWERED BY RETURN "
+                       "POUCH", (kx, ky), 0.026, color=INK_FAINT,
+                       align=TextNode.ACenter)
         elif allied:
             price = g.volunteer_price(nat)
-            b = pill_button(self.frame,
-                            "REQUEST VOLUNTEERS%s" %
-                            (" ($%d)" % price if price else " (FREE)"),
-                            g._diplo_action,
-                            extraArgs=['volunteers', nat],
-                            pos=(kx, 0, 0.16), hw=0.42, hh=0.062,
-                            text_scale=0.036, font=f)
-            self.widgets.append(b)
-            b = pill_button(self.frame, "BREAK THE PACT",
-                            g._diplo_break, extraArgs=[nat],
-                            pos=(kx, 0, 0.00), hw=0.42, hh=0.062,
-                            text_scale=0.036, font=f, kind='red',
-                            text_fg=(0.97, 0.90, 0.80, 1.0))
-            self.widgets.append(b)
+            for label, cmd, args, kind in (
+                    ("REQUEST VOLUNTEERS%s" %
+                     (" ($%d)" % price if price else " (FREE)"),
+                     g._diplo_action, ['volunteers', nat], 'panel'),
+                    ("BREAK THE PACT", g._diplo_break, [nat], 'red')):
+                bt = pill_button(
+                    self.frame, label, cmd, extraArgs=args,
+                    pos=(kx, 0, ky), hw=0.34, hh=0.048,
+                    text_scale=0.030, font=f, kind=kind,
+                    text_fg=((0.97, 0.90, 0.80, 1.0)
+                             if kind == 'red' else INK))
+                self.widgets.append(bt)
+                ky -= 0.115
         elif at_war:
-            b = pill_button(self.frame, "OFFER PEACE",
-                            g._diplo_action,
-                            extraArgs=['peace', nat],
-                            pos=(kx, 0, 0.10), hw=0.42, hh=0.070,
-                            text_scale=0.042, font=f)
-            self.widgets.append(b)
+            bt = pill_button(self.frame, "OFFER PEACE",
+                             g._diplo_action,
+                             extraArgs=['peace', nat],
+                             pos=(kx, 0, ky), hw=0.34, hh=0.048,
+                             text_scale=0.032, font=f)
+            self.widgets.append(bt)
         else:
-            b = pill_button(self.frame, "PROPOSE ALLIANCE",
-                            g._diplo_action,
-                            extraArgs=['alliance', nat],
-                            pos=(kx, 0, 0.16), hw=0.42, hh=0.062,
-                            text_scale=0.038, font=f)
-            self.widgets.append(b)
-            b = pill_button(self.frame, "DECLARE WAR",
-                            g._diplo_action,
-                            extraArgs=['war', nat],
-                            pos=(kx, 0, 0.00), hw=0.42, hh=0.062,
-                            text_scale=0.038, font=f, kind='red',
-                            text_fg=(0.97, 0.90, 0.80, 1.0))
-            self.widgets.append(b)
-        # THE TRADE LEDGER: buy their surplus, sell them yours;
-        # every standing line printed with its cancel key
-        from config import TRADE_STEPS
+            for label, args, kind in (
+                    ("PROPOSE ALLIANCE", ['alliance', nat], 'panel'),
+                    ("DECLARE WAR", ['war', nat], 'red')):
+                bt = pill_button(
+                    self.frame, label, g._diplo_action,
+                    extraArgs=args, pos=(kx, 0, ky), hw=0.34,
+                    hh=0.048, text_scale=0.032, font=f, kind=kind,
+                    text_fg=((0.97, 0.90, 0.80, 1.0)
+                             if kind == 'red' else INK))
+                self.widgets.append(bt)
+                ky -= 0.115
+
+        # ---- the TRADE LEDGER: a true table, every column ruled
         if not at_war:
-            ty = -0.24
-            self._text("++ TRADE ++", (kx, ty), 0.036,
-                       align=TextNode.ACenter)
-            ty -= 0.062
+            ty0 = 0.10
+            self._panel_head(-1.30, 1.30, ty0, "THE TRADE LEDGER"
+                             " -- SETTLED EACH FORTNIGHT")
+            cols = {'res': -1.28, 'surplus': -0.98, 'buy1': -0.56,
+                    'buy2': -0.24, 'sell': 0.10, 'line': 0.40,
+                    'cancel': 1.20}
+            hy = ty0 - 0.055
+            for cx, htxt in ((cols['res'], "GOODS"),
+                             (cols['surplus'], "THEIR SURPLUS"),
+                             (cols['buy1'] - 0.11, "PURCHASE"),
+                             (cols['sell'] - 0.10, "SELL"),
+                             (cols['line'], "STANDING TREATY")):
+                self._text(htxt, (cx, hy), 0.022, color=INK_FAINT)
+            row_y = hy - 0.062
             for res in ('oil', 'steel', 'rubber'):
                 cap = g.seller_capacity(nat, res)
-                self._text("%s:" % res.upper(), (kx - 0.42, ty),
-                           0.028)
-                if cap > 0:
-                    for j, amt in enumerate(TRADE_STEPS):
-                        if amt > cap:
-                            continue
+                self._text(res.upper(), (cols['res'], row_y), 0.030)
+                self._text("%d / FTN" % cap if cap > 0 else "--",
+                           (cols['surplus'], row_y), 0.028,
+                           color=INK if cap > 0 else INK_FAINT)
+                for j, amt in enumerate(TRADE_STEPS[:2]):
+                    x = cols['buy1'] if j == 0 else cols['buy2']
+                    if cap >= amt:
                         price = int(amt * g.trade_price(nat, res,
                                                         'in'))
-                        b = pill_button(
-                            self.frame, "BUY %d ($%d)" % (amt, price),
+                        bt = pill_button(
+                            self.frame, "%d FOR $%d" % (amt, price),
                             g.propose_trade,
                             extraArgs=[nat, res, amt, 'in'],
-                            pos=(kx - 0.10 + j * 0.30, 0, ty + 0.008),
-                            hw=0.135, hh=0.036, text_scale=0.022,
-                            font=f)
-                        self.widgets.append(b)
-                else:
-                    self._text("NONE TO SELL", (kx - 0.10, ty),
-                               0.024, color=INK_FAINT)
+                            pos=(x, 0, row_y + 0.010), hw=0.14,
+                            hh=0.032, text_scale=0.021, font=f)
+                        self.widgets.append(bt)
                 if nat in self._PLAYABLE:
                     price = int(TRADE_STEPS[0]
                                 * g.trade_price(nat, res, 'out'))
-                    b = pill_button(
-                        self.frame, "SELL %d ($%d)"
+                    bt = pill_button(
+                        self.frame, "%d FOR $%d"
                         % (TRADE_STEPS[0], price),
                         g.propose_trade,
                         extraArgs=[nat, res, TRADE_STEPS[0], 'out'],
-                        pos=(kx + 0.44, 0, ty + 0.008),
-                        hw=0.135, hh=0.036, text_scale=0.022, font=f)
-                    self.widgets.append(b)
-                ty -= 0.075
-            deals = [t for t in g.trade_deals if t['with'] == nat]
-            for deal in deals[:3]:
-                word = ("IMPORTING %d %s ($%d/FTN)"
-                        if deal['dir'] == 'in' else
-                        "EXPORTING %d %s (+$%d/FTN)") % (
-                    deal['amount'], deal['res'].upper(),
-                    deal['price'])
-                self._text(word, (kx - 0.42, ty), 0.025,
-                           color=(0.16, 0.35, 0.14, 1.0))
-                b = pill_button(self.frame, "CANCEL",
-                                g.cancel_trade, extraArgs=[deal],
-                                pos=(kx + 0.34, 0, ty + 0.008),
-                                hw=0.085, hh=0.030,
-                                text_scale=0.022, font=f,
-                                kind='red',
-                                text_fg=(0.97, 0.90, 0.80, 1.0))
-                self.widgets.append(b)
-                ty -= 0.062
+                        pos=(cols['sell'], 0, row_y + 0.010),
+                        hw=0.14, hh=0.032, text_scale=0.021, font=f)
+                    self.widgets.append(bt)
+                deal = next((t for t in g.trade_deals
+                             if t['with'] == nat
+                             and t['res'] == res), None)
+                if deal is not None:
+                    word = ("IMPORTING %d/FTN FOR $%d"
+                            if deal['dir'] == 'in' else
+                            "EXPORTING %d/FTN FOR $%d") % (
+                        deal['amount'], deal['price'])
+                    self._text(word, (cols['line'], row_y), 0.024,
+                               color=(0.16, 0.38, 0.14, 1.0))
+                    bt = pill_button(self.frame, "CANCEL",
+                                     g.cancel_trade,
+                                     extraArgs=[deal],
+                                     pos=(cols['cancel'], 0,
+                                          row_y + 0.010),
+                                     hw=0.075, hh=0.028,
+                                     text_scale=0.020, font=f,
+                                     kind='red',
+                                     text_fg=(0.97, 0.90, 0.80, 1))
+                    self.widgets.append(bt)
+                else:
+                    self._text("--", (cols['line'], row_y), 0.024,
+                               color=INK_FAINT)
+                row_y -= 0.085
+                if res != 'rubber':
+                    self._rule(-1.30, 1.30, row_y + 0.048,
+                               color=(0.45, 0.40, 0.33, 0.35),
+                               w=0.0016)
         self._text("DISPATCHES TRAVEL BY COURIER AND ARE ANSWERED "
                    "IN KIND -- TRADE IS SETTLED EACH FORTNIGHT",
-                   (0, -0.80), 0.026, color=INK_FAINT,
+                   (0, -0.80), 0.024, color=INK_FAINT,
                    align=TextNode.ACenter)
 
     def destroy(self):
