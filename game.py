@@ -408,6 +408,7 @@ class WW2RTSGame(ShowBase):
         self._spot_cache = {}           # (country, target) -> seen?
         self.road_plan = []             # surveyed road waypoints
         self.road_preview = None        # yellow survey line
+        self._survey_eng = None         # whose survey it is
         self.selected = []
         self.selected_city = None
         self.selected_airfield = None
@@ -1573,16 +1574,38 @@ class WW2RTSGame(ShowBase):
                     self.funds[nat] = max(
                         0, self.funds.get(nat, 0) - deal['price'])
 
-    def _collect_resources(self):
-        """The fortnight's strategic take: every major's deposits pay
-        into the national stockpile, plus the civilian import
-        baseline. Outflows (oil at the pumps, materials at the
-        yards) were charged live; here they are only remembered for
-        the strip's tooltip, then the meters reset."""
+    def _daily_income(self, country):
+        """{res: tons} a power draws in ONE DAY: its deposits and the
+        civilian imports, divided across the fortnight."""
+        out = {res: BASELINE_IMPORTS[res] / float(BUDGET_PERIOD_DAYS)
+               for res in RESOURCES}
+        for dep in self.deposits:
+            if dep.city.country == country and dep.city.alive:
+                out[dep.resource] += (dep.output
+                                      / float(BUDGET_PERIOD_DAYS))
+        return out
+
+    def _accrue_resources(self, days=1):
+        """THE WELLS RUN EVERY DAY. Oil, steel and rubber trickle in
+        daily rather than landing in one fortnightly lump -- a power
+        that runs dry on the 3rd is pumping again on the 4th instead
+        of sitting idle until the books close."""
         for country in PLAYABLE:
             if country in self.eliminated:
                 continue
             stock = self.resources[country]
+            gain = self._daily_income(country)
+            for res in RESOURCES:
+                stock[res] = min(RESOURCE_CAP,
+                                 stock[res] + gain[res] * days)
+
+    def _collect_resources(self):
+        """The fortnight's books close: the take is only REPORTED
+        here (the wells themselves pay daily, see _accrue_resources)
+        and the spending meters reset for the new fortnight."""
+        for country in PLAYABLE:
+            if country in self.eliminated:
+                continue
             flows = {res: [('IMPORTS', BASELINE_IMPORTS[res])]
                      for res in RESOURCES}
             for dep in self.deposits:
@@ -1602,7 +1625,6 @@ class WW2RTSGame(ShowBase):
             report = {}
             for res in RESOURCES:
                 income = sum(v for _, v in flows[res])
-                stock[res] = min(RESOURCE_CAP, stock[res] + income)
                 report[res] = {'in': flows[res], 'income': income,
                                'out': spent[res]}
             self.resource_flows[country] = report
@@ -4044,11 +4066,10 @@ class WW2RTSGame(ShowBase):
                             'from': Vec3(a), 't': build_time,
                             'cost': cost}, queue=shift or chained)
             # the ordered leg leaves the survey sheet: the order's own
-            # path viz takes over; only the anchor stays for chaining
+            # path viz takes over, but the ANCHOR keeps its ring so
+            # the surveyor can see where the next leg begins
             self.road_plan = [Vec3(b)]
-            if self.road_preview:
-                self.road_preview.removeNode()
-                self.road_preview = None
+            self._draw_road_plan(eng)
             self.fax_short("%s LEG UNDER CONSTRUCTION -- CLICK "
                            "EXTENDS THE LINE, ESC ENDS THE SURVEY"
                            % label)
@@ -4117,9 +4138,13 @@ class WW2RTSGame(ShowBase):
                                / 0.3))
                 for k in range(1, n + 1):
                     segs.drawTo(slerp(a, b, k / n) * lift)
-        # every survey point wears its yellow waypoint ring
+        # every survey point wears its yellow waypoint ring. It is
+        # sized against the CAMERA: a fixed 0.007wu ring is
+        # sub-pixel at the altitude a Berlin-Warsaw line is planned
+        # from, which is why the survey looked like it did nothing
         segs.setColor(1.0, 0.85, 0.2, 0.9)
-        r = UNIT_SPRITE_SCALE * 0.16
+        alt = max(0.05, self.cam_dist - GLOBE_RADIUS)
+        r = max(UNIT_SPRITE_SCALE * 0.30, alt * 0.028)
         for jp in self.road_plan:
             east = north_tangent(jp).cross(jp)
             for i in range(17):
@@ -4134,9 +4159,11 @@ class WW2RTSGame(ShowBase):
         self.road_preview = self.render.attachNewNode(segs.create())
         self.road_preview.setLightOff()
         self.road_preview.setDepthOffset(4)
+        self._survey_eng = eng
 
     def _clear_road_plan(self):
         self.road_plan = []
+        self._survey_eng = None
         if self.road_preview:
             self.road_preview.removeNode()
             self.road_preview = None
@@ -6146,6 +6173,11 @@ void main() {
             self._apply_marker_scale()
 
     def _apply_marker_scale(self):
+        # the survey sheet is drawn against the camera: redraw it so
+        # its waypoint rings hold their apparent size through a zoom
+        if self.road_plan and getattr(self, '_survey_eng', None) \
+                is not None and self._survey_eng.alive:
+            self._draw_road_plan(self._survey_eng)
         alt = self.cam_dist - GLOBE_RADIUS
         self.marker_scale = max(0.008, min(0.72, alt * 0.0115))
         city_scale = self.marker_scale * 0.32
@@ -7472,6 +7504,12 @@ void main() {
                     >= BUDGET_PERIOD_DAYS * 1440.0):
                 self.fortnight_start += BUDGET_PERIOD_DAYS * 1440.0
                 self._fortnight_rollover()
+            day = int(self.clock_minutes // 1440.0)
+            if day != getattr(self, '_last_day', None):
+                if getattr(self, '_last_day', None) is not None:
+                    self._accrue_resources(
+                        day - self._last_day)
+                self._last_day = day
             # the sun tracks westward so it rises in the east and sets
             # in the west
             self.sun_angle = (self.sun_angle -

@@ -1702,7 +1702,8 @@ class ResourcesFax:
             text("%d TONS IN STOCK" % d['stock'], (cx, 0.585),
                  0.036, INK, TextNode.ACenter)
             y = 0.505
-            text("THE TAKE, EACH FORTNIGHT:", (cx - 0.33, y),
+            text("THE TAKE (PER FORTNIGHT, PAID DAILY):",
+                 (cx - 0.33, y),
                  0.026, INK_FAINT)
             y -= 0.048
             for name, n in d['income'][:6]:
