@@ -81,9 +81,9 @@ RESOURCE_CAP = 999            # national stockpile ceiling per resource
 # fortnight's deposit income -- materials pinch, never strangle
 STARTING_RESOURCES = {'oil': 400, 'steel': 800, 'rubber': 150}
 BASELINE_IMPORTS = {'oil': 40, 'steel': 60, 'rubber': 30}
-OIL_PER_LB = 1.0 / 250.0      # tons of oil per lb of stores pumped
+OIL_PER_LB = 1.0 / 1250.0     # tons of oil per lb of stores pumped
                               # into MACHINES (men and rail burn none)
-OIL_PER_SORTIE = 3            # aviation spirit per takeoff
+OIL_PER_SORTIE = 0.6          # aviation spirit per takeoff
 
 # the open market: base $/ton for treaty trade, discounted between
 # allies the same way volunteers are

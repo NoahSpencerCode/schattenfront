@@ -1741,7 +1741,7 @@ class ResourcesFax:
              % ("{:,}".format(int(data['pump_lbs'])),
                 int(data['pump_oil'])),
              (0, ry - 0.155), 0.027, INK_FAINT, TextNode.ACenter)
-        text("ONE TON OF OIL MOVES 250 LBS OF STORES INTO A "
+        text("ONE TON OF OIL MOVES 1,250 LBS OF STORES INTO A "
              "MACHINE -- MEN AND THE RAILWAYS DRAW NONE",
              (0, ry - 0.205), 0.027, INK, TextNode.ACenter)
         if data.get('trade'):
