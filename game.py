@@ -1557,17 +1557,34 @@ class WW2RTSGame(ShowBase):
             'res_ftn': True,
         }
 
-    def has_right(self, a, b, kind):
-        """Is a right of passage / supply standing between two
-        powers? Rights are mutual: the sheet grants both ways."""
-        if self.allied(a, b):
-            return True
+    def right_between(self, nat, kind):
+        """(granted_to_us, granted_to_them) for one kind of right.
+        A right runs ONE WAY unless both were signed: their frontier
+        may be open to us while ours stays shut to them."""
+        if self.allied(self.player_country, nat):
+            return True, True
+        to_us = to_them = False
         for r in self.rights:
-            if r['kind'] != kind:
+            if r['with'] != nat or r['kind'] != kind:
                 continue
-            if (r['with'] == b and a == self.player_country) or \
-                    (r['with'] == a and b == self.player_country):
-                return True
+            d = r.get('dir', 'mutual')
+            if d in ('theirs', 'mutual'):
+                to_us = True
+            if d in ('ours', 'mutual'):
+                to_them = True
+        return to_us, to_them
+
+    def has_right(self, mover, owner, kind):
+        """May MOVER operate on OWNER's ground under a standing
+        right? Directional: we bought passage of them, or granted
+        it to them."""
+        if self.allied(mover, owner):
+            return True
+        me = self.player_country
+        if mover == me:
+            return self.right_between(owner, kind)[0]
+        if owner == me:
+            return self.right_between(mover, kind)[1]
         return False
 
     def propose_deal(self, nat, offer, ask):
@@ -1644,9 +1661,15 @@ class WW2RTSGame(ShowBase):
                      'dir': 'out' if giver == me else 'in',
                      'gift': True})
             elif k in ('passage', 'supply', 'nonaggression'):
+                # a pact of non-aggression binds both; a right of
+                # passage or supply runs only the way it was signed
+                d = ('mutual' if k == 'nonaggression'
+                     else 'ours' if giver == me else 'theirs')
                 if not any(r['with'] == nat and r['kind'] == k
+                           and r.get('dir', 'mutual') == d
                            for r in self.rights):
-                    self.rights.append({'with': nat, 'kind': k})
+                    self.rights.append({'with': nat, 'kind': k,
+                                        'dir': d})
             elif k == 'alliance':
                 self.make_alliance(me, nat)
             elif k == 'peace':

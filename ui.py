@@ -885,19 +885,26 @@ class DiplomacyLedger:
                                align=TextNode.ACenter)
                     continue
                 if step == 0:
-                    # a right already won is not for sale twice
-                    if side == 'ask' and kind in (
-                            'passage', 'supply', 'nonaggression') \
-                            and g.has_right(me, nat, kind):
-                        self._stamp(x + 0.09, y + 0.004, "SIGNED",
+                    # a right already signed is never sold twice --
+                    # and the sheet says which WAY it runs, so a
+                    # frontier we opened to them reads WE GRANTED
+                    if kind in ('passage', 'supply',
+                                'nonaggression'):
+                        to_us, to_them = g.right_between(nat, kind)
+                        held = to_us if side == 'ask' else to_them
+                        if held:
+                            self._stamp(
+                                x + 0.09, y + 0.004,
+                                "IN FORCE" if kind == 'nonaggression'
+                                else ("THEY GRANTED" if side == 'ask'
+                                      else "WE GRANTED"),
+                                (0.16, 0.38, 0.14, 1.0),
+                                scale=0.018, center=True)
+                            continue
+                    if kind == 'alliance' and g.allied(me, nat):
+                        self._stamp(x + 0.09, y + 0.004, "IN FORCE",
                                     (0.16, 0.38, 0.14, 1.0),
-                                    scale=0.020, center=True)
-                        continue
-                    if side == 'ask' and kind == 'alliance' \
-                            and g.allied(me, nat):
-                        self._stamp(x + 0.09, y + 0.004, "SIGNED",
-                                    (0.16, 0.38, 0.14, 1.0),
-                                    scale=0.020, center=True)
+                                    scale=0.018, center=True)
                         continue
                     on = key in book
                     bt = pill_button(
@@ -964,24 +971,9 @@ class DiplomacyLedger:
                     else (0.62, 0.14, 0.10, 1.0))
         self._text(hint, (-0.94, y), 0.028, color=hcol)
         # what already stands between the two powers
-        standing_lines = []
-        for r in g.rights:
-            if r['with'] == nat:
-                standing_lines.append(
-                    _d.KIND_LABEL.get(r['kind'], r['kind'].upper()))
-        for t in g.trade_deals:
-            if t['with'] == nat:
-                if t['res'] == 'funds':
-                    standing_lines.append(
-                        "%s $%d EACH FORTNIGHT"
-                        % ("WE PAY" if t['dir'] == 'out'
-                           else "THEY PAY", t['price']))
-                else:
-                    standing_lines.append(
-                        "%s %d %s EACH FORTNIGHT"
-                        % ("WE SHIP" if t['dir'] == 'out'
-                           else "WE RECEIVE", t['amount'],
-                           t['res'].upper()))
+        standing_lines = ["%s (%s)" % (what, how)
+                          for what, how in
+                          self._agreement_lines(nat)]
         y -= 0.06
         self._text("ALREADY SIGNED", (-1.28, y), 0.024,
                    color=INK_FAINT)
@@ -1162,9 +1154,42 @@ class DiplomacyLedger:
         self.widgets.append(box)
         return box
 
-    def _build_dossier(self, nat):
+    def _agreement_lines(self, nat):
+        """Every instrument standing between us, in plain words."""
+        import deals as _d
         g = self.game
-        from config import short_name, TRADE_STEPS
+        out = []
+        for kind in ('passage', 'supply', 'nonaggression'):
+            to_us, to_them = g.right_between(nat, kind)
+            label = _d.KIND_LABEL[kind]
+            if kind == 'nonaggression':
+                if to_us:
+                    out.append((label, 'BINDS BOTH'))
+                continue
+            if to_us:
+                out.append((label, 'GRANTED TO US'))
+            if to_them:
+                out.append((label, 'GRANTED TO THEM'))
+        for t in g.trade_deals:
+            if t['with'] != nat:
+                continue
+            if t['res'] == 'funds':
+                out.append(("SUBSIDY $%d EACH FORTNIGHT" % t['price'],
+                            'WE PAY' if t['dir'] == 'out'
+                            else 'THEY PAY'))
+            else:
+                out.append(("%d %s EACH FORTNIGHT"
+                            % (t['amount'], t['res'].upper()),
+                            'WE SHIP' if t['dir'] == 'out'
+                            else 'WE RECEIVE'))
+        return out
+
+    def _build_dossier(self, nat):
+        """The nation's file: what they are, what stands between us,
+        and the UNILATERAL acts open to us. Everything that must be
+        NEGOTIATED lives at the table."""
+        g = self.game
+        from config import short_name
         me = g.player_country
         f = self.base.hud_font
         b = pill_button(self.frame, "<< THE WORLD",
@@ -1173,29 +1198,40 @@ class DiplomacyLedger:
                         font=f)
         self.widgets.append(b)
 
-        # ---- header band: flag . name . stamp, on one baseline
+        # ---- header band
         self._card(nat, -1.10, 0.56, big=True)
         self._text(short_name(nat).upper(), (-0.90, 0.560), 0.068)
         self._text(self._COUNTRIES[nat]['name'].upper(),
                    (-0.90, 0.478), 0.026, color=INK_FAINT)
         at_war = g.at_war(me, nat)
         allied = g.allied(me, nat)
-        self._stamp(0.62, 0.565,
+        st = g.standing(nat)
+        import deals as _d
+        word, _m = _d.standing_word(st)
+        col = ((0.16, 0.38, 0.14, 1.0) if st >= 30 else
+               (0.62, 0.14, 0.10, 1.0) if st < -10 else
+               (0.40, 0.36, 0.30, 1.0))
+        self._stamp(0.55, 0.565,
                     "AT WAR" if at_war else
                     "ALLIED" if allied else "AT PEACE",
                     (0.62, 0.14, 0.10, 1.0) if at_war else
                     (0.16, 0.38, 0.14, 1.0) if allied else
                     (0.40, 0.36, 0.30, 1.0))
+        self._text("THEIR FOREIGN OFFICE", (0.98, 0.596), 0.021,
+                   color=INK_FAINT)
+        self._meter(0.98, 0.556, 0.30, (st + 100) / 200.0, col)
+        self._text(word, (0.98, 0.512), 0.024, color=col)
         self._rule(-1.30, 1.30, 0.415)
 
-        # ---- left panel: STANDING (their wars and pacts, inline)
+        # ---- their standing in the world
         all_nats = [c for c in self._COUNTRIES if c != 'neutral']
         wars = [short_name(o).upper() for o in all_nats
                 if o != nat and g.at_war(nat, o)]
         pacts = [short_name(o).upper()
                  for o in sorted(g.alliances.get(nat, ()))
                  if o != nat]
-        self._panel_head(-1.30, -0.10, 0.355, "STANDING")
+        self._panel_head(-1.30, 1.30, 0.355, "THEIR STANDING IN "
+                                             "THE WORLD")
         self._text("AT WAR WITH", (-1.30, 0.285), 0.026,
                    color=INK_FAINT)
         self._text(", ".join(wars) if wars else "NOBODY",
@@ -1209,131 +1245,63 @@ class DiplomacyLedger:
                    color=((0.16, 0.38, 0.14, 1.0) if pacts
                           else INK_FAINT))
 
-        # ---- right panel: ACTIONS, uniform keys on one column
-        self._panel_head(0.30, 1.30, 0.355, "ACTIONS")
-        kx, ky = 0.80, 0.270
-        if g.pouch_pending(nat) is not None:
-            self._text("COURIER EN ROUTE -- ANSWERED BY RETURN "
-                       "POUCH", (kx, ky), 0.026, color=INK_FAINT,
-                       align=TextNode.ACenter)
-        elif allied:
-            price = g.volunteer_price(nat)
-            for label, cmd, args, kind in (
-                    ("REQUEST VOLUNTEERS%s" %
-                     (" ($%d)" % price if price else " (FREE)"),
-                     g._diplo_action, ['volunteers', nat], 'panel'),
-                    ("BREAK THE PACT", g._diplo_break, [nat], 'red')):
-                bt = pill_button(
-                    self.frame, label, cmd, extraArgs=args,
-                    pos=(kx, 0, ky), hw=0.34, hh=0.048,
-                    text_scale=0.030, font=f, kind=kind,
-                    text_fg=((0.97, 0.90, 0.80, 1.0)
-                             if kind == 'red' else INK))
-                self.widgets.append(bt)
-                ky -= 0.115
-        elif at_war:
-            bt = pill_button(self.frame, "OFFER PEACE",
-                             g._diplo_action,
-                             extraArgs=['peace', nat],
-                             pos=(kx, 0, ky), hw=0.34, hh=0.048,
-                             text_scale=0.032, font=f)
-            self.widgets.append(bt)
+        # ---- what is already signed between the two of us
+        self._panel_head(-1.30, 1.30, 0.145,
+                         "WHAT STANDS BETWEEN US")
+        lines = self._agreement_lines(nat)
+        if not lines:
+            self._text("No instrument stands between us -- open the "
+                       "table to treat.", (-1.30, 0.078), 0.026,
+                       color=INK_FAINT)
         else:
-            for label, args, kind in (
-                    ("PROPOSE ALLIANCE", ['alliance', nat], 'panel'),
-                    ("DECLARE WAR", ['war', nat], 'red')):
-                bt = pill_button(
-                    self.frame, label, g._diplo_action,
-                    extraArgs=args, pos=(kx, 0, ky), hw=0.34,
-                    hh=0.048, text_scale=0.032, font=f, kind=kind,
-                    text_fg=((0.97, 0.90, 0.80, 1.0)
-                             if kind == 'red' else INK))
-                self.widgets.append(bt)
-                ky -= 0.115
+            for i, (what, how) in enumerate(lines[:6]):
+                cx = -1.30 + (i % 2) * 1.28
+                cy = 0.078 - (i // 2) * 0.050
+                self._text(what, (cx, cy), 0.025)
+                self._text(how, (cx + 0.86, cy), 0.022,
+                           color=(0.16, 0.38, 0.14, 1.0))
 
-        # the envoy's sheet: the whole of diplomacy on one table
-        bt = pill_button(self.frame, "OPEN THE NEGOTIATING TABLE",
+        # ---- the table: every negotiated act lives there
+        bt = pill_button(self.frame, "++ OPEN THE NEGOTIATING "
+                                     "TABLE ++",
                          self._open_table, extraArgs=[nat],
-                         pos=(0.80, 0, ky - 0.02), hw=0.34,
-                         hh=0.044, text_scale=0.026, font=f)
+                         pos=(0.0, 0, -0.28), hw=0.46, hh=0.058,
+                         text_scale=0.036, font=f)
         self.widgets.append(bt)
+        self._text("TRADE, PASSAGE, SUPPLY RIGHTS, PACTS AND PEACE "
+                   "ARE ALL TREATED FOR AT THE TABLE",
+                   (0, -0.365), 0.024, color=INK_FAINT,
+                   align=TextNode.ACenter)
 
-        # ---- the TRADE LEDGER: a true table, every column ruled
+        # ---- acts that need no other man's signature
+        self._panel_head(-1.30, 1.30, -0.46,
+                         "ACTS REQUIRING NO NEGOTIATION")
+        kx, keys = -0.62, []
         if not at_war:
-            ty0 = 0.10
-            self._panel_head(-1.30, 1.30, ty0, "THE TRADE LEDGER"
-                             " -- SETTLED EACH FORTNIGHT")
-            cols = {'res': -1.28, 'surplus': -0.98, 'buy1': -0.56,
-                    'buy2': -0.24, 'sell': 0.10, 'line': 0.40,
-                    'cancel': 1.20}
-            hy = ty0 - 0.055
-            for cx, htxt in ((cols['res'], "GOODS"),
-                             (cols['surplus'], "THEIR SURPLUS"),
-                             (cols['buy1'] - 0.11, "PURCHASE"),
-                             (cols['sell'] - 0.10, "SELL"),
-                             (cols['line'], "STANDING TREATY")):
-                self._text(htxt, (cx, hy), 0.022, color=INK_FAINT)
-            row_y = hy - 0.062
-            for res in ('oil', 'steel', 'food'):
-                cap = g.seller_capacity(nat, res)
-                self._text(res.upper(), (cols['res'], row_y), 0.030)
-                self._text("%d / FTN" % cap if cap > 0 else "--",
-                           (cols['surplus'], row_y), 0.028,
-                           color=INK if cap > 0 else INK_FAINT)
-                for j, amt in enumerate(TRADE_STEPS[:2]):
-                    x = cols['buy1'] if j == 0 else cols['buy2']
-                    if cap >= amt:
-                        price = int(amt * g.trade_price(nat, res,
-                                                        'in'))
-                        bt = pill_button(
-                            self.frame, "%d FOR $%d" % (amt, price),
-                            g.propose_trade,
-                            extraArgs=[nat, res, amt, 'in'],
-                            pos=(x, 0, row_y + 0.010), hw=0.14,
-                            hh=0.032, text_scale=0.021, font=f)
-                        self.widgets.append(bt)
-                if nat in self._PLAYABLE:
-                    price = int(TRADE_STEPS[0]
-                                * g.trade_price(nat, res, 'out'))
-                    bt = pill_button(
-                        self.frame, "%d FOR $%d"
-                        % (TRADE_STEPS[0], price),
-                        g.propose_trade,
-                        extraArgs=[nat, res, TRADE_STEPS[0], 'out'],
-                        pos=(cols['sell'], 0, row_y + 0.010),
-                        hw=0.14, hh=0.032, text_scale=0.021, font=f)
-                    self.widgets.append(bt)
-                deal = next((t for t in g.trade_deals
-                             if t['with'] == nat
-                             and t['res'] == res), None)
-                if deal is not None:
-                    word = ("IMPORTING %d/FTN FOR $%d"
-                            if deal['dir'] == 'in' else
-                            "EXPORTING %d/FTN FOR $%d") % (
-                        deal['amount'], deal['price'])
-                    self._text(word, (cols['line'], row_y), 0.024,
-                               color=(0.16, 0.38, 0.14, 1.0))
-                    bt = pill_button(self.frame, "CANCEL",
-                                     g.cancel_trade,
-                                     extraArgs=[deal],
-                                     pos=(cols['cancel'], 0,
-                                          row_y + 0.010),
-                                     hw=0.075, hh=0.028,
-                                     text_scale=0.020, font=f,
-                                     kind='red',
-                                     text_fg=(0.97, 0.90, 0.80, 1))
-                    self.widgets.append(bt)
-                else:
-                    self._text("--", (cols['line'], row_y), 0.024,
-                               color=INK_FAINT)
-                row_y -= 0.085
-                if res != 'food':
-                    self._rule(-1.30, 1.30, row_y + 0.048,
-                               color=(0.45, 0.40, 0.33, 0.35),
-                               w=0.0016)
+            keys.append(("DECLARE WAR", g._diplo_action,
+                         ['war', nat], 'red'))
+        if allied:
+            price = g.volunteer_price(nat)
+            keys.append(("REQUEST VOLUNTEERS%s"
+                         % (" ($%d)" % price if price else " (FREE)"),
+                         g._diplo_action, ['volunteers', nat],
+                         'panel'))
+            keys.append(("BREAK THE PACT", g._diplo_break, [nat],
+                         'red'))
+        if not keys:
+            self._text("The war leaves nothing to do here but "
+                       "treat for its end.", (-1.30, -0.545), 0.026,
+                       color=INK_FAINT)
+        for i, (label, cmd, args, kind) in enumerate(keys[:3]):
+            bt = pill_button(
+                self.frame, label, cmd, extraArgs=args,
+                pos=(kx + i * 0.64, 0, -0.555), hw=0.29, hh=0.048,
+                text_scale=0.028, font=f, kind=kind,
+                text_fg=((0.97, 0.90, 0.80, 1.0) if kind == 'red'
+                         else INK))
+            self.widgets.append(bt)
         self._text("DISPATCHES TRAVEL BY COURIER AND ARE ANSWERED "
-                   "IN KIND -- TRADE IS SETTLED EACH FORTNIGHT",
-                   (0, -0.80), 0.024, color=INK_FAINT,
+                   "IN KIND", (0, -0.80), 0.024, color=INK_FAINT,
                    align=TextNode.ACenter)
 
     def destroy(self):
