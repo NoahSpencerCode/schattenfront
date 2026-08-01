@@ -156,7 +156,7 @@ class TopBar:
         ('TREASURY', -1.31, TextNode.ALeft),
         ('OIL', -1.09, TextNode.ALeft),
         ('STEEL', -0.90, TextNode.ALeft),
-        ('RUBBER', -0.69, TextNode.ALeft),
+        ('FOOD', -0.69, TextNode.ALeft),
         ('FORCES', -0.47, TextNode.ALeft),
         ('CITIES', -0.29, TextNode.ALeft),
         ('TIME', 0.10, TextNode.ACenter),
@@ -166,7 +166,7 @@ class TopBar:
         ('SPEED', 1.20, TextNode.ACenter),
     ]
 
-    RESOURCE_COLS = ('OIL', 'STEEL', 'RUBBER')
+    RESOURCE_COLS = ('OIL', 'STEEL', 'FOOD')
 
     def __init__(self, base, on_budget, on_factory=None,
                  on_resources=None):
@@ -746,6 +746,26 @@ class DiplomacyLedger:
             book.pop(key, None)
         self.rebuild()
 
+    def _clear_sheet(self):
+        self.offer = {}
+        self.ask = {}
+        self.rebuild()
+
+    TOKEN_TIP = {
+        'passage': "OUR LAND COLUMNS MAY CROSS THEIR COUNTRY "
+                   "WITHOUT A DECLARATION OF WAR",
+        'supply': "OUR COLUMNS MAY WATER AND RESUPPLY AT THEIR "
+                  "TOWNS AND QUAYS",
+        'nonaggression': "NEITHER POWER MAY DECLARE WAR ON THE "
+                         "OTHER WHILE IT STANDS",
+        'alliance': "THEIR WARS BECOME OURS AND OURS THEIRS -- "
+                    "AND THEIR VOLUNTEERS MAY BE ASKED FOR",
+        'peace': "THE GUNS FALL SILENT BETWEEN US",
+        'funds_once': "A SINGLE PAYMENT FROM THE TREASURY",
+        'funds_ftn': "A STANDING SUBSIDY, PAID EVERY FORTNIGHT",
+        'res_ftn': "CARGO SHIPPED EVERY FORTNIGHT UNTIL CANCELLED",
+    }
+
     def _table_toggle(self, side, key):
         book = self.offer if side == 'offer' else self.ask
         if key in book:
@@ -796,16 +816,20 @@ class DiplomacyLedger:
                         font=f)
         self.widgets.append(b)
         st = g.standing(nat)
-        word, _mult = _d.standing_word(st)
+        word, mult = _d.standing_word(st)
+        col = ((0.16, 0.38, 0.14, 1.0) if st >= 30 else
+               (0.62, 0.14, 0.10, 1.0) if st < -10 else
+               (0.40, 0.36, 0.30, 1.0))
         self._card(nat, -1.14, 0.60)
         self._text("THE ENVOY'S SHEET -- %s" % short_name(nat).upper(),
                    (-1.02, 0.615), 0.044)
-        self._text("THEIR FOREIGN OFFICE STANDS %s TOWARD US"
-                   % word, (-1.02, 0.556), 0.026, color=INK_FAINT)
-        self._stamp(0.86, 0.605, word,
-                    (0.16, 0.38, 0.14, 1.0) if st >= 30 else
-                    (0.62, 0.14, 0.10, 1.0) if st < -10 else
-                    (0.40, 0.36, 0.30, 1.0))
+        self._text("THEIR FOREIGN OFFICE STANDS %s -- THEY PRICE "
+                   "OUR ASKS AT %d%% OF WORTH" % (word, int(mult * 100)),
+                   (-1.02, 0.556), 0.025, color=INK_FAINT)
+        # the standing gauge: where this office sits on the ladder
+        self._text("STANDING", (0.58, 0.612), 0.022, color=INK_FAINT)
+        self._meter(0.58, 0.573, 0.42, (st + 100) / 200.0, col)
+        self._stamp(1.04, 0.612, word, col, scale=0.024)
         self._rule(-1.30, 1.30, 0.505)
 
         gates = g.deal_gates(nat)
@@ -832,7 +856,18 @@ class DiplomacyLedger:
         y = 0.405
         for key, label, step in rows:
             kind = key.split(':')[0]
-            self._text(label, (cols['name'], y), 0.027)
+            lab = self._text(label, (cols['name'], y), 0.027)
+            tip = self.TOKEN_TIP.get(kind)
+            if tip:
+                # an inert hover plate explains what the counter buys
+                hov = DirectButton(parent=self.frame, relief=None,
+                                   frameColor=(0, 0, 0, 0),
+                                   frameSize=(0, 0.62, -0.016,
+                                              0.028),
+                                   pos=(cols['name'], 0, y),
+                                   state=DGG.NORMAL)
+                add_tooltip(hov, tip, font=f, dy=0.055)
+                self.widgets.append(hov)
             for side in ('offer', 'ask'):
                 x = cols[side]
                 book = self.offer if side == 'offer' else self.ask
@@ -850,6 +885,20 @@ class DiplomacyLedger:
                                align=TextNode.ACenter)
                     continue
                 if step == 0:
+                    # a right already won is not for sale twice
+                    if side == 'ask' and kind in (
+                            'passage', 'supply', 'nonaggression') \
+                            and g.has_right(me, nat, kind):
+                        self._stamp(x + 0.09, y + 0.004, "SIGNED",
+                                    (0.16, 0.38, 0.14, 1.0),
+                                    scale=0.020, center=True)
+                        continue
+                    if side == 'ask' and kind == 'alliance' \
+                            and g.allied(me, nat):
+                        self._stamp(x + 0.09, y + 0.004, "SIGNED",
+                                    (0.16, 0.38, 0.14, 1.0),
+                                    scale=0.020, center=True)
+                        continue
                     on = key in book
                     bt = pill_button(
                         self.frame, "PLEDGED" if on else "--",
@@ -878,30 +927,85 @@ class DiplomacyLedger:
             self._rule(-1.30, 1.30, y + 0.036,
                        color=(0.45, 0.40, 0.33, 0.28), w=0.0014)
 
-        # the envoy's own reading of the sheet
+        # ---- THE SHEET AS IT STANDS: both baskets in words, the
+        # envoy's reading, and what is already signed between us
         offer, ask = self._tokens(self.offer), self._tokens(self.ask)
         verdict, vword, _reply, gain = _d.evaluate(
             offer, ask, st, gates)
-        y -= 0.03
+        y -= 0.035
+        self._rule(-1.30, 1.30, y + 0.02)
+        y -= 0.045
+        self._text("THE SHEET AS IT STANDS", (-1.28, y), 0.026,
+                   color=INK_FAINT)
+        y -= 0.055
+        for label, toks, cx in (("WE GIVE", offer, -1.28),
+                                ("WE RECEIVE", ask, 0.06)):
+            self._text(label, (cx, y), 0.024, color=INK_FAINT)
+            if not toks:
+                self._text("nothing", (cx + 0.26, y), 0.026,
+                           color=INK_FAINT)
+            else:
+                for i, tok in enumerate(toks[:4]):
+                    self._text(_d.token_text(tok),
+                               (cx + 0.26, y - i * 0.042), 0.026)
+        y -= 0.042 * max(1, min(4, max(len(offer), len(ask)))) + 0.03
+        self._text("THE ENVOY'S READING", (-1.28, y), 0.024,
+                   color=INK_FAINT)
         if not offer and not ask:
-            hint = ("Lay counters on the sheet: what we give on the "
-                    "left, what we want on the right.")
+            hint = ("Lay counters on the sheet -- what we give on "
+                    "the left, what we want on the right.")
+            hcol = INK_FAINT
         elif verdict == 'ungated':
             hint = "They will not treat for that at all -- not yet."
+            hcol = (0.62, 0.14, 0.10, 1.0)
         else:
             hint = _d.shortfall_hint(gain)
-        self._text("THE ENVOY'S READING:", (-1.28, y), 0.026,
+            hcol = ((0.16, 0.38, 0.14, 1.0) if gain >= 0
+                    else (0.62, 0.14, 0.10, 1.0))
+        self._text(hint, (-0.94, y), 0.028, color=hcol)
+        # what already stands between the two powers
+        standing_lines = []
+        for r in g.rights:
+            if r['with'] == nat:
+                standing_lines.append(
+                    _d.KIND_LABEL.get(r['kind'], r['kind'].upper()))
+        for t in g.trade_deals:
+            if t['with'] == nat:
+                if t['res'] == 'funds':
+                    standing_lines.append(
+                        "%s $%d EACH FORTNIGHT"
+                        % ("WE PAY" if t['dir'] == 'out'
+                           else "THEY PAY", t['price']))
+                else:
+                    standing_lines.append(
+                        "%s %d %s EACH FORTNIGHT"
+                        % ("WE SHIP" if t['dir'] == 'out'
+                           else "WE RECEIVE", t['amount'],
+                           t['res'].upper()))
+        y -= 0.06
+        self._text("ALREADY SIGNED", (-1.28, y), 0.024,
                    color=INK_FAINT)
-        self._text(hint, (-0.86, y), 0.028,
-                   color=((0.16, 0.38, 0.14, 1.0) if gain >= 0
-                          and (offer or ask) else INK))
+        if not standing_lines:
+            self._text("no instrument stands between us",
+                       (-0.94, y), 0.026, color=INK_FAINT)
+        else:
+            for i, line in enumerate(standing_lines[:4]):
+                self._text(line, (-0.94 + (i % 2) * 1.05,
+                                  y - (i // 2) * 0.042), 0.025,
+                           color=(0.16, 0.38, 0.14, 1.0))
+        bt = pill_button(self.frame, "CLEAR THE SHEET",
+                         self._clear_sheet, extraArgs=[],
+                         pos=(-0.52, 0, -0.755), hw=0.20, hh=0.046,
+                         text_scale=0.028, font=f)
+        self.widgets.append(bt)
         bt = pill_button(self.frame, "++ DISPATCH THE ENVOY ++",
                          self._dispatch_envoy, extraArgs=[nat],
-                         pos=(0.0, 0, -0.72), hw=0.36, hh=0.052,
-                         text_scale=0.034, font=f)
+                         pos=(0.16, 0, -0.755), hw=0.34, hh=0.050,
+                         text_scale=0.032, font=f)
         self.widgets.append(bt)
-        self._text("A SHEET IS ANSWERED AT ONCE -- THE TERMS BIND "
-                   "FROM THE FORTNIGHT", (0, -0.80), 0.024,
+        self._text("A SHEET IS ANSWERED AT ONCE -- MONEY AND CARGO "
+                   "MOVE ON THE FORTNIGHT, RIGHTS THE MOMENT IT IS "
+                   "SIGNED", (0, -0.83), 0.023,
                    color=INK_FAINT, align=TextNode.ACenter)
 
     def _build_roster(self):
@@ -1001,6 +1105,27 @@ class DiplomacyLedger:
                         relief=DGG.FLAT, state=DGG.DISABLED)
         self.widgets.append(r)
         return r
+
+    def _meter(self, x, y, w, frac, color):
+        """A ruled gauge: an empty trough with an inked fill."""
+        trough = DirectFrame(parent=self.frame, relief=DGG.FLAT,
+                             frameColor=(0.45, 0.40, 0.33, 0.5),
+                             frameSize=(0, w, -0.012, 0.012),
+                             pos=(x, 0, y), state=DGG.DISABLED)
+        inner = DirectFrame(parent=trough, relief=DGG.FLAT,
+                            frameColor=PAPER[:3] + (1.0,),
+                            frameSize=(0.002, w - 0.002,
+                                       -0.010, 0.010),
+                            state=DGG.DISABLED)
+        fill = max(0.0, min(1.0, frac))
+        if fill > 0.001:
+            DirectFrame(parent=inner, relief=DGG.FLAT,
+                        frameColor=color,
+                        frameSize=(0.002, 0.002 + (w - 0.004) * fill,
+                                   -0.010, 0.010),
+                        state=DGG.DISABLED)
+        self.widgets.append(trough)
+        return trough
 
     def _panel_head(self, x0, x1, y, title):
         self._text(title, (x0, y), 0.026, color=INK_FAINT)
@@ -1149,7 +1274,7 @@ class DiplomacyLedger:
                              (cols['line'], "STANDING TREATY")):
                 self._text(htxt, (cx, hy), 0.022, color=INK_FAINT)
             row_y = hy - 0.062
-            for res in ('oil', 'steel', 'rubber'):
+            for res in ('oil', 'steel', 'food'):
                 cap = g.seller_capacity(nat, res)
                 self._text(res.upper(), (cols['res'], row_y), 0.030)
                 self._text("%d / FTN" % cap if cap > 0 else "--",
@@ -1202,7 +1327,7 @@ class DiplomacyLedger:
                     self._text("--", (cols['line'], row_y), 0.024,
                                color=INK_FAINT)
                 row_y -= 0.085
-                if res != 'rubber':
+                if res != 'food':
                     self._rule(-1.30, 1.30, row_y + 0.048,
                                color=(0.45, 0.40, 0.33, 0.35),
                                w=0.0016)
@@ -1436,8 +1561,6 @@ class BudgetFax:
             cost_s = "$%d" % stats['cost']
             if mat.get('steel'):
                 cost_s += " %dS" % mat['steel']
-            if mat.get('rubber'):
-                cost_s += " %dR" % mat['rubber']
             text(cost_s, (x + 0.56, y), 0.024, INK_FAINT)
             if not available:
                 text("NO HARBOR", (x + 0.80, y), 0.028, INK_FAINT)
@@ -1498,7 +1621,7 @@ class BudgetFax:
             return
         if delta > 0:
             mat = self.mat_costs.get(ut, {})
-            for res in ('steel', 'rubber'):
+            for res in ('steel',):
                 if (mat.get(res) and self.stock
                         and self._mat_alloc(res) + mat[res]
                         > self.stock.get(res, 0)):
@@ -1877,7 +2000,7 @@ class ResourcesFax:
              "LEDGER ***", (0, 0.82), 0.043, INK, TextNode.ACenter)
         text("STOCKS ON HAND, THE FORTNIGHT'S TAKE, AND THE PUMPS",
              (0, 0.755), 0.027, INK_FAINT, TextNode.ACenter)
-        cols = {'oil': -0.78, 'steel': 0.0, 'rubber': 0.78}
+        cols = {'oil': -0.78, 'steel': 0.0, 'food': 0.78}
         for res, cx in cols.items():
             d = data[res]
             text(res.upper(), (cx, 0.66), 0.045, INK,
@@ -1928,6 +2051,9 @@ class ResourcesFax:
         text("ONE TON OF OIL MOVES 1,250 LBS OF STORES INTO A "
              "MACHINE -- MEN AND THE RAILWAYS DRAW NONE",
              (0, ry - 0.205), 0.027, INK, TextNode.ACenter)
+        if data.get('ration'):
+            text(data['ration'], (0, ry - 0.245), 0.027, INK,
+                 TextNode.ACenter)
         if data.get('trade'):
             text("IMPORTS & EXPORTS BY TREATY:", (-1.04, ry - 0.265),
                  0.028, INK)

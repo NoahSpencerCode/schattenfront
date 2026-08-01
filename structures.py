@@ -342,7 +342,7 @@ class Deposit(Structure):
 
     FIXED_SCALE = 0.036
     _ICONS = {'oil': 'derrick', 'steel': 'foundry',
-              'rubber': 'plantation'}
+              'food': 'granary'}
 
     def __init__(self, game, lat, lon, country, name, resource,
                  output, city=None):

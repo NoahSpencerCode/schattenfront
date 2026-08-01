@@ -34,7 +34,9 @@ from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     BASELINE_IMPORTS, DEPOSITS, OIL_PER_LB,
                     OIL_PER_SORTIE, PLAYABLE, RESOURCES,
                     RESOURCE_CAP, STARTING_RESOURCES,
-                    TRADE_PRICES, short_name,
+                    TRADE_PRICES, CIVIL_RATION,
+                    FOOD_PER_ENLISTED, OCCUPIED_RATION,
+                    short_name,
                     AIR_VISION_MULT, VISION_SCALE,
                     BRIDGE_HP, BRIDGE_REPAIR_RATE, BUDGET_PERIOD_DAYS,
                     CAM_MAX_DIST, CAM_MIN_DIST, CAM_START_DIST,
@@ -910,7 +912,7 @@ class WW2RTSGame(ShowBase):
         # kinds: 'passage' (march across their country),
         # 'supply' (water at their towns), 'nonaggression'
         self.rights = []
-        self._mat_spent = {c: {'steel': 0, 'rubber': 0}
+        self._mat_spent = {c: {'steel': 0, 'food': 0}
                            for c in PLAYABLE}
         self.bottlenecks = {c: [] for c in PLAYABLE}
         # every computer POWER gets a general staff playing by the
@@ -1435,21 +1437,16 @@ class WW2RTSGame(ShowBase):
             for _ in range(n):
                 if self.funds[country] - spent < cost:
                     break
-                if stock is not None and (
-                        stock['steel'] < mat['steel']
-                        or stock['rubber'] < mat['rubber']):
-                    res = ('steel' if stock['steel'] < mat['steel']
-                           else 'rubber')
+                if stock is not None and \
+                        stock['steel'] < mat['steel']:
                     halted.append(
-                        "%s LINE HALTED -- WANTS %d %s, HAS %d"
+                        "%s LINE HALTED -- WANTS %d STEEL, HAS %d"
                         % (stats_for(ut, country)['label'].upper(),
-                           mat[res], res.upper(), int(stock[res])))
+                           mat['steel'], int(stock['steel'])))
                     break
                 if stock is not None:
                     stock['steel'] -= mat['steel']
-                    stock['rubber'] -= mat['rubber']
                     self._mat_spent[country]['steel'] += mat['steel']
-                    self._mat_spent[country]['rubber'] += mat['rubber']
                 buy[ut] = buy.get(ut, 0) + 1
                 spent += cost
         self.bottlenecks[country] = halted
@@ -1799,6 +1796,34 @@ class WW2RTSGame(ShowBase):
                     self.funds[nat] = max(
                         0, self.funds.get(nat, 0) - deal['price'])
 
+    def _ration_out(self, country, wanted):
+        """How many sections the granaries can raise, and the food
+        drawn for them. Powers without a commissariat (the NPC
+        garrison nations) raise men freely."""
+        stock = self.resources.get(country)
+        if stock is None:
+            return wanted
+        can = int(stock['food'] // FOOD_PER_ENLISTED)
+        n = max(0, min(wanted, can))
+        if n:
+            stock['food'] -= n * FOOD_PER_ENLISTED
+            self._mat_spent[country]['food'] = \
+                self._mat_spent[country].get('food', 0) \
+                + n * FOOD_PER_ENLISTED
+        return n
+
+    def civil_ration(self, country):
+        """Tons a power's civilians eat in ONE DAY. Every soul under
+        the flag is fed -- and a population still being annexed eats
+        dearer, for it must be fed at bayonet point."""
+        tons = 0.0
+        for c in self.cities:
+            if c.country != country or not c.alive:
+                continue
+            rate = OCCUPIED_RATION if c.annexing else CIVIL_RATION
+            tons += (c.population / 1e6) * rate
+        return tons
+
     def _daily_income(self, country):
         """{res: tons} a power draws in ONE DAY: its deposits and the
         civilian imports, divided across the fortnight."""
@@ -1810,8 +1835,28 @@ class WW2RTSGame(ShowBase):
                                       / float(BUDGET_PERIOD_DAYS))
         return out
 
+    def _famine(self, country, short):
+        """The ration cannot be met: industry sickens in every town
+        while the shortfall stands, and the player is told once."""
+        for c in self.cities:
+            if c.country == country and not c.annexing:
+                c.industry = max(5.0, c.industry - 0.35)
+        if country != self.player_country:
+            return
+        now = globalClock.getFrameTime()
+        if now - getattr(self, '_famine_t', -999.0) > 45.0:
+            self._famine_t = now
+            self.fax.post(
+                "THE RATION FAILS",
+                "The granaries are %s short of the day's ration. "
+                "Industry sickens in every town while the shortfall "
+                "stands, and no man can be mustered until the stores "
+                "are made good -- buy grain at the table, or take a "
+                "granary." % B("%d TONS" % max(1, int(short))),
+                sender="MINISTRY OF FOOD")
+
     def _accrue_resources(self, days=1):
-        """THE WELLS RUN EVERY DAY. Oil, steel and rubber trickle in
+        """THE WELLS RUN EVERY DAY. Oil, steel and grain trickle in
         daily rather than landing in one fortnightly lump -- a power
         that runs dry on the 3rd is pumping again on the 4th instead
         of sitting idle until the books close."""
@@ -1823,6 +1868,15 @@ class WW2RTSGame(ShowBase):
             for res in RESOURCES:
                 stock[res] = min(RESOURCE_CAP,
                                  stock[res] + gain[res] * days)
+            # the mouths are fed before anything else is spent
+            eaten = self.civil_ration(country) * days
+            self._mat_spent[country]['food'] = \
+                self._mat_spent[country].get('food', 0) + eaten
+            if stock['food'] < eaten:
+                self._famine(country, eaten - stock['food'])
+                stock['food'] = 0.0
+            else:
+                stock['food'] -= eaten
 
     def _collect_resources(self):
         """The fortnight's books close: the take is only REPORTED
@@ -1846,7 +1900,7 @@ class WW2RTSGame(ShowBase):
                              deal['amount']))
             spent = {'oil': int(self._oil_spent.get(country, 0)),
                      'steel': self._mat_spent[country]['steel'],
-                     'rubber': self._mat_spent[country]['rubber']}
+                     'food': self._mat_spent[country]['food']}
             report = {}
             for res in RESOURCES:
                 income = sum(v for _, v in flows[res])
@@ -1855,7 +1909,7 @@ class WW2RTSGame(ShowBase):
             self.resource_flows[country] = report
             self._oil_spent[country] = 0.0
             self._pump_lbs[country] = 0.0
-            self._mat_spent[country] = {'steel': 0, 'rubber': 0}
+            self._mat_spent[country] = {'steel': 0, 'food': 0}
 
     def _pump(self, unit, lbs):
         """OIL AT THE PUMPS: stores bound for a MACHINE draw the
@@ -2040,14 +2094,24 @@ class WW2RTSGame(ShowBase):
             self.fax_short("THE ROLLS ARE EMPTY AT %s -- NEW NAMES "
                            "EACH FORTNIGHT" % city.name.upper())
             return
-        city.draft_pool = 0
+        # RATIONS: a man cannot be raised on an empty granary. What
+        # the stores can feed marches; the rest wait on the rolls.
+        n = self._ration_out(city.country, n)
+        if n <= 0:
+            self.fax_short("NO RATIONS FOR THE MUSTER AT %s -- THE "
+                           "GRANARIES ARE EMPTY" % city.name.upper())
+            return
+        city.draft_pool = max(0, city.draft_pool - n)
         for _ in range(n):
             u = self.spawn_unit('infantry', city.country, city.lat,
                                 city.lon, jitter=0.3,
                                 seed=random.randrange(99999))
             u.supply = u.stats['supply_cap']
-        self.fax_short("%d ENLISTED MUSTER AT %s"
-                       % (n, city.name.upper()))
+        left = city.draft_pool
+        self.fax_short("%d ENLISTED MUSTER AT %s%s"
+                       % (n, city.name.upper(),
+                          " -- %d WAIT ON RATIONS" % left
+                          if left else ""))
         self._refresh_selection_ui()
 
     def _ai_enlist(self):
@@ -2064,12 +2128,14 @@ class WW2RTSGame(ShowBase):
                 if (c.country != country or c.annexing
                         or c.draft_pool <= 0):
                     continue
-                for _ in range(c.draft_pool):
+                # every staff answers to its own commissariat
+                n = self._ration_out(country, c.draft_pool)
+                for _ in range(n):
                     u = self.spawn_unit('infantry', country, c.lat,
                                         c.lon, jitter=0.3,
                                         seed=random.randrange(99999))
                     u.supply = u.stats['supply_cap']
-                c.draft_pool = 0
+                c.draft_pool = max(0, c.draft_pool - n)
 
     def open_tax_fax(self, city):
         if (self.game_state != 'playing' or self.tax_fax
@@ -2188,7 +2254,7 @@ class WW2RTSGame(ShowBase):
         stock = self.resources[me]
         spent = {'oil': int(self._oil_spent.get(me, 0)),
                  'steel': self._mat_spent[me]['steel'],
-                 'rubber': self._mat_spent[me]['rubber']}
+                 'food': self._mat_spent[me]['food']}
         data = {}
         for res in RESOURCES:
             income = [('IMPORTS', BASELINE_IMPORTS[res])]
@@ -2230,6 +2296,14 @@ class WW2RTSGame(ShowBase):
         data['unit_stores'] = aboard
         data['pump_lbs'] = self._pump_lbs.get(me, 0.0)
         data['pump_oil'] = self._oil_spent.get(me, 0.0)
+        eaten = self.civil_ration(me)
+        data['ration'] = (
+            "THE RATION: %d TONS A DAY FEEDS %.1f MILLION SOULS -- "
+            "AND %d TONS RAISES ONE SECTION"
+            % (int(round(eaten)),
+               sum(c.population for c in self.cities
+                   if c.country == me) / 1e6,
+               FOOD_PER_ENLISTED))
         data['trade'] = [
             ("%s %d %s %s %s ($%d/FTN)"
              % ("IMPORTING" if t['dir'] == 'in' else "EXPORTING",

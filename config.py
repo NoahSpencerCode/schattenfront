@@ -69,25 +69,33 @@ TERRAIN_LOS = False           # relief-warped vision fields (heavy);
 GAME_VERSION = '1.2.0'        # shown on the menu as ALPHA <version>
 
 # ------------------------------------------------ strategic resources
-# Exactly three: OIL is operations, STEEL is production, RUBBER is
-# motorization. Stockpiles are national, filled each fortnight by
-# the deposits a power holds (and a small civilian import baseline),
-# spent by production (steel/rubber) and by the PUMPS whenever the
-# supply net feeds machines (oil). Per-unit supply burn is untouched.
-RESOURCES = ('oil', 'steel', 'rubber')
+# Exactly three, and each governs a different half of the war:
+# OIL is OPERATIONS (drawn at the pumps when the supply net feeds a
+# machine), STEEL is PRODUCTION (spent building every hull and
+# hull-plate), FOOD is MANPOWER (rations for the men a city musters
+# and the mouths its flag covers). Per-unit supply burn is untouched.
+RESOURCES = ('oil', 'steel', 'food')
 RESOURCE_CAP = 999            # national stockpile ceiling per resource
 # sized so the OPENING slate builds clean (~530 tons of steel);
 # a money-limited fortnight thereafter bills roughly one
 # fortnight's deposit income -- materials pinch, never strangle
-STARTING_RESOURCES = {'oil': 400, 'steel': 800, 'rubber': 150}
-BASELINE_IMPORTS = {'oil': 40, 'steel': 60, 'rubber': 30}
+STARTING_RESOURCES = {'oil': 400, 'steel': 800, 'food': 260}
+BASELINE_IMPORTS = {'oil': 40, 'steel': 60, 'food': 40}
 OIL_PER_LB = 1.0 / 1250.0     # tons of oil per lb of stores pumped
                               # into MACHINES (men and rail burn none)
 OIL_PER_SORTIE = 0.6          # aviation spirit per takeoff
 
+# FOOD is the manpower resource. Machines never eat: rations are
+# drawn when a city musters its Enlisted, and every population the
+# flag covers must be fed each day -- so conquest brings mouths as
+# well as factories, and a blockaded island starves.
+FOOD_PER_ENLISTED = 4         # tons to raise and feed one section
+CIVIL_RATION = 0.55           # tons per MILLION souls per day
+OCCUPIED_RATION = 1.6         # a hostile population eats dearer
+
 # the open market: base $/ton for treaty trade, discounted between
 # allies the same way volunteers are
-TRADE_PRICES = {'oil': 8, 'steel': 6, 'rubber': 10}
+TRADE_PRICES = {'oil': 8, 'steel': 6, 'food': 7}
 TRADE_STEPS = (20, 40)        # tonnages a treaty line may carry
 
 # Deposits sit beside their historical cities; own the city, work
@@ -109,11 +117,23 @@ DEPOSITS = {
     'Osaka': ('steel', 60), 'Mukden': ('steel', 60),
     'Liege': ('steel', 40), 'Prague': ('steel', 40),
     'Milan': ('steel', 40),
-    # ---- RUBBER
-    'Kuala Lumpur': ('rubber', 80), 'Singapore': ('rubber', 40),
-    'Saigon': ('rubber', 60), 'Surabaya': ('rubber', 40),
-    'Colombo': ('rubber', 30), 'Manila': ('rubber', 30),
-    'Hanoi': ('rubber', 30),
+    # ---- FOOD: the granaries, the paddies and the prairies.
+    # Deliberately lopsided, as history was: the Ukraine and the
+    # American plains feed empires, Britain must import her bread,
+    # and Japan's rice lies in other men's colonies.
+    'Kiev': ('food', 110), 'Voronezh': ('food', 90),
+    'Odessa': ('food', 80), 'Rostov': ('food', 70),
+    'St. Louis': ('food', 110), 'Kansas City': ('food', 100),
+    'Omaha': ('food', 90), 'Minneapolis': ('food', 80),
+    'Paris': ('food', 60), 'Lyon': ('food', 50),
+    'Bordeaux': ('food', 50), 'Bologna': ('food', 40),
+    'Budapest': ('food', 60), 'Bucharest': ('food', 60),
+    'Konigsberg': ('food', 50), 'Munich': ('food', 40),
+    'Delhi': ('food', 80), 'Calcutta': ('food', 70),
+    'Bangkok': ('food', 90), 'Mandalay': ('food', 80),
+    'Saigon': ('food', 80), 'Nanking': ('food', 70),
+    'Wuhan': ('food', 60), 'Sydney': ('food', 70),
+    'Nagoya': ('food', 40), 'Surabaya': ('food', 50),
 }
 MILES_PER_WU = 132            # one world unit is ~212 km = 132 statute mi
 BORDER_WASH_BAND = 0.022      # frontier ribbon width, radians (~140 km)

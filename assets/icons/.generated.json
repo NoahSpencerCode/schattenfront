@@ -171,6 +171,10 @@
 "h": "7f6dd02f40bddf97b4b8fb4ffe45eda0",
 "v": 3
 },
+"keys/panel_hover_a7_75_r0_42.png": {
+"h": "5ae648b33dba9261285317f38367f677",
+"v": 3
+},
 "keys/panel_hover_a9_25_r0_42.png": {
 "h": "48dfb96b8b6b6d4a0370708141281430",
 "v": 3
@@ -239,6 +243,10 @@
 "h": "47e8912cb0bbc74fcf470f04fcb19dd6",
 "v": 3
 },
+"keys/panel_press_a7_75_r0_42.png": {
+"h": "6cf4d53cbca27921308e7b02ca715bc4",
+"v": 3
+},
 "keys/panel_press_a9_25_r0_42.png": {
 "h": "b720fb86befe2cc648c810f85d4da5de",
 "v": 3
@@ -305,6 +313,10 @@
 },
 "keys/panel_ready_a7_25_r0_42.png": {
 "h": "e7a65da42c2b89b1b86de495a9b20ddd",
+"v": 3
+},
+"keys/panel_ready_a7_75_r0_42.png": {
+"h": "5ff6250bf41961666c9498815c4ce1e6",
 "v": 3
 },
 "keys/panel_ready_a9_25_r0_42.png": {
@@ -433,6 +445,10 @@
 },
 "ui/foundry.png": {
 "h": "e4b1d3f2f15c79857e39538cd58e5e2d",
+"v": 17
+},
+"ui/granary.png": {
+"h": "f8e7df7520e322539c6d26b9a7a29c82",
 "v": 17
 },
 "ui/nosupply_red.png": {

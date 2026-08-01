@@ -804,6 +804,19 @@ def _draw_foundry(d, ink):
     d.line([(67, 78), (67, 88)], fill=ink, width=5)            # the pour
 
 
+def _draw_granary(d, ink):
+    """A grain silo beside its sheaf: the ration made visible."""
+    d.rectangle([16, 34, 48, 84], outline=ink, width=5)         # silo
+    d.pieslice([16, 14, 48, 54], 180, 360, fill=ink)            # cap
+    for y in (48, 62, 76):
+        d.line([(16, y), (48, y)], fill=ink, width=3)           # bands
+    d.line([(70, 84), (70, 44)], fill=ink, width=5)             # sheaf
+    for dx in (-12, 12):
+        d.line([(70, 56), (70 + dx, 34)], fill=ink, width=5)
+    d.ellipse([64, 30, 76, 42], fill=ink)                       # ear
+    d.rectangle([54, 84, 88, 90], fill=ink)                     # floor
+
+
 def _draw_plantation(d, ink):
     """Rubber estate: tapped trees in their rows."""
     for x in (30, 60):
@@ -815,6 +828,7 @@ def _draw_plantation(d, ink):
 
 
 _DRAWERS = {
+    'granary': _draw_granary,
     'crossed_swords': _draw_crossed_swords,
     'resource_button': _draw_resource_button,
     'derrick': _draw_derrick,
