@@ -906,6 +906,10 @@ class WW2RTSGame(ShowBase):
         # standing trade treaties: [{'with': nat, 'res': r,
         #  'amount': n, 'price': $/ftn, 'dir': 'in'|'out'}, ...]
         self.trade_deals = []
+        # rights won at the table: [{'with','kind','until'}]
+        # kinds: 'passage' (march across their country),
+        # 'supply' (water at their towns), 'nonaggression'
+        self.rights = []
         self._mat_spent = {c: {'steel': 0, 'rubber': 0}
                            for c in PLAYABLE}
         self.bottlenecks = {c: [] for c in PLAYABLE}
@@ -1471,6 +1475,186 @@ class WW2RTSGame(ShowBase):
             (B("$%d" % spent), lines),
             sender="EXCHEQUER")
 
+    def territory_of(self, pos):
+        """Whose country the ground belongs to: the nearest town
+        inside 1.8wu holds the ground around it. Open country
+        (deep ocean, wilderness) belongs to nobody."""
+        best, best_d = None, 1.8
+        for c in self.cities:
+            d = angle_between(pos, c.pos) * GLOBE_RADIUS
+            if d < best_d:
+                best, best_d = c, d
+        return best.country if best is not None else None
+
+    def passage_refused(self, unit, goal):
+        """A land column may not cross a foreign frontier without a
+        right of passage -- unless the war has already opened it."""
+        if unit.stats['domain'] != 'land':
+            return None
+        owner = self.territory_of(goal)
+        if owner in (None, 'neutral', unit.country):
+            return None
+        if self.at_war(unit.country, owner):
+            return None         # war opens every frontier
+        if self.allied(unit.country, owner) or \
+                self.has_right(unit.country, owner, 'passage'):
+            return None
+        return owner
+
+    # =============================================== the table
+    def standing(self, nat):
+        """What a foreign office thinks of us, on the Civ model:
+        a score from shared blood, shared enemies, treaties kept
+        and the shadow our army casts."""
+        me = self.player_country
+        if nat == me:
+            return 100
+        score = 10
+        if self.allied(me, nat):
+            score += 55
+        if self.at_war(me, nat):
+            score -= 80
+        # shared enemies warm a foreign office faster than anything
+        mine = set(self.nation_enemies(me))
+        theirs = set(self.nation_enemies(nat))
+        score += 14 * len(mine & theirs)
+        # ... and an enemy of ours they call a friend cools it
+        score -= 18 * len(set(self.alliances.get(nat, ())) & mine)
+        # standing agreements are goodwill banked
+        score += 8 * sum(1 for r in self.rights if r['with'] == nat)
+        score += 6 * sum(1 for t in self.trade_deals
+                         if t['with'] == nat)
+        # the shadow of a great army: the strong are courted by the
+        # weak and feared by the middling
+        my_f = self._forces_of(me)
+        th_f = max(1, self._forces_of(nat))
+        ratio = my_f / float(th_f)
+        if ratio > 2.5:
+            score += 12 if nat not in PLAYABLE else -14
+        elif ratio < 0.5:
+            score -= 10
+        return int(max(-100, min(100, score)))
+
+    def _forces_of(self, country):
+        return sum(1 for u in self.units
+                   if u.alive and u.country == country)
+
+    def deal_gates(self, nat):
+        """Rights a sheet may ask for at all. A pact of alliance is
+        never bought cold -- it is earned, as a Declaration of
+        Friendship is in Civ; and nobody hands a lump sum to a
+        power they do not trust."""
+        st = self.standing(nat)
+        at_war = self.at_war(self.player_country, nat)
+        return {
+            'alliance': (not at_war and st >= 45
+                         and not self.allied(self.player_country,
+                                             nat)),
+            'peace': at_war,
+            'nonaggression': not at_war,
+            'passage': not at_war,
+            'supply': not at_war and st >= 20,
+            'funds_once': st >= 25,
+            'funds_ftn': True,
+            'res_once': True,
+            'res_ftn': True,
+        }
+
+    def has_right(self, a, b, kind):
+        """Is a right of passage / supply standing between two
+        powers? Rights are mutual: the sheet grants both ways."""
+        if self.allied(a, b):
+            return True
+        for r in self.rights:
+            if r['kind'] != kind:
+                continue
+            if (r['with'] == b and a == self.player_country) or \
+                    (r['with'] == a and b == self.player_country):
+                return True
+        return False
+
+    def propose_deal(self, nat, offer, ask):
+        """The envoy goes out with the sheet and comes back with an
+        answer in the other office's own voice."""
+        import deals as _d
+        from config import short_name
+        me = self.player_country
+        # a sheet is only as good as the treasury behind it
+        for tok in offer:
+            if tok['kind'] == 'funds_once' and \
+                    self.funds[me] < tok['amount']:
+                self.fax.post(
+                    "THE SHEET IS WITHDRAWN",
+                    "The Exchequer cannot cover %s."
+                    % B(_d.token_text(tok)), sender="FOREIGN OFFICE")
+                return 'refuse'
+            if tok['kind'] == 'res_once' and \
+                    self.resources[me][tok['res']] < tok['amount']:
+                self.fax.post(
+                    "THE SHEET IS WITHDRAWN",
+                    "We have no %s to ship."
+                    % B(tok['res'].upper()), sender="FOREIGN OFFICE")
+                return 'refuse'
+        verdict, word, reply, gain = _d.evaluate(
+            offer, ask, self.standing(nat), self.deal_gates(nat))
+        title = ("TERMS ACCEPTED" if verdict == 'accept'
+                 else "TERMS REFUSED")
+        body = "%s\n\n%s" % (B('"%s"' % reply),
+                              "-- the %s foreign office (%s)"
+                              % (COUNTRIES[nat]['adjective'], word))
+        if verdict == 'accept':
+            self._execute_deal(nat, offer, ask)
+            body += "\n\nThe instrument is signed and lodged."
+        self.fax.post(title, body,
+                      sender="ENVOY TO %s" % short_name(nat).upper())
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+        return verdict
+
+    def _execute_deal(self, nat, offer, ask):
+        """Both sides honour the sheet at once: cargo and money
+        move, rights and pacts take effect."""
+        me = self.player_country
+        for tok, giver, taker in ([(t, me, nat) for t in offer]
+                                  + [(t, nat, me) for t in ask]):
+            k = tok['kind']
+            if k == 'funds_once':
+                self.funds[giver] -= tok['amount']
+                self.funds[taker] = self.funds.get(taker, 0) \
+                    + tok['amount']
+            elif k == 'res_once':
+                res, amt = tok['res'], tok['amount']
+                if giver in self.resources:
+                    self.resources[giver][res] = max(
+                        0, self.resources[giver][res] - amt)
+                if taker in self.resources:
+                    self.resources[taker][res] = min(
+                        RESOURCE_CAP,
+                        self.resources[taker][res] + amt)
+            elif k == 'funds_ftn':
+                self.trade_deals.append(
+                    {'with': nat, 'res': 'funds',
+                     'amount': 0, 'price': tok['amount'],
+                     'dir': 'out' if giver == me else 'in'})
+            elif k == 'res_ftn':
+                price = int(tok['amount']
+                            * self.trade_price(nat, tok['res'],
+                                               'out' if giver == me
+                                               else 'in'))
+                self.trade_deals.append(
+                    {'with': nat, 'res': tok['res'],
+                     'amount': tok['amount'], 'price': 0,
+                     'dir': 'out' if giver == me else 'in',
+                     'gift': True})
+            elif k in ('passage', 'supply', 'nonaggression'):
+                if not any(r['with'] == nat and r['kind'] == k
+                           for r in self.rights):
+                    self.rights.append({'with': nat, 'kind': k})
+            elif k == 'alliance':
+                self.make_alliance(me, nat)
+            elif k == 'peace':
+                self.make_peace(me, nat)
+
     def seller_capacity(self, nat, res):
         """Tons a nation can put on the market each fortnight: its
         deposits' output, less what its standing exports already
@@ -1541,6 +1725,47 @@ class WW2RTSGame(ShowBase):
                 self.trade_deals.remove(deal)
                 self.fax_short("TREATY WITH %s LAPSES -- THE WAR"
                                % short_name(nat).upper())
+                continue
+            if deal['res'] == 'funds':
+                # a subsidy: money alone moves, each fortnight
+                pay = deal['price']
+                if deal['dir'] == 'out':
+                    if self.funds[me] < pay:
+                        self.trade_deals.remove(deal)
+                        self.fax_short("SUBSIDY TO %s LAPSES -- THE "
+                                       "TREASURY CANNOT PAY"
+                                       % short_name(nat).upper())
+                        continue
+                    self.funds[me] -= pay
+                    self.funds[nat] = self.funds.get(nat, 0) + pay
+                else:
+                    self.funds[me] += pay
+                    self.funds[nat] = max(
+                        0, self.funds.get(nat, 0) - pay)
+                continue
+            if deal.get('gift'):
+                # cargo pledged at the table: goods move, no money
+                if deal['dir'] == 'in':
+                    stock[deal['res']] = min(
+                        RESOURCE_CAP,
+                        stock[deal['res']] + deal['amount'])
+                    if nat in PLAYABLE:
+                        self.resources[nat][deal['res']] = max(
+                            0, self.resources[nat][deal['res']]
+                            - deal['amount'])
+                else:
+                    if stock[deal['res']] < deal['amount']:
+                        self.trade_deals.remove(deal)
+                        self.fax_short("PLEDGE TO %s LAPSES -- "
+                                       "NOTHING TO SHIP"
+                                       % short_name(nat).upper())
+                        continue
+                    stock[deal['res']] -= deal['amount']
+                    if nat in PLAYABLE:
+                        self.resources[nat][deal['res']] = min(
+                            RESOURCE_CAP,
+                            self.resources[nat][deal['res']]
+                            + deal['amount'])
                 continue
             if deal['dir'] == 'in':
                 if self.funds[me] < deal['price']:
@@ -3122,6 +3347,28 @@ class WW2RTSGame(ShowBase):
         (not just the first)."""
         if unit.country == self.player_country and not order.get('auto'):
             order['indicate'] = True
+            # THE FRONTIER: a column ordered across a foreign border
+            # without a right of passage is turned back by their
+            # guards -- buy the right at the table, or declare war
+            if order.get('kind') == 'move' and order.get('goal') \
+                    is not None:
+                owner = self.passage_refused(unit, order['goal'])
+                if owner is not None:
+                    try:
+                        unit.order_queue.remove(order)
+                    except ValueError:
+                        pass
+                    if unit.current_order is order:
+                        unit.current_order = None
+                    now = globalClock.getFrameTime()
+                    if now - getattr(self, '_passage_t',
+                                     -99.0) > 4.0:
+                        self._passage_t = now
+                        self.fax_short(
+                            "%s FRONTIER CLOSED TO US -- TREAT FOR "
+                            "A RIGHT OF PASSAGE, OR DECLARE WAR"
+                            % short_name(owner).upper())
+                    return
         # parked player aircraft do not scramble on the click: the order
         # goes on the plotting board; ENTER (or SCRAMBLE) commits it.
         # Aloft aircraft are RETASKED in flight on their remaining fuel.
@@ -4410,7 +4657,9 @@ void main() {
                 continue
             for c in self.cities:
                 if ((c.country == u.country
-                     or self.allied(u.country, c.country))
+                     or self.allied(u.country, c.country)
+                     or self.has_right(u.country, c.country,
+                                       'supply'))
                         and not c.annexing
                         and u.dist_to(c.pos) < 0.6):
                     u.supply = u.stats['supply_cap']
@@ -4585,7 +4834,8 @@ void main() {
     def _sources_for(self, u):
         def own_or_ally(country):
             return (country == u.country
-                    or self.allied(u.country, country))
+                    or self.allied(u.country, country)
+                    or self.has_right(u.country, country, 'supply'))
         if u.stats['domain'] == 'sea':
             srcs = [c.pos for c in self.cities
                     if own_or_ally(c.country) and c.harbor]

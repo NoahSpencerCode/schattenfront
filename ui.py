@@ -701,12 +701,16 @@ class DiplomacyLedger:
                                  or view == g.player_country):
             view = self.view = None
         if view is None:
+            self.table = None
             self._build_roster()
+        elif getattr(self, 'table', None) == view:
+            self._build_table(view)
         else:
             self._build_dossier(view)
 
     def _open_dossier(self, nat):
         self.view = nat
+        self.table = None
         self.rebuild()
 
     def _card(self, nat, x, y, big=False):
@@ -727,6 +731,178 @@ class DiplomacyLedger:
         crisp_image(chip)
         self.widgets.append(chip)
         return chip
+
+    def _open_table(self, nat):
+        self.view = nat
+        self.table = nat
+        self.offer = {}
+        self.ask = {}
+        self.rebuild()
+
+    def _table_adjust(self, side, key, delta, step):
+        book = self.offer if side == 'offer' else self.ask
+        book[key] = max(0, book.get(key, 0) + delta * step)
+        if book[key] == 0:
+            book.pop(key, None)
+        self.rebuild()
+
+    def _table_toggle(self, side, key):
+        book = self.offer if side == 'offer' else self.ask
+        if key in book:
+            book.pop(key)
+        else:
+            book[key] = 1
+        self.rebuild()
+
+    def _tokens(self, book):
+        """The book of counters as a list of deal tokens."""
+        out = []
+        for key, n in book.items():
+            if n <= 0:
+                continue
+            if key == 'funds_once':
+                out.append({'kind': 'funds_once', 'amount': n})
+            elif key == 'funds_ftn':
+                out.append({'kind': 'funds_ftn', 'amount': n})
+            elif key.startswith('res_ftn:'):
+                out.append({'kind': 'res_ftn',
+                            'res': key.split(':')[1], 'amount': n})
+            elif key.startswith('res_once:'):
+                out.append({'kind': 'res_once',
+                            'res': key.split(':')[1], 'amount': n})
+            else:
+                out.append({'kind': key})
+        return out
+
+    def _dispatch_envoy(self, nat):
+        g = self.game
+        g.propose_deal(nat, self._tokens(self.offer),
+                       self._tokens(self.ask))
+        self.offer = {}
+        self.ask = {}
+        self.rebuild()
+
+    def _build_table(self, nat):
+        """THE NEGOTIATING TABLE: every concession is a counter laid
+        on one side of the sheet or the other."""
+        import deals as _d
+        g = self.game
+        from config import short_name, RESOURCES
+        me = g.player_country
+        f = self.base.hud_font
+        b = pill_button(self.frame, "<< THE DOSSIER",
+                        self._open_dossier, extraArgs=[nat],
+                        pos=(-1.16, 0, 0.775), hw=0.19, hh=0.040,
+                        font=f)
+        self.widgets.append(b)
+        st = g.standing(nat)
+        word, _mult = _d.standing_word(st)
+        self._card(nat, -1.14, 0.60)
+        self._text("THE ENVOY'S SHEET -- %s" % short_name(nat).upper(),
+                   (-1.02, 0.615), 0.044)
+        self._text("THEIR FOREIGN OFFICE STANDS %s TOWARD US"
+                   % word, (-1.02, 0.556), 0.026, color=INK_FAINT)
+        self._stamp(0.86, 0.605, word,
+                    (0.16, 0.38, 0.14, 1.0) if st >= 30 else
+                    (0.62, 0.14, 0.10, 1.0) if st < -10 else
+                    (0.40, 0.36, 0.30, 1.0))
+        self._rule(-1.30, 1.30, 0.505)
+
+        gates = g.deal_gates(nat)
+        cols = {'name': -1.28, 'offer': -0.30, 'ask': 0.62}
+        self._text("ON THE TABLE", (cols['name'], 0.455), 0.024,
+                   color=INK_FAINT)
+        self._text("WE OFFER", (cols['offer'] + 0.09, 0.455), 0.024,
+                   color=INK_FAINT, align=TextNode.ACenter)
+        self._text("WE ASK", (cols['ask'] + 0.09, 0.455), 0.024,
+                   color=INK_FAINT, align=TextNode.ACenter)
+
+        rows = [('funds_once', 'FUNDS (ONE PAYMENT)', 100),
+                ('funds_ftn', 'FUNDS EACH FORTNIGHT', 50)]
+        for res in RESOURCES:
+            rows.append(('res_ftn:%s' % res,
+                         '%s EACH FORTNIGHT' % res.upper(), 10))
+        rows += [('passage', 'RIGHT OF PASSAGE', 0),
+                 ('supply', 'USE OF THE SUPPLY NET', 0),
+                 ('nonaggression', 'PACT OF NON-AGGRESSION', 0),
+                 ('alliance', 'PACT OF ALLIANCE', 0)]
+        if g.at_war(me, nat):
+            rows.append(('peace', 'AN END TO THE WAR', 0))
+
+        y = 0.405
+        for key, label, step in rows:
+            kind = key.split(':')[0]
+            self._text(label, (cols['name'], y), 0.027)
+            for side in ('offer', 'ask'):
+                x = cols[side]
+                book = self.offer if side == 'offer' else self.ask
+                mutual = kind in _d.GIVE_ONLY_MUTUAL
+                # a pact binds BOTH sides: it is asked for, never
+                # "offered" as a one-way concession
+                if mutual and side == 'offer':
+                    self._text("--", (x + 0.09, y), 0.024,
+                               color=INK_FAINT,
+                               align=TextNode.ACenter)
+                    continue
+                if side == 'ask' and gates.get(kind, True) is False:
+                    self._text("NOT ON OFFER", (x + 0.09, y), 0.021,
+                               color=INK_FAINT,
+                               align=TextNode.ACenter)
+                    continue
+                if step == 0:
+                    on = key in book
+                    bt = pill_button(
+                        self.frame, "PLEDGED" if on else "--",
+                        self._table_toggle, extraArgs=[side, key],
+                        pos=(x + 0.09, 0, y + 0.008), hw=0.10,
+                        hh=0.030, text_scale=0.021, font=f,
+                        latched=on)
+                    self.widgets.append(bt)
+                else:
+                    bt = pill_button(
+                        self.frame, "-", self._table_adjust,
+                        extraArgs=[side, key, -1, step],
+                        pos=(x - 0.02, 0, y + 0.008), hw=0.028,
+                        hh=0.028, text_scale=0.030, font=f)
+                    self.widgets.append(bt)
+                    self._text("%d" % book.get(key, 0),
+                               (x + 0.09, y), 0.028,
+                               align=TextNode.ACenter)
+                    bt = pill_button(
+                        self.frame, "+", self._table_adjust,
+                        extraArgs=[side, key, +1, step],
+                        pos=(x + 0.20, 0, y + 0.008), hw=0.028,
+                        hh=0.028, text_scale=0.030, font=f)
+                    self.widgets.append(bt)
+            y -= 0.066
+            self._rule(-1.30, 1.30, y + 0.036,
+                       color=(0.45, 0.40, 0.33, 0.28), w=0.0014)
+
+        # the envoy's own reading of the sheet
+        offer, ask = self._tokens(self.offer), self._tokens(self.ask)
+        verdict, vword, _reply, gain = _d.evaluate(
+            offer, ask, st, gates)
+        y -= 0.03
+        if not offer and not ask:
+            hint = ("Lay counters on the sheet: what we give on the "
+                    "left, what we want on the right.")
+        elif verdict == 'ungated':
+            hint = "They will not treat for that at all -- not yet."
+        else:
+            hint = _d.shortfall_hint(gain)
+        self._text("THE ENVOY'S READING:", (-1.28, y), 0.026,
+                   color=INK_FAINT)
+        self._text(hint, (-0.86, y), 0.028,
+                   color=((0.16, 0.38, 0.14, 1.0) if gain >= 0
+                          and (offer or ask) else INK))
+        bt = pill_button(self.frame, "++ DISPATCH THE ENVOY ++",
+                         self._dispatch_envoy, extraArgs=[nat],
+                         pos=(0.0, 0, -0.72), hw=0.36, hh=0.052,
+                         text_scale=0.034, font=f)
+        self.widgets.append(bt)
+        self._text("A SHEET IS ANSWERED AT ONCE -- THE TERMS BIND "
+                   "FROM THE FORTNIGHT", (0, -0.80), 0.024,
+                   color=INK_FAINT, align=TextNode.ACenter)
 
     def _build_roster(self):
         g = self.game
@@ -949,6 +1125,13 @@ class DiplomacyLedger:
                              if kind == 'red' else INK))
                 self.widgets.append(bt)
                 ky -= 0.115
+
+        # the envoy's sheet: the whole of diplomacy on one table
+        bt = pill_button(self.frame, "OPEN THE NEGOTIATING TABLE",
+                         self._open_table, extraArgs=[nat],
+                         pos=(0.80, 0, ky - 0.02), hw=0.34,
+                         hh=0.044, text_scale=0.026, font=f)
+        self.widgets.append(bt)
 
         # ---- the TRADE LEDGER: a true table, every column ruled
         if not at_war:
