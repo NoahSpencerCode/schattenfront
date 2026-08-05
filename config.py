@@ -101,6 +101,20 @@ DRAFT_INDUSTRY_GRIND = 0.8    # industry %-points per conscripted
                               # section per fortnight
 DRAFT_QUOTA_CAP_MULT = 3      # quota ceiling, in volunteer lines
 
+# THE FORTNIGHT FOCUS: every city works at ONE directive a
+# fortnight. Each pays a different coin -- money, food, steel,
+# science, or capability -- so no directive dominates.
+FOCUS_FINANCE_HEAL = 5.0      # industry points healed (revenue rises)
+FOCUS_AGRI_FOOD = 2           # +food/ftn per agriculture level
+FOCUS_AGRI_MAX = 5
+FOCUS_STEEL_OUT = 2           # +steel/ftn per works level
+FOCUS_STEEL_MAX = 5           # (only cities WITH a steel deposit)
+FOCUS_RESEARCH_RP_PER_M = 4.0 # research points per million souls
+FOCUS_RESEARCH_RP_MIN = 2.0
+BASE_COSTS = {'army': (400, 10),   # ($, steel) -- one fortnight
+              'air': (500, 12),
+              'naval': (600, 16)}
+
 # the open market: base $/ton for treaty trade, discounted between
 # allies the same way volunteers are
 TRADE_PRICES = {'oil': 8, 'steel': 6, 'food': 7}

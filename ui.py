@@ -1898,6 +1898,134 @@ class DraftFax:
         self.frame.destroy()
 
 
+class CityFocusFax:
+    """The FORTNIGHT FOCUS for one city: pick the directive the town
+    works at, with this city's own numbers beside every choice."""
+
+    def __init__(self, base, city, on_transmit, on_discard):
+        from config import (FOCUS_FINANCE_HEAL, FOCUS_AGRI_FOOD,
+                            FOCUS_AGRI_MAX, FOCUS_STEEL_OUT,
+                            FOCUS_STEEL_MAX, FOCUS_RESEARCH_RP_PER_M,
+                            FOCUS_RESEARCH_RP_MIN, BASE_COSTS)
+        self.base = base
+        self.city = city
+        self.on_transmit = on_transmit
+        self.on_discard = on_discard
+        self.choice = city.focus
+        g = base
+        f = base.hud_font
+
+        rp = max(FOCUS_RESEARCH_RP_MIN,
+                 city.population / 1e6 * FOCUS_RESEARCH_RP_PER_M)
+        heal_rev = int(city.gross_product() * FOCUS_FINANCE_HEAL
+                       / 100.0 * city.tax_rate / 100.0)
+        rows = [
+            ('finance', "INVEST IN FINANCE",
+             "+%.0f INDUSTRY -- REVENUE RISES ~$%d/FTN"
+             % (FOCUS_FINANCE_HEAL, heal_rev), True),
+            ('agriculture', "INVEST IN AGRICULTURE",
+             "+1 LEVEL (%d/%d): +%d FOOD A FORTNIGHT, PERMANENT"
+             % (city.agri_level, FOCUS_AGRI_MAX, FOCUS_AGRI_FOOD),
+             city.agri_level < FOCUS_AGRI_MAX),
+            ('steel', "INVEST IN THE STEEL WORKS",
+             ("+1 LEVEL (%d/%d): +%d STEEL A FORTNIGHT, PERMANENT"
+              % (city.works_level, FOCUS_STEEL_MAX, FOCUS_STEEL_OUT))
+             if g.steel_city(city) else
+             "NO STEEL DEPOSIT AT THIS TOWN",
+             g.steel_city(city)
+             and city.works_level < FOCUS_STEEL_MAX),
+            ('research', "FUND THE LABORATORIES",
+             "+%.0f RESEARCH POINTS EACH FORTNIGHT" % rp, True),
+        ]
+        for kind, label in (('army', "RAISE AN ARMY BASE"),
+                            ('air', "RAISE AN AIRFORCE BASE"),
+                            ('naval', "RAISE A NAVAL BASE")):
+            cost, steel = BASE_COSTS[kind]
+            have = g.base_of_city(city, kind) is not None
+            possible = not have and (kind != 'naval' or city.harbor)
+            note = ("ALREADY STANDS" if have else
+                    "WANTS OPEN WATER -- NOT A PORT TOWN"
+                    if kind == 'naval' and not city.harbor else
+                    "$%d + %d STEEL -- ONE FORTNIGHT, ONCE ONLY"
+                    % (cost, steel))
+            rows.append(('base_%s' % kind, label, note, possible))
+        self.rows = rows
+
+        self.frame = DirectFrame(parent=base.aspect2d,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
+                                 frameSize=(-0.98, 0.98, -0.80, 0.80),
+                                 state=DGG.NORMAL)
+        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                    frameSize=(-0.98, 0.98, 0.775, 0.80))
+
+        def text(t, pos, scale=0.034, color=INK,
+                 align=TextNode.ALeft):
+            tn, _ = _make_text(self.frame, f, pos, scale, color,
+                               align)
+            tn.setText(t)
+            return tn
+
+        text("*** FORTNIGHT FOCUS -- %s ***" % city.name.upper(),
+             (0, 0.70), 0.048, INK, TextNode.ACenter)
+        text("THE TOWN WORKS AT ONE DIRECTIVE A FORTNIGHT",
+             (0, 0.63), 0.028, INK_FAINT, TextNode.ACenter)
+        text("-" * 64, (0, 0.585), 0.034, INK, TextNode.ACenter)
+
+        self.marks = {}
+        y = 0.50
+        for key, label, note, possible in rows:
+            if possible:
+                pill_button(self.frame, label, self._pick,
+                            extraArgs=[key],
+                            pos=(-0.52, 0, y), hw=0.40, hh=0.038,
+                            text_scale=0.030, font=f)
+            else:
+                tn, _ = _make_text(self.frame, f, (-0.52, y - 0.012),
+                                   0.030, INK_FAINT,
+                                   TextNode.ACenter)
+                tn.setText(label)
+            tn, _ = _make_text(self.frame, f, (-0.06, y - 0.012),
+                               0.026, INK_FAINT)
+            tn.setText(note)
+            mk, _ = _make_text(self.frame, f, (0.88, y - 0.012),
+                               0.030, (0.16, 0.38, 0.14, 1.0),
+                               TextNode.ACenter)
+            self.marks[key] = mk
+            y -= 0.115
+
+        self._refresh()
+        pill_button(self.frame, "++ SET THE FOCUS ++",
+                    self._transmit,
+                    pos=(-0.36, 0, -0.70), hw=0.30, hh=0.044,
+                    text_scale=0.040,
+                    text_fg=(0.1, 0.25, 0.1, 1), font=f)
+        pill_button(self.frame, "-- LEAVE AS IT STANDS --",
+                    self._discard,
+                    pos=(0.36, 0, -0.70), hw=0.30, hh=0.044,
+                    text_scale=0.040,
+                    text_fg=(0.45, 0.12, 0.08, 1), font=f)
+
+    def _pick(self, key):
+        self.choice = key
+        self._refresh()
+
+    def _refresh(self):
+        for key, mk in self.marks.items():
+            mk.setText("<< CHOSEN" if key == self.choice else
+                       ("(STANDING)" if key == self.city.focus
+                        and key != self.choice else ""))
+
+    def _transmit(self):
+        self.on_transmit(self.city, self.choice)
+
+    def _discard(self):
+        self.on_discard()
+
+    def destroy(self):
+        self.frame.destroy()
+
+
 class ProductionFax:
     """War-industries state, LIVE: grouped ARMY / AIR FORCE / NAVY,
     one row per unit type in this fortnight's order with a

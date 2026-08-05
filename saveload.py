@@ -238,6 +238,9 @@ def snapshot(game):
             'pending_tax': c.pending_tax, 'industry': c.industry,
             'draft': getattr(c, 'draft_pool', 0),
             'quota': getattr(c, 'draft_quota', 0),
+            'focus': getattr(c, 'focus', 'finance'),
+            'agri': getattr(c, 'agri_level', 0),
+            'works': getattr(c, 'works_level', 0),
             'production': [[t, s] for (t, s) in c.production],
         } for c in game.cities],
         'airfields': [{
@@ -246,6 +249,7 @@ def snapshot(game):
             'stock': getattr(f, 'stock', 0.0),
             'production': [[t, s] for (t, s) in f.production],
             'built': f.city is None,
+            'city': f.city.name if f.city is not None else None,
         } for f in game.airfields],
         'harbors': [{
             'name': h.name, 'country': h.country,
@@ -253,10 +257,13 @@ def snapshot(game):
             'stock': getattr(h, 'stock', 0.0),
             'production': [[t, s] for (t, s) in h.production],
             'built': h.city is None,
+            'city': h.city.name if h.city is not None else None,
         } for h in game.harbors],
         'armyposts': [{
             'name': p.name, 'country': p.country,
+            'lat': p.lat, 'lon': p.lon,
             'stock': p.stock,
+            'city': p.city.name if p.city is not None else None,
             'production': [[t, s] for (t, s) in p.production],
         } for p in game.armyposts],
         'depots': [{'name': d.name, 'country': d.country,
@@ -371,7 +378,8 @@ def restore(game, data):
     """Apply a snapshot to a freshly built (but unpopulated) world.
     Called from start_game once the map, structures-from-data and UI
     exist; the game is quiet (no faxes) throughout."""
-    from structures import Airfield, Harbor, Depot, Bunker, Radar
+    from structures import (Airfield, ArmyPost, Harbor, Depot,
+                            Bunker, Radar)
     from units import stats_for
     from game import Bridge
     from units import Unit
@@ -429,6 +437,9 @@ def restore(game, data):
             c.industry = row['industry']
             c.draft_pool = row.get('draft', c.draft_rate())
             c.draft_quota = row.get('quota', 0)
+            c.focus = row.get('focus', 'finance')
+            c.agri_level = row.get('agri', 0)
+            c.works_level = row.get('works', 0)
             c.production = [[t, s] for (t, s) in row['production']]
             c.refresh_marker()
         # deposits follow their city's flag
@@ -438,15 +449,17 @@ def restore(game, data):
                 dep.refresh_marker()
 
         # ---- structures ----
+        towns = {c.name: c for c in g.cities}
+
         def sync_yards(rows, fleet, ctor):
             have = {s.name: s for s in fleet}
             for row in rows:
                 s = have.get(row['name'])
-                if s is None and row.get('built'):
-                    s = ctor(row)
-                    fleet.append(s)
                 if s is None:
-                    continue
+                    # engineer-built works and city-founded bases
+                    # alike are reconstructed from the record
+                    s = ctor(row, towns.get(row.get('city')))
+                    fleet.append(s)
                 s.country = row['country']
                 if hasattr(s, 'stock'):
                     s.stock = row.get('stock', 0.0)
@@ -461,14 +474,21 @@ def restore(game, data):
                 s.refresh_marker()
 
         sync_yards(data['airfields'], g.airfields,
-                   lambda r: Airfield(g, r['lat'], r['lon'],
-                                      r['country'], r['name']))
+                   lambda r, c: Airfield(g, r['lat'], r['lon'],
+                                         r['country'], r['name'],
+                                         city=c))
         sync_yards(data['harbors'], g.harbors,
-                   lambda r: Harbor(g, r['lat'], r['lon'],
-                                    r['country'], r['name']))
+                   lambda r, c: Harbor(g, r['lat'], r['lon'],
+                                       r['country'], r['name'],
+                                       city=c))
         posts = {p_.name: p_ for p_ in g.armyposts}
         for row in data.get('armyposts', []):
             p_ = posts.get(row['name'])
+            if p_ is None and 'lat' in row:
+                p_ = ArmyPost(g, row['lat'], row['lon'],
+                              row['country'], row['name'],
+                              city=towns.get(row.get('city')))
+                g.armyposts.append(p_)
             if p_ is None:
                 continue
             p_.country = row['country']

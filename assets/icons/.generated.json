@@ -107,6 +107,10 @@
 "h": "e3be5f757419dc15e5e3b578830d17a0",
 "v": 2
 },
+"keys/panel_hover_a10_50_r0_42.png": {
+"h": "af2f12da3a61a7e7a2cb81f9eed5717d",
+"v": 3
+},
 "keys/panel_hover_a11_75_r0_42.png": {
 "h": "b76e5e941fe5fb16dc1dba5aa85fd949",
 "v": 3
@@ -183,6 +187,10 @@
 "h": "48dfb96b8b6b6d4a0370708141281430",
 "v": 3
 },
+"keys/panel_press_a10_50_r0_42.png": {
+"h": "d32e170dd937cbc01975b128b6f1c3a7",
+"v": 3
+},
 "keys/panel_press_a11_75_r0_42.png": {
 "h": "42cbb6e0b40775d4773fadd3cf03e634",
 "v": 3
@@ -257,6 +265,10 @@
 },
 "keys/panel_press_a9_25_r0_42.png": {
 "h": "b720fb86befe2cc648c810f85d4da5de",
+"v": 3
+},
+"keys/panel_ready_a10_50_r0_42.png": {
+"h": "d24cbf34253e1bd0c6414225126a6d90",
 "v": 3
 },
 "keys/panel_ready_a11_75_r0_42.png": {
