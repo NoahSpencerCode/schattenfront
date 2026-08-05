@@ -93,6 +93,14 @@ FOOD_PER_ENLISTED = 4         # tons to raise and feed one section
 CIVIL_RATION = 0.55           # tons per MILLION souls per day
 OCCUPIED_RATION = 1.6         # a hostile population eats dearer
 
+# THE CIVILIAN DRAFT: each city keeps a standing quota of sections
+# mustered every fortnight. The volunteer line (one per 400,000
+# souls) is free; every section above it is CONSCRIPTION and grinds
+# the town's industry while the quota stands.
+DRAFT_INDUSTRY_GRIND = 0.8    # industry %-points per conscripted
+                              # section per fortnight
+DRAFT_QUOTA_CAP_MULT = 3      # quota ceiling, in volunteer lines
+
 # the open market: base $/ton for treaty trade, discounted between
 # allies the same way volunteers are
 TRADE_PRICES = {'oil': 8, 'steel': 6, 'food': 7}

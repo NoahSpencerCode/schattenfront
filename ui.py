@@ -1780,6 +1780,124 @@ class TaxFax:
         self.frame.destroy()
 
 
+class DraftFax:
+    """The CIVILIAN DRAFT for one city: a standing quota of sections
+    mustered each fortnight, and an immediate call-up from the pool.
+    Conscription above the volunteer line grinds industry."""
+
+    def __init__(self, base, city, on_transmit, on_discard):
+        from config import DRAFT_INDUSTRY_GRIND, DRAFT_QUOTA_CAP_MULT
+        self.base = base
+        self.city = city
+        self.on_transmit = on_transmit
+        self.on_discard = on_discard
+        self.grind = DRAFT_INDUSTRY_GRIND
+        self.quota = city.draft_quota
+        self.cap = city.draft_rate() * DRAFT_QUOTA_CAP_MULT
+        self.now_n = 0
+
+        f = base.hud_font
+        self.frame = DirectFrame(parent=base.aspect2d,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
+                                 frameSize=(-0.85, 0.85, -0.72, 0.72),
+                                 state=DGG.NORMAL)
+        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                    frameSize=(-0.85, 0.85, 0.695, 0.72))
+
+        def text(t, pos, scale=0.036, color=INK,
+                 align=TextNode.ALeft):
+            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
+            tn.setText(t)
+            return tn
+
+        text("*** CIVILIAN DRAFT -- %s ***" % city.name.upper(),
+             (0, 0.62), 0.048, INK, TextNode.ACenter)
+        text("FROM : THE RECRUITING OFFICE", (-0.78, 0.54))
+        text("RE   : THE STANDING QUOTA OF THE MUNICIPALITY",
+             (-0.78, 0.49))
+        text("-" * 56, (0, 0.445), 0.036, INK, TextNode.ACenter)
+        text("POPULATION ......... %s"
+             % "{:,}".format(city.population), (-0.78, 0.38))
+        text("VOLUNTEER LINE ..... %d SECTION(S) A FORTNIGHT"
+             % city.draft_rate(), (-0.78, 0.32))
+        text("STANDING READY ..... %d SECTION(S)" % city.draft_pool,
+             (-0.78, 0.26))
+        text("INDUSTRY HEALTH .... %.0f%%" % city.industry,
+             (-0.78, 0.20))
+        text("EVERY SECTION ABOVE THE VOLUNTEER LINE IS "
+             "CONSCRIPTION: -%.1f%% INDUSTRY EACH, EVERY FORTNIGHT."
+             % self.grind, (-0.78, 0.14), 0.028, INK_FAINT)
+
+        text("THE QUOTA -- MUSTERED EACH FORTNIGHT",
+             (0, 0.055), 0.032, INK, TextNode.ACenter)
+        pill_button(self.frame, "-", self._adjust, extraArgs=[-1],
+                    pos=(-0.30, 0, -0.021), hw=0.045, hh=0.043,
+                    text_scale=0.052, font=f, kind='key')
+        self.quota_tn, _ = _make_text(self.frame, f, (0, -0.035),
+                                      0.075, INK, TextNode.ACenter)
+        pill_button(self.frame, "+", self._adjust, extraArgs=[+1],
+                    pos=(0.30, 0, -0.021), hw=0.045, hh=0.043,
+                    text_scale=0.052, font=f, kind='key')
+        self.drift_tn, _ = _make_text(self.frame, f, (0, -0.135),
+                                      0.032, INK, TextNode.ACenter)
+
+        text("CALL UP AT ONCE -- FROM THOSE STANDING READY",
+             (0, -0.235), 0.032, INK, TextNode.ACenter)
+        pill_button(self.frame, "-", self._adjust_now, extraArgs=[-1],
+                    pos=(-0.30, 0, -0.311), hw=0.045, hh=0.043,
+                    text_scale=0.052, font=f, kind='key')
+        self.now_tn, _ = _make_text(self.frame, f, (0, -0.325),
+                                    0.075, INK, TextNode.ACenter)
+        pill_button(self.frame, "+", self._adjust_now, extraArgs=[+1],
+                    pos=(0.30, 0, -0.311), hw=0.045, hh=0.043,
+                    text_scale=0.052, font=f, kind='key')
+
+        text("EVERY MUSTER STILL WANTS ITS RATIONS -- 4 TONS OF "
+             "FOOD THE SECTION.", (0, -0.43), 0.030, INK_FAINT,
+             TextNode.ACenter)
+        self._refresh()
+
+        pill_button(self.frame, "++ SIGN THE DECREE ++",
+                    self._transmit,
+                    pos=(-0.32, 0, -0.592), hw=0.26, hh=0.044,
+                    text_scale=0.040, text_fg=(0.1, 0.25, 0.1, 1),
+                    font=f)
+        pill_button(self.frame, "-- DISCARD --", self._discard,
+                    pos=(0.32, 0, -0.592), hw=0.26, hh=0.044,
+                    text_scale=0.040, text_fg=(0.45, 0.12, 0.08, 1),
+                    font=f)
+
+    def _adjust(self, d):
+        self.quota = max(0, min(self.cap, self.quota + d))
+        self._refresh()
+
+    def _adjust_now(self, d):
+        self.now_n = max(0, min(self.city.draft_pool, self.now_n + d))
+        self._refresh()
+
+    def _refresh(self):
+        self.quota_tn.setText("%d / FTN" % self.quota)
+        over = max(0, self.quota - self.city.draft_rate())
+        if over > 0:
+            self.drift_tn.setText(
+                "CONSCRIPTION: -%.1f%% INDUSTRY A FORTNIGHT WHILE "
+                "IT STANDS" % (self.grind * over))
+        else:
+            self.drift_tn.setText(
+                "WITHIN THE VOLUNTEER LINE -- INDUSTRY UNTOUCHED")
+        self.now_tn.setText("%d NOW" % self.now_n)
+
+    def _transmit(self):
+        self.on_transmit(self.city, self.quota, self.now_n)
+
+    def _discard(self):
+        self.on_discard()
+
+    def destroy(self):
+        self.frame.destroy()
+
+
 class ProductionFax:
     """War-industries state, LIVE: grouped ARMY / AIR FORCE / NAVY,
     one row per unit type in this fortnight's order with a

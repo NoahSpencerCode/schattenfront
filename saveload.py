@@ -237,6 +237,7 @@ def snapshot(game):
             'annexing': bool(c.annexing), 'tax': c.tax_rate,
             'pending_tax': c.pending_tax, 'industry': c.industry,
             'draft': getattr(c, 'draft_pool', 0),
+            'quota': getattr(c, 'draft_quota', 0),
             'production': [[t, s] for (t, s) in c.production],
         } for c in game.cities],
         'airfields': [{
@@ -427,6 +428,7 @@ def restore(game, data):
             c.pending_tax = row['pending_tax']
             c.industry = row['industry']
             c.draft_pool = row.get('draft', c.draft_rate())
+            c.draft_quota = row.get('quota', 0)
             c.production = [[t, s] for (t, s) in row['production']]
             c.refresh_marker()
         # deposits follow their city's flag

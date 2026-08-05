@@ -36,6 +36,7 @@ from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     RESOURCE_CAP, STARTING_RESOURCES,
                     TRADE_PRICES, CIVIL_RATION,
                     FOOD_PER_ENLISTED, OCCUPIED_RATION,
+                    DRAFT_INDUSTRY_GRIND, DRAFT_QUOTA_CAP_MULT,
                     short_name,
                     AIR_VISION_MULT, VISION_SCALE,
                     BRIDGE_HP, BRIDGE_REPAIR_RATE, BUDGET_PERIOD_DAYS,
@@ -120,6 +121,7 @@ class City:
         # the fortnight draft: citizens standing ready to enlist.
         # Manpower is never bought -- it walks in from the towns.
         self.draft_pool = self.draft_rate()
+        self.draft_quota = 0            # standing muster per fortnight
         self.lat, self.lon = lat, lon
         self.pos = latlon_to_vec(lat, lon)
         self.capture_progress = 0.0
@@ -446,6 +448,7 @@ class WW2RTSGame(ShowBase):
         self.budget_fax = None
         self.briefing_fax = None
         self.tax_fax = None
+        self.draft_fax = None
         self.diplo_fax = None
         self.newspaper = None
         self._news_cooldown = 0.0
@@ -697,6 +700,7 @@ class WW2RTSGame(ShowBase):
         self.budget_fax = None
         self.briefing_fax = None
         self.tax_fax = None
+        self.draft_fax = None
         self.diplo_fax = None
         self.newspaper = None
         self._news_cooldown = 0.0
@@ -1986,13 +1990,38 @@ class WW2RTSGame(ShowBase):
                 city.pending_tax = None
             take[city.country] += city.fortnight_revenue()
             if not city.annexing:
-                city.industry = max(5.0, min(100.0, city.industry +
-                                             city.industry_drift()))
+                drift = city.industry_drift()
+                # CONSCRIPTION: a standing quota above the volunteer
+                # line grinds the town's industry while it stands
+                drift -= DRAFT_INDUSTRY_GRIND * max(
+                    0, city.draft_quota - city.draft_rate())
+                city.industry = max(5.0, min(100.0,
+                                             city.industry + drift))
                 # the draft rolls replenish; unclaimed citizens wait,
                 # but the pool never holds more than three fortnights
                 city.draft_pool = min(city.draft_rate() * 3,
                                       city.draft_pool
                                       + city.draft_rate())
+                # the standing quota musters on its own -- conscripts
+                # beyond the pool are pulled straight from the town
+                if (city.draft_quota > 0
+                        and city.country == self.player_country):
+                    n = self._ration_out(city.country,
+                                         city.draft_quota)
+                    city.draft_pool = max(
+                        0, city.draft_pool - n)
+                    for _ in range(n):
+                        u = self.spawn_unit(
+                            'infantry', city.country, city.lat,
+                            city.lon, jitter=0.3,
+                            seed=random.randrange(99999))
+                        u.supply = u.stats['supply_cap']
+                    if n < city.draft_quota:
+                        self.fax_short(
+                            "%s: %d OF %d QUOTA MUSTER -- THE REST "
+                            "WAIT ON RATIONS"
+                            % (city.name.upper(), n,
+                               city.draft_quota))
             if city.annexing:
                 city.annexing = False
                 if city.country == self.player_country:
@@ -2101,14 +2130,14 @@ class WW2RTSGame(ShowBase):
         if self.attempt_capture(city, self.player_country):
             self._select_city(city)     # reopen as our own municipality
 
-    def enlist_city(self, city):
-        """The recruiting office: every citizen standing ready walks
-        out of the town as an Enlisted section. Free -- manpower is
-        the one thing money never buys."""
+    def enlist_city(self, city, n=None):
+        """The recruiting office: citizens standing ready walk out
+        of the town as Enlisted sections. Free -- manpower is the
+        one thing money never buys."""
         if (self.game_state != 'playing' or city.annexing
                 or city.country != self.player_country):
             return
-        n = city.draft_pool
+        n = city.draft_pool if n is None else min(n, city.draft_pool)
         if n <= 0:
             self.fax_short("THE ROLLS ARE EMPTY AT %s -- NEW NAMES "
                            "EACH FORTNIGHT" % city.name.upper())
@@ -2184,6 +2213,47 @@ class WW2RTSGame(ShowBase):
         if self.tax_fax:
             self.tax_fax.destroy()
             self.tax_fax = None
+
+    def open_draft_fax(self, city):
+        if (self.game_state != 'playing' or self.draft_fax
+                or city.country != self.player_country
+                or city.annexing):
+            return
+        from ui import DraftFax
+        self.draft_fax = DraftFax(self, city, self._draft_transmit,
+                                  self._draft_discard)
+
+    def _draft_transmit(self, city, quota, now_n):
+        if self.draft_fax:
+            self.draft_fax.destroy()
+            self.draft_fax = None
+        quota = max(0, min(city.draft_rate() * DRAFT_QUOTA_CAP_MULT,
+                           int(quota)))
+        changed = quota != city.draft_quota
+        city.draft_quota = quota
+        if changed:
+            v = city.draft_rate()
+            grind = DRAFT_INDUSTRY_GRIND * max(0, quota - v)
+            self.fax.post(
+                "CIVILIAN DRAFT -- %s" % city.name.upper(),
+                "The standing quota is set to %s section(s) each "
+                "fortnight (%d volunteer). %s" %
+                (B("%d" % quota), v,
+                 ("Conscription above the volunteer line grinds "
+                  "industry %s%% a fortnight while it stands."
+                  % B("-%.1f" % grind)) if grind > 0 else
+                 "The quota stands within the volunteer line -- "
+                 "industry is untouched."),
+                sender="RECRUITING OFFICE")
+        if now_n > 0:
+            self.enlist_city(city, now_n)
+        elif self.selected_city is city:
+            self._refresh_selection_ui()
+
+    def _draft_discard(self):
+        if self.draft_fax:
+            self.draft_fax.destroy()
+            self.draft_fax = None
 
     def _factory_sections(self):
         """The manifest's live data: this fortnight's order grouped
@@ -7004,13 +7074,12 @@ void main() {
                         ("", self.open_tax_fax, [city],
                          get_icon_path('tax_button', 'dark'), False,
                          "TAX DECREE -- SET THE CITY'S RATE"),
-                        ("%d" % city.draft_pool, self.enlist_city,
-                         [city],
+                        ("%d" % city.draft_pool,
+                         self.open_draft_fax, [city],
                          get_icon_path('enlist_button', 'dark'), False,
-                         ("ENLIST -- %d CITIZEN(S) STAND READY"
-                          % city.draft_pool) if city.draft_pool
-                         else "ENLIST -- THE ROLLS REPLENISH EACH "
-                              "FORTNIGHT")])
+                         "CIVILIAN DRAFT -- %d STAND READY, QUOTA "
+                         "%d/FTN" % (city.draft_pool,
+                                     city.draft_quota))])
                     bar.set_hint("SET THE CITY'S TAX RATE -- IT BINDS "
                                  "FROM THE NEXT FORTNIGHT")
                 else:
