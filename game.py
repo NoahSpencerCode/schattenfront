@@ -989,34 +989,31 @@ class WW2RTSGame(ShowBase):
         return self.cities[0]
 
     def _spawn_starting_forces(self, faction):
-        """The opening order of battle under the enlistment law: NO
-        man stands in the open -- every soldier must be enlisted from
-        a city -- and every vehicle -- army, air and sea alike --
-        waits at its station as a shell. Nothing is ever scattered
-        loose about the map."""
+        """The opening order of battle: vehicles muster ON THE MAP
+        at their stations -- no man or machine waits in a warehouse
+        for a crew."""
         posts = [p_ for p_ in self.armyposts if p_.country == faction]
         fields = [a for a in self.airfields if a.country == faction]
+        yards = [h for h in self.harbors if h.country == faction]
         for i, ut in enumerate(STARTING_ARMY):
             if posts:
                 p_ = posts[i % len(posts)]
-                p_.shells.append(ut)
-                self._refresh_station_badge(p_)
+                u = self.spawn_unit(ut, faction, p_.lat, p_.lon,
+                                    jitter=0.12, seed=500 + i)
+                u.supply = u.stats['supply_cap']
         for i, ut in enumerate(STARTING_AIR):
             if fields:
-                fields[i % len(fields)].shells.append(ut)
-        # the fleet waits IN the yards as shells, and the opening
-        # stations each hold a small standing crew pool
-        yards = [h for h in self.harbors if h.country == faction]
+                f = fields[i % len(fields)]
+                u = self.spawn_unit(ut, faction, f.lat, f.lon,
+                                    seed=520 + i, base=f)
+                u.supply = u.stats['supply_cap']
         for i, ut in enumerate(STARTING_NAVY):
             if yards:
                 y = yards[i % len(yards)]
-                y.shells.append(ut)
-        for y in yards:
-            y.crews = 2
-            self._refresh_station_badge(y)
-        for p_ in self.armyposts:
-            if p_.country == faction:
-                p_.crews = 2
+                u = self.spawn_unit(ut, faction, y.lat, y.lon,
+                                    jitter=0.15, seed=540 + i,
+                                    water=True)
+                u.supply = u.stats['supply_cap']
 
     def _spawn_npc_garrison(self, faction):
         """An NPC nation's standing army: a home-defense garrison
@@ -2017,7 +2014,6 @@ class WW2RTSGame(ShowBase):
                 sender="EXCHEQUER")
         self._apply_fortnight_budget()
         self._ai_enlist()
-        self._ai_crews()
 
     def projected_revenue(self, country):
         """What the cities will remit at the next fortnight under the
@@ -2870,30 +2866,6 @@ class WW2RTSGame(ShowBase):
                     self.fax_short("STRIKE ON %s ORDERED" % foe_field.name)
                     return
 
-        # right-click an own harbor or army post with Enlisted
-        # selected: they march in and STATION as crews
-        if target is None:
-            riflemen = [u for u in commandable
-                        if u.unit_type == 'infantry']
-            if riflemen:
-                stations = [(h, h.pos * GLOBE_RADIUS)
-                            for h in self.harbors
-                            if h.country == self.player_country
-                            and self._facing_camera(h.pos)]
-                stations += [(p_, p_.pos * GLOBE_RADIUS)
-                             for p_ in self.armyposts
-                             if p_.country == self.player_country
-                             and self._facing_camera(p_.pos)]
-                st = self._pick_object(mpos, stations)
-                if st is not None:
-                    for u in riflemen:
-                        u.give_order({'kind': 'station', 'target': st},
-                                     queue=shift)
-                    self.fax_short(
-                        "%d ENLISTED ORDERED TO STATION AT %s"
-                        % (len(riflemen), st.name))
-                    return
-
         # right-click an own airfield: land units march in and join
         # its GARRISON (stored on the field, lifted from its roster)
         if target is None:
@@ -3421,7 +3393,7 @@ class WW2RTSGame(ShowBase):
             unit.attack_target = order['target']
             self._approach_target(unit, order['target'],
                                   indicate=order.pop('indicate', False))
-        elif kind in ('board', 'repair', 'garrison', 'station'):
+        elif kind in ('board', 'repair', 'garrison'):
             self._approach_target(unit, order['target'])
 
     def _legal_goal(self, unit, goal):
@@ -3653,20 +3625,6 @@ class WW2RTSGame(ShowBase):
             if not self._replan_ready(unit):
                 return False
             self._approach_target(unit, transport)
-            return False
-        if kind == 'station':
-            st = order['target']
-            if not getattr(st, 'alive', False):
-                return True
-            reach = 0.30 if st in self.harbors else 0.18
-            if unit.dist_to(st.pos) < reach:
-                self._station_crew(st, unit)
-                return True
-            if unit.path or getattr(unit, 'plan_pending', None):
-                return False        # the march is under way
-            if not self._replan_ready(unit):
-                return False
-            self._approach_target(unit, st)
             return False
         if kind == 'garrison':
             field = order['target']
@@ -5237,7 +5195,7 @@ void main() {
                     continue
                 goal = Vec3(o['goal'])
                 back = None
-            elif kind in ('station', 'garrison'):
+            elif kind == 'garrison':
                 # a man walking to his posting rides too; the cab
                 # remembers the posting and hands it back at the gate
                 tgt = o.get('target')
@@ -5391,23 +5349,23 @@ void main() {
             truck._ferry = None
 
     # ====================================================== economy
-    def _deliver_shell(self, unit_type, country, near_pos=None,
-                       home=None):
-        """A finished vehicle arrives as an EMPTY SHELL at the right
-        kind of station -- hulls to a harbor, airframes to a field,
-        vehicles to an army post -- and waits there for an Enlisted
-        crew. A power with no station of the right kind left gets a
-        refund instead: nothing is ever delivered onto open ground."""
+    def _deliver_vehicle(self, unit_type, country, near_pos=None,
+                         home=None):
+        """A finished vehicle rolls off the line straight ONTO THE
+        MAP, scattered a short march from the works that built it --
+        fueled and ready. A power with no works of the right kind
+        left gets a refund instead: nothing is ever delivered onto
+        ground it cannot reach."""
         if unit_type == 'infantry':
-            # men are never shells: any stray production order for
-            # manpower musters straight out as Enlisted
+            # men are never manufactured: any stray production order
+            # for manpower musters straight out as Enlisted
             la, lo = vec_to_latlon(near_pos) if near_pos is not None \
                 else (home.lat, home.lon)
             u = self.spawn_unit('infantry', country, la, lo,
                                 jitter=0.3,
                                 seed=random.randrange(99999))
             u.supply = u.stats['supply_cap']
-            return None
+            return u
         domain = UNIT_TYPES[unit_type]['domain']
         if domain == 'sea':
             fleet = [h for h in self.harbors if h.country == country]
@@ -5427,25 +5385,36 @@ void main() {
                                                         near_pos))
         else:
             st = fleet[0]
-        st.shells.append(unit_type)
-        self._refresh_station_badge(st)
+        if domain == 'air':
+            u = self.spawn_unit(unit_type, country, st.lat, st.lon,
+                                seed=random.randrange(9999), base=st)
+        elif domain == 'sea':
+            u = self.spawn_unit(unit_type, country, st.lat, st.lon,
+                                jitter=0.15,
+                                seed=random.randrange(9999),
+                                water=True)
+        else:
+            u = self.spawn_unit(unit_type, country, st.lat, st.lon,
+                                jitter=0.12,
+                                seed=random.randrange(9999))
+        u.supply = u.stats.get('supply_cap', 0) or u.supply
         if country == self.player_country:
             self.fortnight_delivered[unit_type] = \
                 self.fortnight_delivered.get(unit_type, 0) + 1
             self.fax_short(
-                "%s DELIVERED TO %s -- AWAITING CREW" %
+                "%s ROLLS OUT FROM %s" %
                 (stats_for(unit_type, country)['label'].upper(),
                  st.name))
             self._refresh_station_menu(st)
-        return st
+        return u
 
     def _refresh_station_badge(self, st):
-        """Harbor and army-post badges tally shells awaiting crews;
+        """Harbor and army-post badges tally work on the line;
         the airfield's badges belong to its wing and garrison."""
         if isinstance(st, Airfield):
             return
         if hasattr(st, 'set_count'):
-            st.set_count(len(st.shells))
+            st.set_count(len(st.production))
 
     def _refresh_station_menu(self, st):
         if isinstance(st, Airfield):
@@ -5455,130 +5424,6 @@ void main() {
                 getattr(self, 'selected_armypost', None) is st:
             self._refresh_selection_ui()
 
-    def _station_crew(self, st, unit):
-        """An Enlisted section walks through the gate and signs on:
-        the unit leaves the map and becomes a crew on station."""
-        st.crews = getattr(st, 'crews', 0) + 1
-        unit.alive = False
-        if unit in self.selected:
-            self._deselect_unit(unit)
-        unit.cleanup()
-        if unit in self.units:
-            self.units.remove(unit)
-        if unit.country == self.player_country:
-            self.fax_short("CREW SIGNED ON AT %s (%d STANDING)"
-                           % (st.name, st.crews))
-            self._refresh_station_menu(st)
-
-    def _dispatch_shell(self, st, index=0):
-        """Marry a stationed crew to a stored shell and roll it out.
-        Returns the new unit or None. At airfields the crew pool IS
-        the Enlisted garrison; harbors and posts keep a counter."""
-        if index >= len(st.shells):
-            return None
-        if isinstance(st, Airfield):
-            pool = [u for u in st.garrison
-                    if u.alive and u.unit_type == 'infantry']
-            if not pool:
-                return None
-            crew = pool[0]
-            st.garrison.remove(crew)
-            crew.alive = False
-            crew.cleanup()
-            if crew in self.units:
-                self.units.remove(crew)
-            if hasattr(st, 'set_garrison_count'):
-                st.set_garrison_count(len(st.garrison))
-        else:
-            if getattr(st, 'crews', 0) <= 0:
-                return None
-            st.crews -= 1
-        ut = st.shells.pop(index)
-        if isinstance(st, Airfield):
-            u = self.spawn_unit(ut, st.country, st.lat, st.lon,
-                                seed=random.randrange(9999), base=st)
-        elif st in self.harbors:
-            u = self.spawn_unit(ut, st.country, st.lat, st.lon,
-                                jitter=0.15,
-                                seed=random.randrange(9999), water=True)
-        else:
-            u = self.spawn_unit(ut, st.country, st.lat, st.lon,
-                                jitter=0.12,
-                                seed=random.randrange(9999))
-        u.supply = u.stats.get('supply_cap', 0) or u.supply
-        self._refresh_station_badge(st)
-        return u
-
-    def dispatch_clicked(self, st, index):
-        """A shell key pressed in a station's menu."""
-        if st.country != self.player_country or \
-                index >= len(st.shells):
-            return
-        u = self._dispatch_shell(st, index)
-        if u is None:
-            self.fax_short("NO CREWS AT %s -- MARCH ENLISTED IN"
-                           % st.name)
-            return
-        self.fax_short("%s CREWED AND DISPATCHED FROM %s"
-                       % (u.stats['label'].upper(), st.name))
-        self._refresh_station_menu(st)
-        if isinstance(st, Airfield):
-            self._refresh_air_base(st)
-
-    def muster_out(self, st):
-        """Stand the station's crews down: they walk out as
-        Enlisted again."""
-        if st.country != self.player_country:
-            return
-        n = getattr(st, 'crews', 0)
-        if n <= 0:
-            return
-        st.crews = 0
-        for _ in range(n):
-            u = self.spawn_unit('infantry', st.country, st.lat,
-                                st.lon, jitter=0.2,
-                                seed=random.randrange(99999))
-            u.supply = u.stats['supply_cap']
-        self.fax_short("%d CREW(S) MUSTER OUT OF %s" % (n, st.name))
-        self._refresh_station_menu(st)
-
-    def _ai_crews(self):
-        """The computer powers keep their stations manned: crews
-        dispatch every shell they cover, and idle Enlisted nearby are
-        ordered in when shells outnumber crews."""
-        for country in self._nation_ais:
-            stations = [h for h in self.harbors
-                        if h.country == country]
-            stations += [p_ for p_ in self.armyposts
-                         if p_.country == country]
-            for st in stations:
-                while st.shells and getattr(st, 'crews', 0) > 0:
-                    self._dispatch_shell(st, 0)
-                need = len(st.shells) - getattr(st, 'crews', 0)
-                if need > 0:
-                    self._ai_send_crews(country, st, need, 'station')
-            for f in self.airfields:
-                if f.country != country or not f.shells:
-                    continue
-                while f.shells and any(
-                        u.alive and u.unit_type == 'infantry'
-                        for u in f.garrison):
-                    self._dispatch_shell(f, 0)
-                if f.shells:
-                    self._ai_send_crews(country, f, len(f.shells),
-                                        'garrison')
-
-    def _ai_send_crews(self, country, st, need, kind):
-        idle = [u for u in self.units
-                if u.alive and u.country == country
-                and u.unit_type == 'infantry' and not u.carried_by
-                and not self.is_parked(u) and not u.current_order
-                and not u.order_queue
-                and u.dist_to(st.pos) < 6.0]
-        idle.sort(key=lambda u: u.dist_to(st.pos))
-        for u in idle[:need]:
-            u.give_order({'kind': kind, 'target': st})
-
     def _tick_production(self, dt):
         for city in self.cities:
             if not city.production:
@@ -5586,8 +5431,8 @@ void main() {
             city.production[0][1] -= dt * self.game_speed
             if city.production[0][1] <= 0:
                 unit_type, _ = city.production.pop(0)
-                self._deliver_shell(unit_type, city.country,
-                                    near_pos=city.pos)
+                self._deliver_vehicle(unit_type, city.country,
+                                      near_pos=city.pos)
 
     def _relocate_works(self, structure, owner, fleet):
         """A production site is lost: unfinished work moves to a
@@ -5612,7 +5457,7 @@ void main() {
             if f.production[0][1] > 0:
                 continue
             unit_type, _ = f.production.pop(0)
-            self._deliver_shell(unit_type, f.country, home=f)
+            self._deliver_vehicle(unit_type, f.country, home=f)
 
     def _tick_harbor_production(self, dt):
         for h in self.harbors:
@@ -5622,7 +5467,7 @@ void main() {
             if h.production[0][1] > 0:
                 continue
             unit_type, _ = h.production.pop(0)
-            self._deliver_shell(unit_type, h.country, home=h)
+            self._deliver_vehicle(unit_type, h.country, home=h)
 
     # ====================================================== capture
     def _capture_garrison(self, city, country):
@@ -6047,13 +5892,11 @@ void main() {
             # airfields: surviving yards inherit, else a refund
             self._relocate_works(hb, old, self.harbors)
             hb.country = new_owner
-            hb.crews = 0                # the crews melt away
             hb.refresh_marker()
         ap = self.armypost_of_city(city)
         if ap is not None:
             self._relocate_works(ap, old, self.armyposts)
             ap.country = new_owner
-            ap.crews = 0
             ap.refresh_marker()
         for dep in self.deposits:
             if dep.city is city:
@@ -7307,14 +7150,14 @@ void main() {
         self._refresh_air_roster(field)
 
     def _refresh_harbor_ui(self, harbor):
-        self._refresh_station_ui(harbor, "FLEET YARD",
-                                 "HULL", "RMB THE QUAY WITH ENLISTED "
-                                 "SELECTED TO STATION CREWS")
+        self._refresh_station_ui(harbor, "FLEET YARD", "HULL",
+                                 "NEW HULLS TAKE THE WATER OFF THE "
+                                 "YARD THE MOMENT THEY ARE FINISHED")
 
     def _refresh_armypost_ui(self, post):
-        self._refresh_station_ui(post, "ARMY POST",
-                                 "VEHICLE", "RMB THE POST WITH "
-                                 "ENLISTED SELECTED TO STATION CREWS")
+        self._refresh_station_ui(post, "ARMY POST", "VEHICLE",
+                                 "NEW VEHICLES ROLL OUT THE GATE THE "
+                                 "MOMENT THEY ARE FINISHED")
 
     def _paged_entries(self, entries, page_attr):
         """A menu holding more keys than one row carries: slice into
@@ -7343,26 +7186,17 @@ void main() {
         setattr(self, page_attr, getattr(self, page_attr, 0) + d)
         self._refresh_selection_ui()
 
-    def _refresh_station_ui(self, st, kind_label, noun, crew_hint):
-        """Shared harbor/army-post menu: shells dispatch under the
-        crews on station; production counts down beside them."""
+    def _refresh_station_ui(self, st, kind_label, noun, hint):
+        """Shared harbor/army-post menu: work on the line counts
+        down; finished vehicles roll straight onto the map."""
         bar = self.bottom_bar
         bar.set_title("%s -- %s" % (st.name, kind_label))
         bar.set_info(
-            "CREWS %d   %sS AWAITING CREWS %d   SUPPLY %s / %s LBS"
-            % (st.crews, noun, len(st.shells),
+            "ON THE LINE %d   SUPPLY %s / %s LBS"
+            % (len(st.production),
                "{:,}".format(int(st.stock)),
                "{:,}".format(int(st.STOCK_CAP))))
         entries = []
-        for i, ut in enumerate(st.shells):
-            info = stats_for(ut, st.country)
-            entries.append((
-                "", self.dispatch_clicked, [st, i],
-                get_icon_path(ut, 'dark'), False,
-                ("DISPATCH %s -- ONE CREW SIGNS ABOARD"
-                 % info['label'].upper()) if st.crews else
-                "%s -- NO CREWS ON STATION" % info['label'].upper(),
-                not st.crews))
         for ut, t_left in st.production:
             info = stats_for(ut, st.country)
             entries.append(("%ds" % max(0, int(t_left)), self._noop,
@@ -7370,17 +7204,9 @@ void main() {
                             "%s -- %d S TO DELIVERY" %
                             (info['label'].upper(),
                              max(0, int(t_left))), True))
-        if st.crews > 0:
-            entries.append(("", self.muster_out, [st],
-                            get_icon_path('enlist_button', 'dark'),
-                            False,
-                            "MUSTER OUT -- %d CREW(S) WALK OUT AS "
-                            "ENLISTED" % st.crews))
         bar.add_buttons(self._paged_entries(entries,
                                                 '_station_page'))
-        bar.set_hint(("CLICK A %s TO CREW AND DISPATCH IT -- %s"
-                      % (noun, crew_hint)) if st.shells
-                     else crew_hint)
+        bar.set_hint(hint)
 
     def _unload_parked(self, transport):
         """Disembark a parked transport's load onto the apron."""
@@ -7425,13 +7251,11 @@ void main() {
             empty_hint = "NO AIRCRAFT ON THE FIELD"
         garrison = [] if is_carrier else [u for u in base.garrison
                                           if u.alive]
-        shells = [] if is_carrier else list(getattr(base, 'shells',
-                                                    ()))
         if self.garrison_sel and not is_carrier:
             bar.show_exit(self._release_garrison, [base])
         else:
             bar.hide_exit()
-        if wing or garrison or shells:
+        if wing or garrison:
             entries = [("%d/%d" % (int(p.hp), p.max_hp),
                         self._select_embarked, [p],
                         get_icon_path(p.unit_type, 'dark'),
@@ -7447,22 +7271,6 @@ void main() {
                          "%s (STORED) -- STRENGTH %d/%d" %
                          (u.stats['label'].upper(), int(u.hp), u.max_hp))
                         for u in garrison]
-            # section three: airframes waiting on crews -- the
-            # garrisoned Enlisted ARE the crew pool here
-            has_crew = any(u.alive and u.unit_type == 'infantry'
-                           for u in garrison)
-            entries += [("",
-                         self.dispatch_clicked, [base, i],
-                         get_icon_path(ut, 'dark'), False,
-                         ("DISPATCH %s -- ONE GARRISONED ENLISTED "
-                          "CREWS IT"
-                          % stats_for(ut, base.country)['label'].upper())
-                         if has_crew else
-                         "%s -- MARCH ENLISTED INTO THE FIELD TO "
-                         "CREW IT"
-                         % stats_for(ut, base.country)['label'].upper(),
-                         not has_crew)
-                        for i, ut in enumerate(shells)]
             planned = [p for p in wing
                        if p in self.selected and p.sortie_plan]
             bar.add_buttons(self._paged_entries(entries,

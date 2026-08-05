@@ -875,7 +875,7 @@ class Unit:
         # close enough, even with path legs left (a section that runs
         # dry AT the gate still signs on); everything else completes
         # when its path is walked out
-        near_kinds = ('station', 'garrison', 'board')
+        near_kinds = ('garrison', 'board')
         if self.current_order and (
                 not self.path
                 or self.current_order.get('kind') in near_kinds):

@@ -113,8 +113,6 @@ class Airfield(Structure):
         self.max_hp = AIRFIELD_HP
         self.production = []            # wings on the line: [type, time]
         self.garrison = []              # land units stored on the field
-        self.shells = []                # finished airframes, no crews
-        self.crews = 0                  # Enlisted stationed here
         Structure.__init__(self, game, lat, lon, country, name)
 
         # parked-aircraft badge (plane pictogram + count)
@@ -201,7 +199,7 @@ class Airfield(Structure):
 
 
 class Harbor(Structure):
-    """Fleet yard on the water. New hulls take the water the moment
+    """Fleet yard on the water: new hulls take the water the moment
     they are finished, anchoring at some scatter off the yard."""
 
     ICON = 'harbor'
@@ -213,8 +211,6 @@ class Harbor(Structure):
     def __init__(self, game, lat, lon, country, name, city=None):
         self.city = city
         self.production = []            # hulls on the ways: [type, time]
-        self.shells = []                # finished hulls awaiting crews
-        self.crews = 0                  # Enlisted stationed at the quay
         self.stock = 0.0                # the quayside supply cache
         Structure.__init__(self, game, lat, lon, country, name)
 
@@ -269,9 +265,9 @@ class Depot(Structure):
 
 
 class ArmyPost(Structure):
-    """The army's harbor: land vehicles arrive here as empty shells
-    and wait for Enlisted crews to march in and take them out. Also
-    a quayside-sized supply cache for the trucks."""
+    """The army's works: land vehicles roll off the line here
+    straight onto the map. Also a quayside-sized supply cache for
+    the trucks."""
 
     ICON = 'army_post'
     FIXED_SCALE = 0.045
@@ -281,8 +277,6 @@ class ArmyPost(Structure):
     def __init__(self, game, lat, lon, country, name, city=None):
         self.city = city
         self.production = []            # vehicles building: [type, s]
-        self.shells = []                # finished, waiting for crews
-        self.crews = 0                  # Enlisted stationed here
         self.stock = 0.0
         Structure.__init__(self, game, lat, lon, country, name)
         c = COUNTRIES[country]['color']

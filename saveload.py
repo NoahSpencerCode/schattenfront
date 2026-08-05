@@ -22,7 +22,7 @@ import time
 
 from panda3d.core import Vec3
 
-SAVE_VERSION = 3
+SAVE_VERSION = 4
 
 
 # ------------------------------------------------------------ location
@@ -243,8 +243,6 @@ def snapshot(game):
             'name': f.name, 'country': f.country,
             'lat': f.lat, 'lon': f.lon,
             'stock': getattr(f, 'stock', 0.0),
-            'shells': list(getattr(f, 'shells', ())),
-            'crews': getattr(f, 'crews', 0),
             'production': [[t, s] for (t, s) in f.production],
             'built': f.city is None,
         } for f in game.airfields],
@@ -252,15 +250,12 @@ def snapshot(game):
             'name': h.name, 'country': h.country,
             'lat': h.lat, 'lon': h.lon,
             'stock': getattr(h, 'stock', 0.0),
-            'shells': list(getattr(h, 'shells', ())),
-            'crews': getattr(h, 'crews', 0),
             'production': [[t, s] for (t, s) in h.production],
             'built': h.city is None,
         } for h in game.harbors],
         'armyposts': [{
             'name': p.name, 'country': p.country,
-            'stock': p.stock, 'shells': list(p.shells),
-            'crews': p.crews,
+            'stock': p.stock,
             'production': [[t, s] for (t, s) in p.production],
         } for p in game.armyposts],
         'depots': [{'name': d.name, 'country': d.country,
@@ -376,6 +371,7 @@ def restore(game, data):
     Called from start_game once the map, structures-from-data and UI
     exist; the game is quiet (no faxes) throughout."""
     from structures import Airfield, Harbor, Depot, Bunker, Radar
+    from units import stats_for
     from game import Bridge
     from units import Unit
     from utils import latlon_to_vec
@@ -454,10 +450,12 @@ def restore(game, data):
                     s.stock = row.get('stock', 0.0)
                 s.production = [[t, sec] for (t, sec)
                                 in row['production']]
-                if hasattr(s, 'shells'):
-                    s.shells = list(row.get('shells', []))
-                    s.crews = row.get('crews', 0)
-                    game._refresh_station_badge(s)
+                for ut in row.get('shells', []):
+                    # pre-1.3.0 save: warehoused shells are written
+                    # off at cost -- the crew system is gone
+                    game.funds[s.country] += \
+                        stats_for(ut, s.country)['cost']
+                game._refresh_station_badge(s)
                 s.refresh_marker()
 
         sync_yards(data['airfields'], g.airfields,
@@ -473,8 +471,8 @@ def restore(game, data):
                 continue
             p_.country = row['country']
             p_.stock = row['stock']
-            p_.shells = list(row['shells'])
-            p_.crews = row['crews']
+            for ut in row.get('shells', []):
+                g.funds[p_.country] += stats_for(ut, p_.country)['cost']
             p_.production = [[t, sec] for (t, sec)
                              in row['production']]
             g._refresh_station_badge(p_)
