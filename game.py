@@ -1,5 +1,5 @@
 """
-Schattenfront — game application.
+Zero Hour: 1939 — game application.
 
 State machine: main menu -> nation selection -> campaign on the globe.
 Controls follow Supreme Commander conventions: left-click / drag-box to
@@ -31,6 +31,12 @@ from panda3d.core import (AmbientLight, AntialiasAttrib, CardMaker,
 
 from ai import NationAI
 from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
+                    BASELINE_IMPORTS, DEPOSITS, OIL_PER_LB,
+                    OIL_PER_SORTIE, PLAYABLE, RESOURCES,
+                    RESOURCE_CAP, STARTING_RESOURCES,
+                    TRADE_PRICES, CIVIL_RATION,
+                    FOOD_PER_ENLISTED, OCCUPIED_RATION,
+                    short_name,
                     AIR_VISION_MULT, VISION_SCALE,
                     BRIDGE_HP, BRIDGE_REPAIR_RATE, BUDGET_PERIOD_DAYS,
                     CAM_MAX_DIST, CAM_MIN_DIST, CAM_START_DIST,
@@ -56,7 +62,8 @@ from tech import (TECH_TREES, TECH_BRANCHES, RESEARCH_DOLLARS_PER_POINT,
                   RESEARCH_PCT_CHOICES, unlocked_units, radar_unlocked,
                   next_tier)
 from icons import get_icon_path
-from models import (make_bridge_marker, make_flat_ring, make_icon_quad,
+from models import (make_bridge_marker, make_flag_quad,
+                    make_flat_ring, make_icon_quad,
                     make_hit_flash_template, set_marker_layer,
                     LAYER_BRIDGE, LAYER_FLASH, LAYER_HOVER, LAYER_STRUCT)
 from pathfinding import MovementPlanner
@@ -64,10 +71,10 @@ from structures import (Airfield, ArmyPost, Bunker, Depot, Harbor,
                         AIRFIELD_STOCK_CAP,
                         BUNKER_RADIUS, DEPOT_STOCK_CAP, SORTIE_COST)
 from ui import (TopBar, BottomBar, FaxPanel, BudgetFax, BriefingFax,
-                ProductionFax, TaxFax, B)
+                ProductionFax, ResourcesFax, TaxFax, B)
 from config import UNIT_SPEED_FACTOR
 from units import (Unit, UNIT_TYPES, BRANCH_OF, FIRE_SUPPLY_FACTOR,
-                   NATION_UNIT_STATS, stats_for)
+                   NATION_UNIT_STATS, material_cost, stats_for)
 from utils import (angle_between, find_regular_font_path,
                    find_typewriter_font_path, latlon_dist_deg,
                    latlon_to_vec, north_tangent, vec_to_latlon)
@@ -148,11 +155,26 @@ class City:
         self.label.setLightOff()
         self.label.setTransparency(TransparencyAttrib.MAlpha)
         set_marker_layer(self.label, LAYER_STRUCT + 4)
+        self.title_flag = None
+        self._flag_country = None
         self.refresh_marker()
 
     def refresh_marker(self):
         # the city itself is sketched onto the map texture; ownership
-        # shows in the colour of its name
+        # shows in the colour of its name AND the standard above it
+        if self._flag_country != self.country:
+            if self.title_flag is not None:
+                self.title_flag.removeNode()
+            # a small standard INLINE after the name, like a ledger
+            # entry -- not a banner floating over the town
+            self.title_flag = make_flag_quad(
+                self.game.loader, self.country, half=0.42, flat=False)
+            self.title_flag.reparentTo(self.label)
+            self.title_flag.setPos(
+                self.label_tn.getWidth() * 0.5 + 0.70, 0, 0.26)
+            self.title_flag.setLightOff()
+            set_marker_layer(self.title_flag, LAYER_STRUCT + 4)
+            self._flag_country = self.country
         c = COUNTRIES[self.country]['color']
         self.label_tn.setTextColor(min(1.0, c[0] * 1.5 + 0.25),
                                    min(1.0, c[1] * 1.5 + 0.25),
@@ -297,7 +319,7 @@ class WW2RTSGame(ShowBase):
         breaks every relative asset path. main.py records the true
         root; re-assert it whenever the window machinery had a chance
         to wander."""
-        root = os.environ.get('SCHATTENFRONT_ROOT')
+        root = os.environ.get('ZERO_HOUR_ROOT')
         if root and os.getcwd() != root and os.path.isdir(
                 os.path.join(root, 'assets')):
             os.chdir(root)
@@ -388,11 +410,14 @@ class WW2RTSGame(ShowBase):
         self._spot_cache = {}           # (country, target) -> seen?
         self.road_plan = []             # surveyed road waypoints
         self.road_preview = None        # yellow survey line
+        self._survey_eng = None         # whose survey it is
         self.selected = []
         self.selected_city = None
         self.selected_airfield = None
         self.selected_harbor = None
         self.selected_depot = None
+        self.selected_bunker = None
+        self.selected_deposit = None
         self.selected_armypost = None
         self.roster_base = None          # airfield/carrier whose menu is up
         self.garrison_sel = []           # stored land units picked to lift
@@ -647,6 +672,8 @@ class WW2RTSGame(ShowBase):
         self._clear_road_plan()
         self.selected_airfield = None
         self.selected_depot = None
+        self.selected_bunker = None
+        self.selected_deposit = None
         self.selected_armypost = None
         self.roster_base = None
         self.garrison_sel = []
@@ -752,7 +779,7 @@ class WW2RTSGame(ShowBase):
             np_.setBin('gui-popup', 91)
             return tn
 
-        text("SCHATTENFRONT", 0.30, 0.14, (0.92, 0.87, 0.70, 1.0))
+        text("ZERO HOUR: 1939", 0.30, 0.14, (0.92, 0.87, 0.70, 1.0))
         text("++ MOBILIZATION IN PROGRESS ++", 0.14, 0.05,
              (0.70, 0.66, 0.55, 1.0))
         status_tn = text("DRAWING UP MAPS...", -0.10, 0.045,
@@ -847,6 +874,20 @@ class WW2RTSGame(ShowBase):
                 self.armyposts.append(
                     ArmyPost(self, aps[0], aps[1], c.country,
                              "%s POST" % c.name.upper(), city=c))
+        # the strategic map: deposits beside their historical cities
+        from structures import Deposit
+        self.deposits = []
+        for c in self.cities:
+            dep = DEPOSITS.get(c.name)
+            if dep is None:
+                continue
+            res, out = dep
+            dla, dlo = self.world.nearest_land(c.lat - 0.45,
+                                               c.lon - 0.45)
+            self.deposits.append(
+                Deposit(self, dla, dlo, c.country,
+                        "%s %s" % (c.name.upper(), res.upper()),
+                        res, out, city=c))
         self._pending_ai_orders = []
 
         self.funds = {c: (STARTING_FUNDS if c == country else
@@ -858,10 +899,25 @@ class WW2RTSGame(ShowBase):
         self.research_pct = {c: (0 if c == country else 15)
                              for c in COUNTRIES}
         self.tech_fax = None
+        # the strategic stockpiles: OIL runs the engines, STEEL the
+        # yards, RUBBER the wheels; only the majors keep accounts
+        self.resources = {c: dict(STARTING_RESOURCES) for c in PLAYABLE}
+        self.resource_flows = {c: {} for c in PLAYABLE}
+        self._oil_spent = {c: 0.0 for c in PLAYABLE}
+        self._pump_lbs = {c: 0.0 for c in PLAYABLE}
+        # standing trade treaties: [{'with': nat, 'res': r,
+        #  'amount': n, 'price': $/ftn, 'dir': 'in'|'out'}, ...]
+        self.trade_deals = []
+        # rights won at the table: [{'with','kind','until'}]
+        # kinds: 'passage' (march across their country),
+        # 'supply' (water at their towns), 'nonaggression'
+        self.rights = []
+        self._mat_spent = {c: {'steel': 0, 'food': 0}
+                           for c in PLAYABLE}
+        self.bottlenecks = {c: [] for c in PLAYABLE}
         # every computer POWER gets a general staff playing by the
         # player's own rules (budget, production, orders, annexation);
         # the NPC nations field a standing home-defense garrison only
-        from config import PLAYABLE
         self._nation_ais = {c: NationAI(self, c) for c in PLAYABLE
                             if c != country}
 
@@ -881,7 +937,8 @@ class WW2RTSGame(ShowBase):
         self._scale_ref_dist = 0.0      # force a marker-scale pass
 
         self.top_bar = TopBar(self, self.open_budget,
-                              self.open_factory_report)
+                              self.open_factory_report,
+                              on_resources=self.open_resources_report)
         self.bottom_bar = BottomBar(self)
         self.bottom_bar.set_title("ALL QUIET")
         self.bottom_bar.set_hint(CONTROLS_HINT)
@@ -1053,7 +1110,7 @@ class WW2RTSGame(ShowBase):
         DEMOLITION. Only while armed do roads, bridges and enemy
         works take the gunsight -- otherwise they never interfere
         with ordinary orders."""
-        from ui import pill_button, add_tooltip
+        from ui import pill_button, add_tooltip, crisp_image
         from icons import button_assets
         from direct.gui.OnscreenImage import OnscreenImage
         if getattr(self, 'demolish_btn', None) is not None:
@@ -1066,6 +1123,7 @@ class WW2RTSGame(ShowBase):
                                                 'dark'),
                             parent=b, scale=0.036, pos=(0, 0, 0.002))
         pic.setTransparency(True)
+        crisp_image(pic)
         add_tooltip(b, "DEMOLITION -- ARM TO TARGET ROADS, BRIDGES "
                        "AND WORKS", font=self.hud_font)
         self._demolish_imgs = button_assets('panel', 0.050, 0.050,
@@ -1114,7 +1172,7 @@ class WW2RTSGame(ShowBase):
     def _make_diplo_button(self):
         """Square key at the top of the right edge: opens the
         Foreign Office ledger."""
-        from ui import pill_button, add_tooltip
+        from ui import pill_button, add_tooltip, crisp_image
         from direct.gui.OnscreenImage import OnscreenImage
         if getattr(self, 'diplo_btn', None) is not None:
             self.diplo_btn.destroy()
@@ -1125,6 +1183,7 @@ class WW2RTSGame(ShowBase):
                                                 'dark'),
                             parent=b, scale=0.032, pos=(0, 0, 0.002))
         pic.setTransparency(True)
+        crisp_image(pic)
         add_tooltip(b, "DIPLOMACY LEDGER -- WARS, PACTS AND PEACE",
                     font=self.hud_font, left=0.048)
         self.diplo_btn = b
@@ -1147,7 +1206,7 @@ class WW2RTSGame(ShowBase):
         return by_type
 
     def _idle_roster_button(self, ut):
-        from ui import pill_button, add_tooltip
+        from ui import pill_button, add_tooltip, crisp_image
         from direct.gui.OnscreenImage import OnscreenImage
         b = pill_button(self.a2dRightCenter, '', self._idle_clicked,
                         extraArgs=[ut], pos=(-0.075, 0, 0.40),
@@ -1155,6 +1214,7 @@ class WW2RTSGame(ShowBase):
         pic = OnscreenImage(image=get_icon_path(ut, 'dark'),
                             parent=b, scale=0.032, pos=(0, 0, 0.004))
         pic.setTransparency(True)
+        crisp_image(pic)
         tn = TextNode('idle_' + ut)
         tn.setAlign(TextNode.ACenter)
         if self.hud_font:
@@ -1369,13 +1429,31 @@ class WW2RTSGame(ShowBase):
     def _execute_budget(self, country, counts, announce):
         buy = {}
         spent = 0
+        stock = self.resources.get(country)
+        halted = []
         for ut, n in dict(counts).items():
             cost = stats_for(ut, country)['cost']
+            mat = material_cost(ut, country)
             for _ in range(n):
                 if self.funds[country] - spent < cost:
                     break
+                if stock is not None and \
+                        stock['steel'] < mat['steel']:
+                    halted.append(
+                        "%s LINE HALTED -- WANTS %d STEEL, HAS %d"
+                        % (stats_for(ut, country)['label'].upper(),
+                           mat['steel'], int(stock['steel'])))
+                    break
+                if stock is not None:
+                    stock['steel'] -= mat['steel']
+                    self._mat_spent[country]['steel'] += mat['steel']
                 buy[ut] = buy.get(ut, 0) + 1
                 spent += cost
+        self.bottlenecks[country] = halted
+        if halted and announce:
+            self.fax_short("WAR INDUSTRIES: %d LINE(S) HALTED FOR "
+                           "MATERIALS -- SEE THE FACTORY KEY"
+                           % len(halted))
         if spent <= 0:
             return
         self.funds[country] -= spent
@@ -1394,10 +1472,516 @@ class WW2RTSGame(ShowBase):
             (B("$%d" % spent), lines),
             sender="EXCHEQUER")
 
+    def territory_of(self, pos):
+        """Whose country the ground belongs to: the nearest town
+        inside 1.8wu holds the ground around it. Open country
+        (deep ocean, wilderness) belongs to nobody."""
+        best, best_d = None, 1.8
+        for c in self.cities:
+            d = angle_between(pos, c.pos) * GLOBE_RADIUS
+            if d < best_d:
+                best, best_d = c, d
+        return best.country if best is not None else None
+
+    def passage_refused(self, unit, goal):
+        """A land column may not cross a foreign frontier without a
+        right of passage -- unless the war has already opened it."""
+        if unit.stats['domain'] != 'land':
+            return None
+        owner = self.territory_of(goal)
+        if owner in (None, 'neutral', unit.country):
+            return None
+        if self.at_war(unit.country, owner):
+            return None         # war opens every frontier
+        if self.allied(unit.country, owner) or \
+                self.has_right(unit.country, owner, 'passage'):
+            return None
+        return owner
+
+    # =============================================== the table
+    def standing(self, nat):
+        """What a foreign office thinks of us, on the Civ model:
+        a score from shared blood, shared enemies, treaties kept
+        and the shadow our army casts."""
+        me = self.player_country
+        if nat == me:
+            return 100
+        score = 10
+        if self.allied(me, nat):
+            score += 55
+        if self.at_war(me, nat):
+            score -= 80
+        # shared enemies warm a foreign office faster than anything
+        mine = set(self.nation_enemies(me))
+        theirs = set(self.nation_enemies(nat))
+        score += 14 * len(mine & theirs)
+        # ... and an enemy of ours they call a friend cools it
+        score -= 18 * len(set(self.alliances.get(nat, ())) & mine)
+        # standing agreements are goodwill banked
+        score += 8 * sum(1 for r in self.rights if r['with'] == nat)
+        score += 6 * sum(1 for t in self.trade_deals
+                         if t['with'] == nat)
+        # the shadow of a great army: the strong are courted by the
+        # weak and feared by the middling
+        my_f = self._forces_of(me)
+        th_f = max(1, self._forces_of(nat))
+        ratio = my_f / float(th_f)
+        if ratio > 2.5:
+            score += 12 if nat not in PLAYABLE else -14
+        elif ratio < 0.5:
+            score -= 10
+        return int(max(-100, min(100, score)))
+
+    def _forces_of(self, country):
+        return sum(1 for u in self.units
+                   if u.alive and u.country == country)
+
+    def deal_gates(self, nat):
+        """Rights a sheet may ask for at all. A pact of alliance is
+        never bought cold -- it is earned, as a Declaration of
+        Friendship is in Civ; and nobody hands a lump sum to a
+        power they do not trust."""
+        st = self.standing(nat)
+        at_war = self.at_war(self.player_country, nat)
+        return {
+            'alliance': (not at_war and st >= 45
+                         and not self.allied(self.player_country,
+                                             nat)),
+            'peace': at_war,
+            'nonaggression': not at_war,
+            'passage': not at_war,
+            'supply': not at_war and st >= 20,
+            'funds_once': st >= 25,
+            'funds_ftn': True,
+            'res_once': True,
+            'res_ftn': True,
+        }
+
+    def right_between(self, nat, kind):
+        """(granted_to_us, granted_to_them) for one kind of right.
+        A right runs ONE WAY unless both were signed: their frontier
+        may be open to us while ours stays shut to them."""
+        if self.allied(self.player_country, nat):
+            return True, True
+        to_us = to_them = False
+        for r in self.rights:
+            if r['with'] != nat or r['kind'] != kind:
+                continue
+            d = r.get('dir', 'mutual')
+            if d in ('theirs', 'mutual'):
+                to_us = True
+            if d in ('ours', 'mutual'):
+                to_them = True
+        return to_us, to_them
+
+    def has_right(self, mover, owner, kind):
+        """May MOVER operate on OWNER's ground under a standing
+        right? Directional: we bought passage of them, or granted
+        it to them."""
+        if self.allied(mover, owner):
+            return True
+        me = self.player_country
+        if mover == me:
+            return self.right_between(owner, kind)[0]
+        if owner == me:
+            return self.right_between(mover, kind)[1]
+        return False
+
+    def propose_deal(self, nat, offer, ask):
+        """The envoy goes out with the sheet and comes back with an
+        answer in the other office's own voice."""
+        import deals as _d
+        from config import short_name
+        me = self.player_country
+        # a sheet is only as good as the treasury behind it
+        for tok in offer:
+            if tok['kind'] == 'funds_once' and \
+                    self.funds[me] < tok['amount']:
+                self.fax.post(
+                    "THE SHEET IS WITHDRAWN",
+                    "The Exchequer cannot cover %s."
+                    % B(_d.token_text(tok)), sender="FOREIGN OFFICE")
+                return 'refuse'
+            if tok['kind'] == 'res_once' and \
+                    self.resources[me][tok['res']] < tok['amount']:
+                self.fax.post(
+                    "THE SHEET IS WITHDRAWN",
+                    "We have no %s to ship."
+                    % B(tok['res'].upper()), sender="FOREIGN OFFICE")
+                return 'refuse'
+        verdict, word, reply, gain = _d.evaluate(
+            offer, ask, self.standing(nat), self.deal_gates(nat))
+        title = ("TERMS ACCEPTED" if verdict == 'accept'
+                 else "TERMS REFUSED")
+        body = "%s\n\n%s" % (B('"%s"' % reply),
+                              "-- the %s foreign office (%s)"
+                              % (COUNTRIES[nat]['adjective'], word))
+        if verdict == 'accept':
+            self._execute_deal(nat, offer, ask)
+            body += "\n\nThe instrument is signed and lodged."
+        self.fax.post(title, body,
+                      sender="ENVOY TO %s" % short_name(nat).upper())
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+        return verdict
+
+    def _execute_deal(self, nat, offer, ask):
+        """Both sides honour the sheet at once: cargo and money
+        move, rights and pacts take effect."""
+        me = self.player_country
+        for tok, giver, taker in ([(t, me, nat) for t in offer]
+                                  + [(t, nat, me) for t in ask]):
+            k = tok['kind']
+            if k == 'funds_once':
+                self.funds[giver] -= tok['amount']
+                self.funds[taker] = self.funds.get(taker, 0) \
+                    + tok['amount']
+            elif k == 'res_once':
+                res, amt = tok['res'], tok['amount']
+                if giver in self.resources:
+                    self.resources[giver][res] = max(
+                        0, self.resources[giver][res] - amt)
+                if taker in self.resources:
+                    self.resources[taker][res] = min(
+                        RESOURCE_CAP,
+                        self.resources[taker][res] + amt)
+            elif k == 'funds_ftn':
+                self.trade_deals.append(
+                    {'with': nat, 'res': 'funds',
+                     'amount': 0, 'price': tok['amount'],
+                     'dir': 'out' if giver == me else 'in'})
+            elif k == 'res_ftn':
+                price = int(tok['amount']
+                            * self.trade_price(nat, tok['res'],
+                                               'out' if giver == me
+                                               else 'in'))
+                self.trade_deals.append(
+                    {'with': nat, 'res': tok['res'],
+                     'amount': tok['amount'], 'price': 0,
+                     'dir': 'out' if giver == me else 'in',
+                     'gift': True})
+            elif k in ('passage', 'supply', 'nonaggression'):
+                # a pact of non-aggression binds both; a right of
+                # passage or supply runs only the way it was signed
+                d = ('mutual' if k == 'nonaggression'
+                     else 'ours' if giver == me else 'theirs')
+                if not any(r['with'] == nat and r['kind'] == k
+                           and r.get('dir', 'mutual') == d
+                           for r in self.rights):
+                    self.rights.append({'with': nat, 'kind': k,
+                                        'dir': d})
+            elif k == 'alliance':
+                self.make_alliance(me, nat)
+            elif k == 'peace':
+                self.make_peace(me, nat)
+
+    def seller_capacity(self, nat, res):
+        """Tons a nation can put on the market each fortnight: its
+        deposits' output, less what its standing exports already
+        promise. Majors also keep half their take at home."""
+        out = sum(d.output for d in self.deposits
+                  if d.city.country == nat and d.resource == res)
+        if nat in PLAYABLE:
+            out = out // 2
+        sold = sum(t['amount'] for t in self.trade_deals
+                   if t['with'] == nat and t['dir'] == 'in'
+                   and t['res'] == res)
+        return max(0, out - sold)
+
+    def trade_price(self, nat, res, direction):
+        """$ per fortnight for 1 ton/ftn: allies trade a quarter
+        cheaper; selling always fetches a fifth under the market."""
+        base = TRADE_PRICES[res]
+        if self.allied(self.player_country, nat):
+            base = base * 0.75
+        if direction == 'out':
+            base = base * 0.8
+        return base
+
+    def propose_trade(self, nat, res, amount, direction):
+        """The player proposes a standing treaty line; answered at
+        once by wire (couriers are for war and peace)."""
+        me = self.player_country
+        if self.at_war(me, nat) or nat in self.eliminated:
+            return
+        if direction == 'in' and self.seller_capacity(nat, res) < amount:
+            self.fax.post("TRADE REFUSED",
+                          "%s has no %s to spare." %
+                          (B(short_name(nat)), res.upper()),
+                          sender="TRADE MISSION")
+            return
+        if direction == 'out' and nat not in PLAYABLE:
+            return              # the minors buy nothing
+        price = int(amount * self.trade_price(nat, res, direction))
+        self.trade_deals.append({'with': nat, 'res': res,
+                                 'amount': amount, 'price': price,
+                                 'dir': direction})
+        word = ("%d %s A FORTNIGHT FOR $%d"
+                % (amount, res.upper(), price))
+        self.fax.post("TREATY SIGNED",
+                      "%s: %s, settled each fortnight until "
+                      "cancelled." % (B(short_name(nat).upper()),
+                                      word),
+                      sender="TRADE MISSION")
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+
+    def cancel_trade(self, deal):
+        if deal in self.trade_deals:
+            self.trade_deals.remove(deal)
+            self.fax_short("TREATY WITH %s CANCELLED"
+                           % short_name(deal['with']).upper())
+            if self.diplo_fax:
+                self.diplo_fax.rebuild()
+
+    def _settle_trade(self):
+        """Fortnight settlement: goods move, money moves, and a
+        treaty that cannot be honoured lapses with a fax."""
+        me = self.player_country
+        stock = self.resources[me]
+        for deal in list(self.trade_deals):
+            nat, res = deal['with'], deal['res']
+            if (self.at_war(me, nat) or nat in self.eliminated):
+                self.trade_deals.remove(deal)
+                self.fax_short("TREATY WITH %s LAPSES -- THE WAR"
+                               % short_name(nat).upper())
+                continue
+            if deal['res'] == 'funds':
+                # a subsidy: money alone moves, each fortnight
+                pay = deal['price']
+                if deal['dir'] == 'out':
+                    if self.funds[me] < pay:
+                        self.trade_deals.remove(deal)
+                        self.fax_short("SUBSIDY TO %s LAPSES -- THE "
+                                       "TREASURY CANNOT PAY"
+                                       % short_name(nat).upper())
+                        continue
+                    self.funds[me] -= pay
+                    self.funds[nat] = self.funds.get(nat, 0) + pay
+                else:
+                    self.funds[me] += pay
+                    self.funds[nat] = max(
+                        0, self.funds.get(nat, 0) - pay)
+                continue
+            if deal.get('gift'):
+                # cargo pledged at the table: goods move, no money
+                if deal['dir'] == 'in':
+                    stock[deal['res']] = min(
+                        RESOURCE_CAP,
+                        stock[deal['res']] + deal['amount'])
+                    if nat in PLAYABLE:
+                        self.resources[nat][deal['res']] = max(
+                            0, self.resources[nat][deal['res']]
+                            - deal['amount'])
+                else:
+                    if stock[deal['res']] < deal['amount']:
+                        self.trade_deals.remove(deal)
+                        self.fax_short("PLEDGE TO %s LAPSES -- "
+                                       "NOTHING TO SHIP"
+                                       % short_name(nat).upper())
+                        continue
+                    stock[deal['res']] -= deal['amount']
+                    if nat in PLAYABLE:
+                        self.resources[nat][deal['res']] = min(
+                            RESOURCE_CAP,
+                            self.resources[nat][deal['res']]
+                            + deal['amount'])
+                continue
+            if deal['dir'] == 'in':
+                if self.funds[me] < deal['price']:
+                    self.trade_deals.remove(deal)
+                    self.fax_short("TREATY WITH %s LAPSES -- THE "
+                                   "TREASURY CANNOT PAY"
+                                   % short_name(nat).upper())
+                    continue
+                if self.seller_capacity(nat, res) < 0:
+                    continue
+                self.funds[me] -= deal['price']
+                self.funds[nat] = self.funds.get(nat, 0) \
+                    + deal['price']
+                stock[res] = min(RESOURCE_CAP,
+                                 stock[res] + deal['amount'])
+                if nat in PLAYABLE:
+                    self.resources[nat][res] = max(
+                        0, self.resources[nat][res] - deal['amount'])
+            else:
+                if stock[res] < deal['amount']:
+                    self.trade_deals.remove(deal)
+                    self.fax_short("EXPORT TO %s LAPSES -- NOTHING "
+                                   "TO SHIP" % short_name(nat).upper())
+                    continue
+                stock[res] -= deal['amount']
+                self.funds[me] += deal['price']
+                if nat in PLAYABLE:
+                    self.resources[nat][res] = min(
+                        RESOURCE_CAP,
+                        self.resources[nat][res] + deal['amount'])
+                    self.funds[nat] = max(
+                        0, self.funds.get(nat, 0) - deal['price'])
+
+    def _ration_out(self, country, wanted):
+        """How many sections the granaries can raise, and the food
+        drawn for them. Powers without a commissariat (the NPC
+        garrison nations) raise men freely."""
+        stock = self.resources.get(country)
+        if stock is None:
+            return wanted
+        can = int(stock['food'] // FOOD_PER_ENLISTED)
+        n = max(0, min(wanted, can))
+        if n:
+            stock['food'] -= n * FOOD_PER_ENLISTED
+            self._mat_spent[country]['food'] = \
+                self._mat_spent[country].get('food', 0) \
+                + n * FOOD_PER_ENLISTED
+        return n
+
+    def civil_ration(self, country):
+        """Tons a power's civilians eat in ONE DAY. Every soul under
+        the flag is fed -- and a population still being annexed eats
+        dearer, for it must be fed at bayonet point."""
+        tons = 0.0
+        for c in self.cities:
+            if c.country != country or not c.alive:
+                continue
+            rate = OCCUPIED_RATION if c.annexing else CIVIL_RATION
+            tons += (c.population / 1e6) * rate
+        return tons
+
+    def _daily_income(self, country):
+        """{res: tons} a power draws in ONE DAY: its deposits and the
+        civilian imports, divided across the fortnight."""
+        out = {res: BASELINE_IMPORTS[res] / float(BUDGET_PERIOD_DAYS)
+               for res in RESOURCES}
+        for dep in self.deposits:
+            if dep.city.country == country and dep.city.alive:
+                out[dep.resource] += (dep.output
+                                      / float(BUDGET_PERIOD_DAYS))
+        return out
+
+    def _famine(self, country, short):
+        """The ration cannot be met: industry sickens in every town
+        while the shortfall stands, and the player is told once."""
+        for c in self.cities:
+            if c.country == country and not c.annexing:
+                c.industry = max(5.0, c.industry - 0.35)
+        if country != self.player_country:
+            return
+        now = globalClock.getFrameTime()
+        if now - getattr(self, '_famine_t', -999.0) > 45.0:
+            self._famine_t = now
+            self.fax.post(
+                "THE RATION FAILS",
+                "The granaries are %s short of the day's ration. "
+                "Industry sickens in every town while the shortfall "
+                "stands, and no man can be mustered until the stores "
+                "are made good -- buy grain at the table, or take a "
+                "granary." % B("%d TONS" % max(1, int(short))),
+                sender="MINISTRY OF FOOD")
+
+    def _accrue_resources(self, days=1):
+        """THE WELLS RUN EVERY DAY. Oil, steel and grain trickle in
+        daily rather than landing in one fortnightly lump -- a power
+        that runs dry on the 3rd is pumping again on the 4th instead
+        of sitting idle until the books close."""
+        for country in PLAYABLE:
+            if country in self.eliminated:
+                continue
+            stock = self.resources[country]
+            gain = self._daily_income(country)
+            for res in RESOURCES:
+                stock[res] = min(RESOURCE_CAP,
+                                 stock[res] + gain[res] * days)
+            # the mouths are fed before anything else is spent
+            eaten = self.civil_ration(country) * days
+            self._mat_spent[country]['food'] = \
+                self._mat_spent[country].get('food', 0) + eaten
+            if stock['food'] < eaten:
+                self._famine(country, eaten - stock['food'])
+                stock['food'] = 0.0
+            else:
+                stock['food'] -= eaten
+
+    def _collect_resources(self):
+        """The fortnight's books close: the take is only REPORTED
+        here (the wells themselves pay daily, see _accrue_resources)
+        and the spending meters reset for the new fortnight."""
+        for country in PLAYABLE:
+            if country in self.eliminated:
+                continue
+            flows = {res: [('IMPORTS', BASELINE_IMPORTS[res])]
+                     for res in RESOURCES}
+            for dep in self.deposits:
+                if dep.city.country == country:
+                    flows[dep.resource].append(
+                        (dep.city.name.upper(), dep.output))
+            if country == self.player_country:
+                for deal in self.trade_deals:
+                    if deal['dir'] == 'in':
+                        flows[deal['res']].append(
+                            ('TREATY: %s'
+                             % short_name(deal['with']).upper(),
+                             deal['amount']))
+            spent = {'oil': int(self._oil_spent.get(country, 0)),
+                     'steel': self._mat_spent[country]['steel'],
+                     'food': self._mat_spent[country]['food']}
+            report = {}
+            for res in RESOURCES:
+                income = sum(v for _, v in flows[res])
+                report[res] = {'in': flows[res], 'income': income,
+                               'out': spent[res]}
+            self.resource_flows[country] = report
+            self._oil_spent[country] = 0.0
+            self._pump_lbs[country] = 0.0
+            self._mat_spent[country] = {'steel': 0, 'food': 0}
+
+    def _pump(self, unit, lbs):
+        """OIL AT THE PUMPS: stores bound for a MACHINE draw the
+        owner's oil stockpile at the moment of transfer; men and
+        rail burn none, and per-unit supply law is untouched. A dry
+        stockpile stops feeding engines -- the transfer is refused
+        and the despatch says so."""
+        if lbs <= 0 or unit.unit_type == 'infantry':
+            return lbs
+        stock = self.resources.get(unit.country)
+        if stock is None:               # NPC garrisons keep no books
+            return lbs
+        need = lbs * OIL_PER_LB
+        if stock['oil'] <= 0:
+            self._fuel_dry_signal(unit.country)
+            return 0.0
+        if need > stock['oil']:
+            lbs = stock['oil'] / OIL_PER_LB
+            need = stock['oil']
+        stock['oil'] -= need
+        self._oil_spent[unit.country] = \
+            self._oil_spent.get(unit.country, 0.0) + need
+        self._pump_lbs[unit.country] = \
+            self._pump_lbs.get(unit.country, 0.0) + lbs
+        return lbs
+
+    def _pump_sortie(self, country):
+        stock = self.resources.get(country)
+        if stock is not None:
+            take = min(stock['oil'], OIL_PER_SORTIE)
+            stock['oil'] -= take
+            self._oil_spent[country] = \
+                self._oil_spent.get(country, 0.0) + take
+
+    def _fuel_dry_signal(self, country):
+        if country != self.player_country:
+            return
+        now = globalClock.getFrameTime()
+        if now - getattr(self, '_fuel_dry_t', -999.0) > 60.0:
+            self._fuel_dry_t = now
+            self.fax_short("PUMPS DRY -- ENGINES ON RESERVE UNTIL "
+                           "OIL FLOWS")
+
     def _fortnight_rollover(self):
         """The fortnight turns: decreed tax rates bind, every treasury
         collects its cities' taxes, industry drifts under the new rates,
         annexations complete, and the standing budget is executed."""
+        self._settle_trade()
+        self._collect_resources()
         take = {c: 0 for c in COUNTRIES}
         for city in self.cities:
             if city.pending_tax is not None:
@@ -1447,6 +2031,26 @@ class WW2RTSGame(ShowBase):
             total += c.fortnight_revenue(rate)
         return total
 
+    def _clamp_budget(self, country, counts, funds):
+        """A manifest never plans money that will not exist: the
+        standing counts were drawn against an earlier, richer till,
+        so trim one piece at a time from the costliest line until
+        the sheet fits what the fortnight will actually hold."""
+        counts = dict(counts)
+        alloc = sum(stats_for(ut, country)['cost'] * n
+                    for ut, n in counts.items())
+        while alloc > funds:
+            worst, w_cost = None, -1
+            for ut, n in counts.items():
+                c = stats_for(ut, country)['cost']
+                if n > 0 and c > w_cost:
+                    worst, w_cost = ut, c
+            if worst is None:
+                break
+            counts[worst] -= 1
+            alloc -= w_cost
+        return counts
+
     def open_budget(self):
         if self.game_state != 'playing' or self.budget_fax:
             return
@@ -1463,7 +2067,13 @@ class WW2RTSGame(ShowBase):
             self, self, treasury + revenue,
             self.buyable_units(self.player_country),
             has_harbor, self._budget_transmit, self._budget_discard,
-            initial=self.budget_counts,
+            initial=self._clamp_budget(self.player_country,
+                                       self.budget_counts,
+                                       treasury + revenue),
+            mat_costs={ut: material_cost(ut, self.player_country)
+                       for ut in
+                       self.buyable_units(self.player_country)},
+            stock=dict(self.resources[self.player_country]),
             subtitle="PROJECTED TAX REVENUE $%d + TREASURY $%d = $%d "
                      "PLANNABLE NEXT FORTNIGHT" %
                      (revenue, treasury, revenue + treasury))
@@ -1507,14 +2117,24 @@ class WW2RTSGame(ShowBase):
             self.fax_short("THE ROLLS ARE EMPTY AT %s -- NEW NAMES "
                            "EACH FORTNIGHT" % city.name.upper())
             return
-        city.draft_pool = 0
+        # RATIONS: a man cannot be raised on an empty granary. What
+        # the stores can feed marches; the rest wait on the rolls.
+        n = self._ration_out(city.country, n)
+        if n <= 0:
+            self.fax_short("NO RATIONS FOR THE MUSTER AT %s -- THE "
+                           "GRANARIES ARE EMPTY" % city.name.upper())
+            return
+        city.draft_pool = max(0, city.draft_pool - n)
         for _ in range(n):
             u = self.spawn_unit('infantry', city.country, city.lat,
                                 city.lon, jitter=0.3,
                                 seed=random.randrange(99999))
             u.supply = u.stats['supply_cap']
-        self.fax_short("%d ENLISTED MUSTER AT %s"
-                       % (n, city.name.upper()))
+        left = city.draft_pool
+        self.fax_short("%d ENLISTED MUSTER AT %s%s"
+                       % (n, city.name.upper(),
+                          " -- %d WAIT ON RATIONS" % left
+                          if left else ""))
         self._refresh_selection_ui()
 
     def _ai_enlist(self):
@@ -1531,12 +2151,14 @@ class WW2RTSGame(ShowBase):
                 if (c.country != country or c.annexing
                         or c.draft_pool <= 0):
                     continue
-                for _ in range(c.draft_pool):
+                # every staff answers to its own commissariat
+                n = self._ration_out(country, c.draft_pool)
+                for _ in range(n):
                     u = self.spawn_unit('infantry', country, c.lat,
                                         c.lon, jitter=0.3,
                                         seed=random.randrange(99999))
                     u.supply = u.stats['supply_cap']
-                c.draft_pool = 0
+                c.draft_pool = max(0, c.draft_pool - n)
 
     def open_tax_fax(self, city):
         if (self.game_state != 'playing' or self.tax_fax
@@ -1644,14 +2266,86 @@ class WW2RTSGame(ShowBase):
             self.tech_fax.destroy()
             self.tech_fax = None
 
+    def open_resources_report(self):
+        """The quartermaster's ledger: stocks, sources, the
+        fortnight's spending so far, and the supply net in plain
+        figures."""
+        if self.game_state != 'playing' or self.briefing_fax:
+            return
+        from config import short_name
+        me = self.player_country
+        stock = self.resources[me]
+        spent = {'oil': int(self._oil_spent.get(me, 0)),
+                 'steel': self._mat_spent[me]['steel'],
+                 'food': self._mat_spent[me]['food']}
+        data = {}
+        for res in RESOURCES:
+            income = [('IMPORTS', BASELINE_IMPORTS[res])]
+            for t in self.trade_deals:
+                if t['dir'] == 'in' and t['res'] == res:
+                    income.append(('TREATY: %s'
+                                   % short_name(t['with']).upper(),
+                                   t['amount']))
+            foreign = []
+            for dep in self.deposits:
+                if dep.city.country == me:
+                    income.append((dep.city.name.upper(), dep.output))
+                elif dep.resource == res:
+                    foreign.append((dep.city.name.upper(),
+                                    short_name(dep.city.country)
+                                    .upper(), dep.output))
+            income = [(n, v) for n, v in income
+                      if n == 'IMPORTS' or any(
+                          d.city.name.upper() == n
+                          and d.resource == res
+                          for d in self.deposits)]
+            foreign.sort(key=lambda t: -t[2])
+            data[res] = {
+                'stock': int(stock[res]),
+                'income': income,
+                'more_income': max(0, len(income) - 6),
+                'spent': spent[res],
+                'foreign': foreign,
+            }
+        net = sum(int(getattr(c, 'stock', 0)) for c in self.cities
+                  if c.country == me)
+        net += sum(int(st.stock) for st in
+                   list(self.depots) + list(self.harbors)
+                   + list(self.armyposts) + list(self.airfields)
+                   if st.alive and st.country == me)
+        aboard = sum(int(u.supply) for u in self.units
+                     if u.alive and u.country == me)
+        data['net_stocks'] = net
+        data['unit_stores'] = aboard
+        data['pump_lbs'] = self._pump_lbs.get(me, 0.0)
+        data['pump_oil'] = self._oil_spent.get(me, 0.0)
+        eaten = self.civil_ration(me)
+        data['ration'] = (
+            "THE RATION: %d TONS A DAY FEEDS %.1f MILLION SOULS -- "
+            "AND %d TONS RAISES ONE SECTION"
+            % (int(round(eaten)),
+               sum(c.population for c in self.cities
+                   if c.country == me) / 1e6,
+               FOOD_PER_ENLISTED))
+        data['trade'] = [
+            ("%s %d %s %s %s ($%d/FTN)"
+             % ("IMPORTING" if t['dir'] == 'in' else "EXPORTING",
+                t['amount'], t['res'].upper(),
+                "FROM" if t['dir'] == 'in' else "TO",
+                short_name(t['with']).upper(), t['price']))
+            for t in self.trade_deals]
+        self.briefing_fax = ResourcesFax(self, data,
+                                         self._close_briefing)
+
     def open_factory_report(self):
         """The war-industries FAX: the fortnight order by branch, live
         while the page is open."""
         if self.game_state != 'playing' or self.briefing_fax:
             return
         self._factory_timer = 0.5
-        self.briefing_fax = ProductionFax(self, self._factory_sections(),
-                                          self._close_briefing)
+        self.briefing_fax = ProductionFax(
+            self, self._factory_sections(), self._close_briefing,
+            bottlenecks=self.bottlenecks.get(self.player_country, ()))
 
     def _distribute_production(self, country, counts):
         cities = [c for c in self.cities if c.country == country]
@@ -1739,6 +2433,20 @@ class WW2RTSGame(ShowBase):
                 best, best_d = obj, d
         return best
 
+    def _struct_pick_radius(self, fixed_scale):
+        """Structures are billboards at FIXED WORLD SIZE: zoomed all
+        the way in they span a large slab of screen, and a constant
+        screen-space pick circle around their centre reads as a
+        SHRINKING hitbox. Grow the circle to cover the drawn mark."""
+        import math as _m
+        alt = max(0.05, self.cam_dist - GLOBE_RADIUS)
+        try:
+            fov_v = _m.radians(self.camLens.getFov()[1])
+        except Exception:
+            return CLICK_RADIUS * 1.9
+        on_screen = (fixed_scale * 1.4) / (alt * _m.tan(fov_v / 2.0))
+        return max(CLICK_RADIUS * 1.9, on_screen)
+
     def _unit_world_pos(self, u):
         return u.pos * (GLOBE_RADIUS * u.altitude())
 
@@ -1820,7 +2528,8 @@ class WW2RTSGame(ShowBase):
         own_fields = [(a, a.pos * GLOBE_RADIUS) for a in self.airfields
                       if a.country == self.player_country
                       and self._facing_camera(a.pos)]
-        field = self._pick_object(mpos, own_fields, radius=CLICK_RADIUS * 1.9)
+        field = self._pick_object(mpos, own_fields,
+                                  radius=self._struct_pick_radius(0.034))
         if field:
             self.clear_selection()
             self._select_airfield(field)
@@ -1828,7 +2537,8 @@ class WW2RTSGame(ShowBase):
         own_harbors = [(h, h.pos * GLOBE_RADIUS) for h in self.harbors
                        if h.country == self.player_country
                        and self._facing_camera(h.pos)]
-        harbor = self._pick_object(mpos, own_harbors, radius=CLICK_RADIUS * 1.9)
+        harbor = self._pick_object(mpos, own_harbors,
+                                   radius=self._struct_pick_radius(0.045))
         if harbor:
             self.clear_selection()
             self._select_harbor(harbor)
@@ -1838,7 +2548,7 @@ class WW2RTSGame(ShowBase):
                      if p_.country == self.player_country
                      and self._facing_camera(p_.pos)]
         post = self._pick_object(mpos, own_posts,
-                                 radius=CLICK_RADIUS * 1.9)
+                                 radius=self._struct_pick_radius(0.045))
         if post:
             self.clear_selection()
             self._select_armypost(post)
@@ -1846,10 +2556,28 @@ class WW2RTSGame(ShowBase):
         own_depots = [(d, d.pos * GLOBE_RADIUS) for d in self.depots
                       if d.country == self.player_country
                       and self._facing_camera(d.pos)]
-        depot = self._pick_object(mpos, own_depots, radius=CLICK_RADIUS * 1.9)
+        depot = self._pick_object(mpos, own_depots,
+                                  radius=self._struct_pick_radius(0.03))
         if depot:
             self.clear_selection()
             self._select_depot(depot)
+            return
+        own_bunkers = [(b, b.pos * GLOBE_RADIUS) for b in self.bunkers
+                       if b.alive and b.country == self.player_country
+                       and self._facing_camera(b.pos)]
+        bunker = self._pick_object(mpos, own_bunkers,
+                                   radius=self._struct_pick_radius(0.042))
+        if bunker:
+            self.clear_selection()
+            self._select_bunker(bunker)
+            return
+        deps = [(d, d.pos * GLOBE_RADIUS) for d in self.deposits
+                if self._facing_camera(d.pos)]
+        dep = self._pick_object(mpos, deps,
+                                radius=self._struct_pick_radius(0.036))
+        if dep:
+            self.clear_selection()
+            self._select_deposit(dep)
             return
         own_cities = [(c, c.label_pos * GLOBE_RADIUS)
                       for c in self.cities
@@ -1960,6 +2688,8 @@ class WW2RTSGame(ShowBase):
         self._select_harbor(None)
         self._select_depot(None)
         self._select_armypost(None)
+        self._select_bunker(None)
+        self._select_deposit(None)
         self._refresh_selection_ui()
 
     def _select_city(self, city):
@@ -2000,6 +2730,22 @@ class WW2RTSGame(ShowBase):
         self.selected_depot = depot
         if depot:
             depot.sel_ring.show()
+        self._refresh_selection_ui()
+
+    def _select_deposit(self, dep):
+        if getattr(self, 'selected_deposit', None):
+            self.selected_deposit.sel_ring.hide()
+        self.selected_deposit = dep
+        if dep:
+            dep.sel_ring.show()
+        self._refresh_selection_ui()
+
+    def _select_bunker(self, bunker):
+        if getattr(self, 'selected_bunker', None):
+            self.selected_bunker.sel_ring.hide()
+        self.selected_bunker = bunker
+        if bunker:
+            bunker.sel_ring.show()
         self._refresh_selection_ui()
 
     def assign_group(self, n):
@@ -2359,6 +3105,7 @@ class WW2RTSGame(ShowBase):
         unit.based_at = None            # wheels up
         unit._flown = 0.0
         self._draw_base_stock(was_base, SORTIE_COST)
+        self._pump_sortie(unit.country)
         # own aircraft appear at once; enemy aircraft stay dark until a
         # friendly vision field actually spots them
         if unit.country == self.player_country:
@@ -2526,6 +3273,7 @@ class WW2RTSGame(ShowBase):
         unit.based_at = None            # wheels up
         unit._flown = 0.0
         self._draw_base_stock(base, SORTIE_COST)
+        self._pump_sortie(unit.country)
         unit.root.show()
         tgts = [o['target'] for o in plan
                 if o['kind'] == 'attack'
@@ -2696,6 +3444,28 @@ class WW2RTSGame(ShowBase):
         (not just the first)."""
         if unit.country == self.player_country and not order.get('auto'):
             order['indicate'] = True
+            # THE FRONTIER: a column ordered across a foreign border
+            # without a right of passage is turned back by their
+            # guards -- buy the right at the table, or declare war
+            if order.get('kind') == 'move' and order.get('goal') \
+                    is not None:
+                owner = self.passage_refused(unit, order['goal'])
+                if owner is not None:
+                    try:
+                        unit.order_queue.remove(order)
+                    except ValueError:
+                        pass
+                    if unit.current_order is order:
+                        unit.current_order = None
+                    now = globalClock.getFrameTime()
+                    if now - getattr(self, '_passage_t',
+                                     -99.0) > 4.0:
+                        self._passage_t = now
+                        self.fax_short(
+                            "%s FRONTIER CLOSED TO US -- TREAT FOR "
+                            "A RIGHT OF PASSAGE, OR DECLARE WAR"
+                            % short_name(owner).upper())
+                    return
         # parked player aircraft do not scramble on the click: the order
         # goes on the plotting board; ENTER (or SCRAMBLE) commits it.
         # Aloft aircraft are RETASKED in flight on their remaining fuel.
@@ -3640,11 +4410,10 @@ class WW2RTSGame(ShowBase):
                             'from': Vec3(a), 't': build_time,
                             'cost': cost}, queue=shift or chained)
             # the ordered leg leaves the survey sheet: the order's own
-            # path viz takes over; only the anchor stays for chaining
+            # path viz takes over, but the ANCHOR keeps its ring so
+            # the surveyor can see where the next leg begins
             self.road_plan = [Vec3(b)]
-            if self.road_preview:
-                self.road_preview.removeNode()
-                self.road_preview = None
+            self._draw_road_plan(eng)
             self.fax_short("%s LEG UNDER CONSTRUCTION -- CLICK "
                            "EXTENDS THE LINE, ESC ENDS THE SURVEY"
                            % label)
@@ -3713,9 +4482,13 @@ class WW2RTSGame(ShowBase):
                                / 0.3))
                 for k in range(1, n + 1):
                     segs.drawTo(slerp(a, b, k / n) * lift)
-        # every survey point wears its yellow waypoint ring
+        # every survey point wears its yellow waypoint ring. It is
+        # sized against the CAMERA: a fixed 0.007wu ring is
+        # sub-pixel at the altitude a Berlin-Warsaw line is planned
+        # from, which is why the survey looked like it did nothing
         segs.setColor(1.0, 0.85, 0.2, 0.9)
-        r = UNIT_SPRITE_SCALE * 0.16
+        alt = max(0.05, self.cam_dist - GLOBE_RADIUS)
+        r = max(UNIT_SPRITE_SCALE * 0.30, alt * 0.028)
         for jp in self.road_plan:
             east = north_tangent(jp).cross(jp)
             for i in range(17):
@@ -3730,9 +4503,11 @@ class WW2RTSGame(ShowBase):
         self.road_preview = self.render.attachNewNode(segs.create())
         self.road_preview.setLightOff()
         self.road_preview.setDepthOffset(4)
+        self._survey_eng = eng
 
     def _clear_road_plan(self):
         self.road_plan = []
+        self._survey_eng = None
         if self.road_preview:
             self.road_preview.removeNode()
             self.road_preview = None
@@ -3979,7 +4754,9 @@ void main() {
                 continue
             for c in self.cities:
                 if ((c.country == u.country
-                     or self.allied(u.country, c.country))
+                     or self.allied(u.country, c.country)
+                     or self.has_right(u.country, c.country,
+                                       'supply'))
                         and not c.annexing
                         and u.dist_to(c.pos) < 0.6):
                     u.supply = u.stats['supply_cap']
@@ -4033,10 +4810,12 @@ void main() {
                         d.stock += move
                     elif has_job and u.supply < cap and d.stock > 0:
                         move = min(cap - u.supply, d.stock)
+                        move = self._pump(u, move)
                         u.supply += move
                         d.stock -= move
                 elif d.stock > 0 and u.supply < cap:
                     move = min(cap - u.supply, d.stock)
+                    move = self._pump(u, move)
                     u.supply += move
                     d.stock -= move
 
@@ -4079,7 +4858,9 @@ void main() {
                     continue
                 if need <= 0:
                     continue
-                move = min(need, avail)
+                move = self._pump(u, min(need, avail))
+                if move <= 0:
+                    continue
                 u.supply += move
                 src.supply -= move
                 avail -= move
@@ -4150,7 +4931,8 @@ void main() {
     def _sources_for(self, u):
         def own_or_ally(country):
             return (country == u.country
-                    or self.allied(u.country, country))
+                    or self.allied(u.country, country)
+                    or self.has_right(u.country, country, 'supply'))
         if u.stats['domain'] == 'sea':
             srcs = [c.pos for c in self.cities
                     if own_or_ally(c.country) and c.harbor]
@@ -4371,6 +5153,7 @@ void main() {
                         target = cap if hungry_out else cap * 0.6
                         draw = max(0.0, min(target - truck.supply,
                                             c0.stock))
+                        draw = self._pump(truck, draw)
                         truck.supply += draw
                         c0.stock -= draw
                         truck._drew_from = (id(c0), Vec3(c0.pos))
@@ -4403,6 +5186,7 @@ void main() {
                             <= self._cache_reach(c0)):
                         draw = min(cap - truck.supply,
                                    need - truck.supply, c0.stock)
+                        draw = self._pump(truck, draw)
                         truck.supply += draw
                         c0.stock -= draw
                 if (truck.dist_to(d.pos) > 0.5
@@ -4904,16 +5688,32 @@ void main() {
             self.stats_ledger['wars_declared'] = \
                 self.stats_ledger.get('wars_declared', 0) + 1
         self._rebuild_war_sets()
-        dragged = sorted((bloc_a | bloc_b) - {aggressor, defender})
-        deck = "%s and its allies enter the war against %s" % (
-            COUNTRIES[aggressor]['name'], COUNTRIES[defender]['name'])
-        if dragged:
-            deck += " -- treaty obligations bring in %s" % ", ".join(
-                COUNTRIES[d]['name'] for d in dragged)
+        from config import short_name
+
+        def roll(names):
+            names = [short_name(n) for n in names]
+            if len(names) == 1:
+                return names[0]
+            return "%s and %s" % (", ".join(names[:-1]), names[-1])
+
+        side_a = sorted(bloc_a - {aggressor})
+        side_b = sorted(bloc_b - {defender})
+        if side_a:
+            march = ("%s marches with %s at its side"
+                     % (short_name(aggressor), roll(side_a)))
+        else:
+            march = ("%s marches alone -- not one power stands "
+                     "at its side" % short_name(aggressor))
+        if side_b:
+            faces = (", against %s and its allies %s"
+                     % (short_name(defender), roll(side_b)))
+        else:
+            faces = (", against %s, which faces the storm without "
+                     "a single ally" % short_name(defender))
         self.post_news(
             "%s DECLARES WAR ON %s" %
-            (COUNTRIES[aggressor]['name'].upper(),
-             COUNTRIES[defender]['name'].upper()), deck + ".")
+            (short_name(aggressor).upper(),
+             short_name(defender).upper()), march + faces + ".")
         player = self.player_country
         if player in bloc_a or player in bloc_b:
             other = (bloc_b if player in bloc_a else bloc_a)
@@ -4940,7 +5740,7 @@ void main() {
                 self.stats_ledger.get('allies_made', 0) + 1
         self.post_news(
             "%s AND %s SIGN PACT OF ALLIANCE" %
-            (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
+            (short_name(a).upper(), short_name(b).upper()),
             "The two powers bind their wars together: an attack upon "
             "one is now an attack upon both.")
         if self.diplo_fax:
@@ -4960,7 +5760,7 @@ void main() {
         self.alliances[b].discard(a)
         self.post_news(
             "%s RENOUNCES ITS PACT WITH %s" %
-            (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
+            (short_name(a).upper(), short_name(b).upper()),
             "The alliance is dissolved by note delivered in the small "
             "hours; each power's wars are its own again.")
         return True
@@ -4973,7 +5773,7 @@ void main() {
         self._rebuild_war_sets()
         self.post_news(
             "PEACE BETWEEN %s AND %s" %
-            (COUNTRIES[a]['name'].upper(), COUNTRIES[b]['name'].upper()),
+            (short_name(a).upper(), short_name(b).upper()),
             "Guns fall silent along the whole frontier under a peace "
             "signed without indemnity or annexation.")
         if self.diplo_fax:
@@ -5255,6 +6055,15 @@ void main() {
             ap.country = new_owner
             ap.crews = 0
             ap.refresh_marker()
+        for dep in self.deposits:
+            if dep.city is city:
+                dep.country = new_owner
+                dep.refresh_marker()
+                if new_owner == self.player_country:
+                    self.fax_short("%s IN OUR HANDS -- +%d %s A "
+                                   "FORTNIGHT" % (dep.name,
+                                                  dep.output,
+                                                  dep.resource.upper()))
         field = self.airfield_of_city(city)
         if field is not None:
             for u in list(self.units):
@@ -5298,10 +6107,10 @@ void main() {
                     allies.discard(country)
                 self.alliances[country] = set()
                 self.post_news(
-                    "%s CAPITULATES" % COUNTRIES[country]['name'].upper(),
+                    "%s CAPITULATES" % short_name(country).upper(),
                     "With its last city fallen, %s signs the instrument "
                     "of surrender; its forces lay down their arms." %
-                    COUNTRIES[country]['name'])
+                    short_name(country))
                 for u in self.units:
                     if u.alive and u.country == country:
                         self.unit_destroyed(u, None)
@@ -5711,6 +6520,11 @@ void main() {
             self._apply_marker_scale()
 
     def _apply_marker_scale(self):
+        # the survey sheet is drawn against the camera: redraw it so
+        # its waypoint rings hold their apparent size through a zoom
+        if self.road_plan and getattr(self, '_survey_eng', None) \
+                is not None and self._survey_eng.alive:
+            self._draw_road_plan(self._survey_eng)
         alt = self.cam_dist - GLOBE_RADIUS
         self.marker_scale = max(0.008, min(0.72, alt * 0.0115))
         city_scale = self.marker_scale * 0.32
@@ -6209,6 +7023,63 @@ void main() {
         if self.selected_depot:
             self._refresh_depot_ui(self.selected_depot)
             return
+        if getattr(self, 'selected_deposit', None):
+            d = self.selected_deposit
+            from config import short_name
+            bar.set_title("%s -- %s FIELD" % (d.name,
+                                              d.resource.upper())
+                          if d.resource == 'oil' else
+                          "%s -- %s WORKS" % (d.name,
+                                              d.resource.upper()))
+            owner = short_name(d.country).upper() if d.country \
+                else 'NOBODY'
+            mine = d.country == self.player_country
+            bar.set_info(
+                "OUTPUT %d TONS OF %s A FORTNIGHT -- WORKED BY %s%s"
+                % (d.output, d.resource.upper(), owner,
+                   "" if mine else
+                   " (TAKE %s TO TAKE THE %s)"
+                   % (d.city.name.upper(), d.resource.upper())))
+            bar.add_buttons([])
+            bar.set_hint("THE DEPOSIT FOLLOWS ITS CITY'S FLAG")
+            return
+        if getattr(self, 'selected_deposit', None):
+            d = self.selected_deposit
+            from config import short_name
+            bar.set_title(
+                "%s -- %s FIELD" % (d.name, d.resource.upper())
+                if d.resource == 'oil' else
+                "%s -- %s WORKS" % (d.name, d.resource.upper()))
+            owner = short_name(d.country).upper() if d.country \
+                else 'NOBODY'
+            mine = d.country == self.player_country
+            bar.set_info(
+                "OUTPUT %d TONS OF %s A FORTNIGHT -- WORKED BY %s%s"
+                % (d.output, d.resource.upper(), owner,
+                   "" if mine else
+                   " (TAKE %s TO TAKE THE %s)"
+                   % (d.city.name.upper(), d.resource.upper())))
+            bar.add_buttons([])
+            bar.set_hint("THE DEPOSIT FOLLOWS ITS CITY'S FLAG")
+            return
+        if getattr(self, 'selected_bunker', None):
+            b = self.selected_bunker
+            bar.set_title("%s -- FIELD WORKS" % b.name.upper())
+            sheltered = sum(
+                1 for u in self.units
+                if u.alive and not u.carried_by
+                and u.unit_type == 'infantry'
+                and u.country == b.country
+                and angle_between(u.pos, b.pos) * GLOBE_RADIUS
+                <= BUNKER_RADIUS)
+            bar.set_info(
+                "STRENGTH %d/%d   SHELTERING %d SECTION(S) -- "
+                "BOMBS AND SHELLFIRE STRIKE AT ONE THIRD WITHIN "
+                "THE WALLS" % (int(b.hp), int(b.max_hp), sheltered))
+            bar.add_buttons([])
+            bar.set_hint("INFANTRY WITHIN THE PERIMETER FIGHT "
+                         "UNDER COVER")
+            return
         if self.selected_city:
             city = self.selected_city
             tag = " (CAPITAL)" if city.capital else ""
@@ -6651,7 +7522,7 @@ void main() {
                      'depot': 'depot', 'bunker': 'bunker',
                      'airfield': 'airfield', 'harbor': 'harbor',
                      'radar': 'radar'}
-        entries = [("%dLB" % cost, self.begin_build_mode, [kind],
+        entries = [("", self.begin_build_mode, [kind],
                     get_icon_path(work_icon.get(kind, 'depot'), 'dark'),
                     False, "%s -- %d LB OF STORES" % (label, cost))
                    for kind, (label, cost, _t) in self.BUILD_WORKS.items()]
@@ -6895,9 +7766,11 @@ void main() {
                       if u.alive and u.country == self.player_country)
         n_cities = sum(1 for c in self.cities
                        if c.country == self.player_country)
-        self.top_bar.set_stats({
-            'NATION': COUNTRIES[self.player_country]['adjective'].upper(),
-            'TREASURY': "$%d" % int(self.funds[self.player_country]),
+        me = self.player_country
+        stock = self.resources.get(me, {})
+        stats = {
+            'NATION': COUNTRIES[me]['adjective'].upper(),
+            'TREASURY': "$%d" % int(self.funds[me]),
             'FORCES': n_units,
             'CITIES': n_cities,
             'TIME': self.campaign_clock_text(),
@@ -6907,7 +7780,28 @@ void main() {
             'LOSSES': self.losses,
             'SPEED': ("PAUSED" if self.is_paused
                       else "x%g" % self.game_speed),
-        })
+        }
+        flows = self.resource_flows.get(me, {})
+        for res in RESOURCES:
+            col = res.upper()
+            stats[col] = "%d" % int(stock.get(res, 0))
+            rep = flows.get(res)
+            if rep:
+                net = rep['income'] - rep['out']
+                self.top_bar.set_resource_color(
+                    col, (0.88, 0.85, 0.72, 1.0) if net >= 0
+                    else (0.9, 0.45, 0.3, 1.0))
+                parts = ["%s +%d" % (name, v)
+                         for name, v in rep['in'][:4]]
+                if len(rep['in']) > 4:
+                    parts.append("+%d MORE SITES"
+                                 % (len(rep['in']) - 4))
+                parts.append("SPENT -%d" % rep['out'])
+                self.top_bar.set_resource_detail(
+                    col, "%s: %s" % (col, "  ".join(parts)))
+        self.top_bar.set_stats(stats)
+        self.top_bar.set_factory_alert(
+            bool(self.bottlenecks.get(me)))
         self.top_bar.set_fortnight_day(self.fortnight_day())
 
     # ====================================================== main loop
@@ -6957,6 +7851,12 @@ void main() {
                     >= BUDGET_PERIOD_DAYS * 1440.0):
                 self.fortnight_start += BUDGET_PERIOD_DAYS * 1440.0
                 self._fortnight_rollover()
+            day = int(self.clock_minutes // 1440.0)
+            if day != getattr(self, '_last_day', None):
+                if getattr(self, '_last_day', None) is not None:
+                    self._accrue_resources(
+                        day - self._last_day)
+                self._last_day = day
             # the sun tracks westward so it rises in the east and sets
             # in the west
             self.sun_angle = (self.sun_angle -

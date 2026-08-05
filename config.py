@@ -6,7 +6,7 @@ Game Configuration and Constants
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 FULLSCREEN = False
-WINDOW_TITLE = "Schattenfront"
+WINDOW_TITLE = "Zero Hour: 1939"
 SHOW_FPS_METER = False        # set True to display the frame-rate meter
 
 # Globe Settings
@@ -66,7 +66,75 @@ FOG_BRIGHTNESS = 0.8          # 20% darker
 FOG_SATURATION = 0.5          # 50% less saturated
 TERRAIN_LOS = False           # relief-warped vision fields (heavy);
                               # False = clean circles, flag kept for later
-GAME_VERSION = '0.1.1'        # shown on the menu as ALPHA <version>
+GAME_VERSION = '1.2.0'        # shown on the menu as ALPHA <version>
+
+# ------------------------------------------------ strategic resources
+# Exactly three, and each governs a different half of the war:
+# OIL is OPERATIONS (drawn at the pumps when the supply net feeds a
+# machine), STEEL is PRODUCTION (spent building every hull and
+# hull-plate), FOOD is MANPOWER (rations for the men a city musters
+# and the mouths its flag covers). Per-unit supply burn is untouched.
+RESOURCES = ('oil', 'steel', 'food')
+RESOURCE_CAP = 999            # national stockpile ceiling per resource
+# sized so the OPENING slate builds clean (~530 tons of steel);
+# a money-limited fortnight thereafter bills roughly one
+# fortnight's deposit income -- materials pinch, never strangle
+STARTING_RESOURCES = {'oil': 400, 'steel': 800, 'food': 260}
+BASELINE_IMPORTS = {'oil': 40, 'steel': 60, 'food': 40}
+OIL_PER_LB = 1.0 / 1250.0     # tons of oil per lb of stores pumped
+                              # into MACHINES (men and rail burn none)
+OIL_PER_SORTIE = 0.6          # aviation spirit per takeoff
+
+# FOOD is the manpower resource. Machines never eat: rations are
+# drawn when a city musters its Enlisted, and every population the
+# flag covers must be fed each day -- so conquest brings mouths as
+# well as factories, and a blockaded island starves.
+FOOD_PER_ENLISTED = 4         # tons to raise and feed one section
+CIVIL_RATION = 0.55           # tons per MILLION souls per day
+OCCUPIED_RATION = 1.6         # a hostile population eats dearer
+
+# the open market: base $/ton for treaty trade, discounted between
+# allies the same way volunteers are
+TRADE_PRICES = {'oil': 8, 'steel': 6, 'food': 7}
+TRADE_STEPS = (20, 40)        # tonnages a treaty line may carry
+
+# Deposits sit beside their historical cities; own the city, work
+# the deposit. Output is tons per fortnight into the owner's
+# stockpile (playable powers only -- NPC nations run no economy;
+# their deposits matter when captured, courted or embargoed).
+DEPOSITS = {
+    # ---- OIL
+    'Ploiesti': ('oil', 90), 'Baghdad': ('oil', 60),
+    'Tehran': ('oil', 60), 'Houston': ('oil', 120),
+    'Oklahoma City': ('oil', 60), 'Palembang': ('oil', 80),
+    'Novorossiysk': ('oil', 100), 'Kuybyshev': ('oil', 40),
+    'Rangoon': ('oil', 30),
+    # ---- STEEL
+    'Essen': ('steel', 110), 'Birmingham': ('steel', 80),
+    'Glasgow': ('steel', 40), 'Pittsburgh': ('steel', 120),
+    'Chicago': ('steel', 60), 'Stalingrad': ('steel', 60),
+    'Kharkov': ('steel', 60), 'Gorky': ('steel', 40),
+    'Osaka': ('steel', 60), 'Mukden': ('steel', 60),
+    'Liege': ('steel', 40), 'Prague': ('steel', 40),
+    'Milan': ('steel', 40),
+    # ---- FOOD: the granaries, the paddies and the prairies.
+    # Deliberately lopsided, as history was: the Ukraine and the
+    # American plains feed empires, Britain must import her bread,
+    # and Japan's rice lies in other men's colonies.
+    'Kiev': ('food', 110), 'Voronezh': ('food', 90),
+    'Odessa': ('food', 80), 'Rostov': ('food', 70),
+    'St. Louis': ('food', 110), 'Kansas City': ('food', 100),
+    'Omaha': ('food', 90), 'Minneapolis': ('food', 80),
+    'Paris': ('food', 60), 'Lyon': ('food', 50),
+    'Bordeaux': ('food', 50), 'Bologna': ('food', 40),
+    'Budapest': ('food', 60), 'Bucharest': ('food', 60),
+    'Konigsberg': ('food', 50), 'Munich': ('food', 40),
+    'Delhi': ('food', 80), 'Calcutta': ('food', 70),
+    'Bangkok': ('food', 90), 'Mandalay': ('food', 80),
+    'Saigon': ('food', 80), 'Nanking': ('food', 70),
+    'Wuhan': ('food', 60), 'Sydney': ('food', 70),
+    'Nagoya': ('food', 40), 'Surabaya': ('food', 50),
+}
 MILES_PER_WU = 132            # one world unit is ~212 km = 132 statute mi
 BORDER_WASH_BAND = 0.022      # frontier ribbon width, radians (~140 km)
 BORDER_WASH_FLOOR = 0.06      # interior tint floor (near-transparent)
@@ -171,17 +239,58 @@ NPC_NATIONS = {
                     'adjective': 'Siamese'},
     # dominions and colonial commands of the playable empires stand as
     # their own nations, so the majors begin with their HOME cities
-    # only and the wider empires enter the war by diplomacy
-    'brit_med':    {'color': (0.35, 0.48, 0.70), 'name': 'British Mediterranean',
-                    'adjective': 'Levantine'},
-    'raj':         {'color': (0.30, 0.52, 0.58), 'name': 'British Raj',
+    # only and the wider empires enter the war by diplomacy. They wear
+    # PLAIN names on every ledger and paper -- "Egypt", not "British
+    # Mediterranean" -- so players read them as countries, not
+    # command abbreviations (internal keys unchanged for saves).
+    'brit_med':    {'color': (0.35, 0.48, 0.70), 'name': 'Egypt',
+                    'adjective': 'Egyptian'},
+    'raj':         {'color': (0.30, 0.52, 0.58), 'name': 'India',
                     'adjective': 'Indian'},
-    'fareast':     {'color': (0.42, 0.55, 0.52), 'name': 'British Far East',
+    'fareast':     {'color': (0.42, 0.55, 0.52), 'name': 'Malaya',
                     'adjective': 'Malayan'},
     'australia':   {'color': (0.38, 0.58, 0.45), 'name': 'Australia',
                     'adjective': 'Australian'},
 }
 COUNTRIES.update(NPC_NATIONS)
+# short names for tight layouts (ledger cards, wire traffic):
+# no 'Kingdom of', no 'Republic of' -- just the country
+SHORT_NAMES = {
+    'britain': 'Britain',
+    'germany': 'Germany',
+    'usa': 'United States',
+    'japan': 'Japan',
+    'soviet': 'Soviet Union',
+    'france': 'France',
+    'italy': 'Italy',
+    'china': 'China',
+    'poland': 'Poland',
+    'netherlands': 'Netherlands',
+    'belgium': 'Belgium',
+    'norway': 'Norway',
+    'denmark': 'Denmark',
+    'finland': 'Finland',
+    'greece': 'Greece',
+    'yugoslavia': 'Yugoslavia',
+    'romania': 'Romania',
+    'hungary': 'Hungary',
+    'bulgaria': 'Bulgaria',
+    'iraq': 'Iraq',
+    'iran': 'Iran',
+    'siam': 'Siam',
+    'brit_med': 'Egypt',
+    'raj': 'India',
+    'fareast': 'Malaya',
+    'australia': 'Australia',
+    'neutral': 'Neutral',
+}
+
+
+def short_name(key):
+    return SHORT_NAMES.get(
+        key, COUNTRIES.get(key, {}).get('name', key))
+
+
 # not a nation: the fallback class for unowned ground
 COUNTRIES['neutral'] = {'color': (0.58, 0.56, 0.50), 'name': 'Neutral',
                         'adjective': 'Neutral'}

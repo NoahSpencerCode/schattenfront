@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Schattenfront — a real-time strategy game on a 3D globe.
+Zero Hour: 1939 — a real-time strategy game on a 3D globe.
 Run:  python main.py   (see README.md for setup)
 """
 
@@ -39,7 +39,7 @@ if getattr(sys, 'frozen', False):
     # remember the root: macOS chdirs GUI apps back to the binary dir
     # somewhere in Cocoa init when launched from Finder, so the game
     # re-asserts this after the window opens
-    os.environ['SCHATTENFRONT_ROOT'] = os.getcwd()
+    os.environ['ZERO_HOUR_ROOT'] = os.getcwd()
     print("game root:", os.getcwd(), flush=True)
 else:
     os.chdir(os.path.dirname(os.path.abspath(__file__)))

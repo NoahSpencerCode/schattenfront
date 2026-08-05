@@ -1,12 +1,25 @@
 """
-Procedurally drawn unit icons — small pictogram images, one per unit
-type, generated with PIL on first run into assets/icons/.
+Procedurally drawn unit icons — pictogram images generated with PIL
+on first run into assets/icons/, laid out for an ARTIST to take over:
 
-Each icon is drawn in two variants: "dark" ink for light faction
-counters, "light" ink for dark ones.  Replace any generated PNG with
-your own art (same filename) and it will be used instead.
+    assets/icons/units/   top-down map sprites, one per piece of
+                          equipment, named for the real thing
+                          (tiger.png, spitfire.png, fubuki.png ...)
+    assets/icons/ui/      menu/bar pictograms, <name>_dark.png for
+                          light keys and <name>_light.png for dark
+                          plates (cursors and structures included)
+    assets/icons/keys/    the painted console-key textures
+    assets/icons/sheets/  painted surfaces (bars, fax paper, ...)
+
+Replace any PNG with your own art (same filename, same canvas) and
+the game uses it forever: a sidecar manifest (.generated.json)
+records what THIS code painted, so a hand-made file — or a repainted
+one — is never overwritten, even when the procedural art changes
+version. See assets/icons/README.md for the full artist's handbook.
 """
 
+import hashlib
+import json
 import os
 
 from PIL import Image, ImageDraw
@@ -741,7 +754,86 @@ def _draw_radar(d, ink):
     d.line([(48, 44), (60, 24)], fill=ink, width=4)
 
 
+def _draw_crossed_swords(d, ink):
+    """Two blades crossed at the guard: the mark of war."""
+    for (a, b) in (((22, 22), (74, 74)), ((74, 22), (22, 74))):
+        d.line([a, b], fill=ink, width=7)                      # blades
+    for (gx, gy, ang) in ((33, 61, 1), (61, 61, -1)):
+        d.line([(gx - 8 * ang, gy - 8), (gx + 8 * ang, gy + 8)],
+               fill=ink, width=5)                              # guards
+    d.ellipse([18, 18, 28, 28], fill=ink)                      # pommels
+    d.ellipse([68, 18, 78, 28], fill=ink)
+
+
+def _draw_resource_button(d, ink):
+    """The quartermaster's ledger mark: oil drum and steel ingot."""
+    d.rectangle([20, 30, 48, 74], outline=ink, width=5)        # the drum
+    for y in (42, 60):
+        d.line([(20, y), (48, y)], fill=ink, width=3)
+    d.ellipse([28, 20, 40, 32], outline=ink, width=4)          # filler cap
+    d.polygon([(52, 74), (60, 52), (84, 52), (76, 74)], fill=ink)
+    d.polygon([(60, 52), (66, 44), (90, 44), (84, 52)], fill=ink)
+
+
+def _draw_derrick(d, ink):
+    """Oil field: the lattice derrick over its wellhead."""
+    d.line([(30, 84), (48, 16)], fill=ink, width=5)
+    d.line([(66, 84), (48, 16)], fill=ink, width=5)
+    for t in (0.28, 0.52, 0.76):
+        y = 16 + (84 - 16) * t
+        xl = 48 + (30 - 48) * t
+        xr = 48 + (66 - 48) * t
+        d.line([(xl, y), (xr, y)], fill=ink, width=4)
+        if t < 0.76:
+            y2 = 16 + (84 - 16) * (t + 0.24)
+            xl2 = 48 + (30 - 48) * (t + 0.24)
+            xr2 = 48 + (66 - 48) * (t + 0.24)
+            d.line([(xl, y), (xr2, y2)], fill=ink, width=3)
+            d.line([(xr, y), (xl2, y2)], fill=ink, width=3)
+    d.rectangle([24, 84, 72, 90], fill=ink)                    # sill
+    d.ellipse([42, 8, 54, 20], fill=ink)                       # crown
+
+
+def _draw_foundry(d, ink):
+    """Steel works: the shed, twin stacks, and the pour."""
+    d.rectangle([16, 56, 80, 84], outline=ink, width=5)        # shed
+    d.polygon([(16, 56), (48, 38), (80, 56)], fill=ink)        # roof
+    d.rectangle([26, 20, 34, 56], fill=ink)                    # stacks
+    d.rectangle([44, 26, 52, 56], fill=ink)
+    d.ellipse([60, 64, 74, 78], fill=ink)                      # crucible
+    d.line([(67, 78), (67, 88)], fill=ink, width=5)            # the pour
+
+
+def _draw_granary(d, ink):
+    """A grain silo beside its sheaf: the ration made visible."""
+    d.rectangle([16, 34, 48, 84], outline=ink, width=5)         # silo
+    d.pieslice([16, 14, 48, 54], 180, 360, fill=ink)            # cap
+    for y in (48, 62, 76):
+        d.line([(16, y), (48, y)], fill=ink, width=3)           # bands
+    d.line([(70, 84), (70, 44)], fill=ink, width=5)             # sheaf
+    for dx in (-12, 12):
+        d.line([(70, 56), (70 + dx, 34)], fill=ink, width=5)
+    d.ellipse([64, 30, 76, 42], fill=ink)                       # ear
+    d.rectangle([54, 84, 88, 90], fill=ink)                     # floor
+
+
+def _draw_plantation(d, ink):
+    """Rubber estate: tapped trees in their rows."""
+    for x in (30, 60):
+        d.line([(x, 30), (x, 78)], fill=ink, width=5)          # trunks
+        d.ellipse([x - 12, 14, x + 12, 38], outline=ink, width=5)
+        d.line([(x, 52), (x + 10, 62)], fill=ink, width=3)     # tap cut
+        d.ellipse([x + 8, 62, x + 14, 68], fill=ink)           # the cup
+    d.rectangle([18, 80, 78, 86], fill=ink)                    # row bed
+
+
 _DRAWERS = {
+    'granary': _draw_granary,
+    'crossed_swords': _draw_crossed_swords,
+    'resource_button': _draw_resource_button,
+    'derrick': _draw_derrick,
+    'foundry': _draw_foundry,
+    'plantation': _draw_plantation,
     'city': _draw_city,
     'capital': _draw_capital,
     'airfield': _draw_airfield,
@@ -1294,7 +1386,76 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 15   # bump when drawings change to invalidate the cache
+ICON_VERSION = 17   # bump when drawings change to invalidate the cache
+
+
+def _shift_mask(mask, dx, dy):
+    """Shift an L mask WITHOUT the wrap-around of ImageChops.offset
+    (a glyph touching one edge must never bleed in from the other)."""
+    out = Image.new('L', mask.size, 0)
+    out.paste(mask, (dx, dy))
+    return out
+
+
+def _finish_icon(img, variant):
+    """The polishing bench. Every pictogram leaves the shop with a
+    press-quality finish instead of a flat single-tone fill:
+
+    * GRADED INK -- the fill runs subtly lighter at the top and
+      deeper at the foot, the way a plate never inks perfectly flat;
+    * a LETTERPRESS rim -- a hair of warm light along each upper
+      edge, as if the stamp caught the lamp;
+    * a soft DROP SHADOW lifting the mark off the paper.
+
+    Works on the supersampled sheet so every grade survives the
+    LANCZOS downsample. Unit sprites (tinted by nation colour at
+    runtime) keep their shading multiplicative-safe: pure shape
+    shading, no hue is baked in."""
+    from PIL import ImageFilter, ImageChops
+    import numpy as _np
+    W, H = img.size
+    alpha = img.split()[3]
+    if not alpha.getbbox():
+        return img
+    k = max(1, W // SIZE)               # one logical pixel
+    if variant == 'unit':
+        hi, lo, rim_a, sh_a = 1.00, 0.78, 70, 80
+    elif variant == 'light':
+        hi, lo, rim_a, sh_a = 1.04, 0.86, 55, 90
+    else:                               # dark / red printer's ink
+        hi, lo, rim_a, sh_a = 1.10, 0.86, 85, 70
+    arr = _np.asarray(img, dtype=_np.float32).copy()
+    ramp = _np.linspace(hi, lo, H, dtype=_np.float32)[:, None, None]
+    arr[..., :3] = _np.clip(arr[..., :3] * ramp, 0, 255)
+    inked = Image.fromarray(arr.astype('uint8'), 'RGBA')
+    # letterpress rim: the mask minus itself-shifted-down leaves the
+    # upper edges; a whisper of blur softens the stamp
+    rim = ImageChops.subtract(alpha, _shift_mask(alpha, 0, int(k * 1.3)))
+    rim = rim.filter(ImageFilter.GaussianBlur(k * 0.35))
+    rim = rim.point(lambda v: int(v * rim_a / 255))
+    lamp = Image.new('RGBA', (W, H), (255, 250, 234, 0))
+    lamp.putalpha(rim)
+    inked = Image.alpha_composite(inked, lamp)
+    # the shadow falls down-right, soft, and never tints the glyph
+    smask = alpha.filter(ImageFilter.GaussianBlur(k * 1.1))
+    smask = smask.point(lambda v: int(v * sh_a / 255))
+    shadow = Image.new('RGBA', (W, H), (14, 11, 8, 0))
+    shadow.putalpha(_shift_mask(smask, int(k * 1.2), int(k * 1.6)))
+    out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    out = Image.alpha_composite(out, shadow)
+    out = Image.alpha_composite(out, inked)
+    # MIPMAP BLEED: fully-transparent texels must carry the INK's
+    # colour, not black -- mip averaging samples their RGB, and a
+    # black void turns fine line art into inked mush at small sizes
+    fill = {'unit': (245, 245, 245),
+            'light': INK_LIGHT[:3],
+            'red': INK_RED[:3]}.get(variant, INK_DARK[:3])
+    farr = _np.asarray(out).copy()
+    void = farr[..., 3] == 0
+    farr[void, 0] = fill[0]
+    farr[void, 1] = fill[1]
+    farr[void, 2] = fill[2]
+    return Image.fromarray(farr, 'RGBA')
 
 
 class _ScaledDraw:
@@ -1350,7 +1511,7 @@ class _ScaledDraw:
         self._d.pieslice(self._xy(xy), start, end, **kw)
 
 
-BUTTON_VERSION = 1
+BUTTON_VERSION = 3
 _BTN_EDGE = {'panel': (54, 44, 34, 255), 'red': (38, 12, 8, 255)}
 _BTN_STATES = {
     'panel': {'ready': ((231, 219, 184), (186, 171, 134), None),
@@ -1366,18 +1527,31 @@ _BTN_STATES = {
 
 def _paint_button(w, h, top, bot, edge, glow=None, ss=3, corner=0.42):
     """Paint one physical key AT ITS OWN ASPECT: fixed corner radius
-    relative to height, smooth vertical shade hugging the arcs, drop
-    shadow, bezel, optional hover glow. Supersampled for clean edges."""
+    relative to height, smooth vertical shade hugging the arcs, a
+    SOFT drop shadow, worn-bakelite grain, a machined double bezel
+    (dark rim outside, warm hairline inside), a lamp sheen across
+    the crown and a seating shadow at the foot -- the key should
+    read as a thing you could press with a thumb. Supersampled for
+    clean edges; the metrics (margin, radius, output size) are
+    EXACTLY the old painter's, so no layout shifts."""
     import math as _m
+    from PIL import ImageFilter
+    import numpy as _np
     W, H = w * ss, h * ss
-    img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
     m = H * 0.15
     x0, y0, x1, y1 = m, m, W - m, H - m
     r = (y1 - y0) * corner
-    d.rounded_rectangle([x0 + H * 0.045, y0 + H * 0.06,
-                         x1 + H * 0.045, y1 + H * 0.06],
-                        radius=r, fill=(20, 16, 12, 95))
+
+    # soft shadow on its own sheet, blurred, composited under the key
+    img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    sh = ImageDraw.Draw(img)
+    sh.rounded_rectangle([x0 + H * 0.035, y0 + H * 0.055,
+                          x1 + H * 0.035, y1 + H * 0.055],
+                         radius=r, fill=(18, 14, 10, 120))
+    img = img.filter(ImageFilter.GaussianBlur(H * 0.022))
+
+    key = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(key)
     steps = 56
     hh_ = y1 - y0
     for i in range(steps):
@@ -1392,16 +1566,65 @@ def _paint_button(w, h, top, bot, edge, glow=None, ss=3, corner=0.42):
         if e < r:
             inset = r - _m.sqrt(max(0.0, r * r - (r - e) ** 2))
         d.rectangle([x0 + inset, ya, x1 - inset, yb], fill=col + (255,))
+
+    # worn-surface grain, masked to the key face and kept faint
+    mask = Image.new('L', (W, H), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([x0, y0, x1, y1], radius=r,
+                                           fill=255)
+    rng = _np.random.RandomState(4207)
+    noise = rng.randint(-6, 7, (H, W, 1)).astype(_np.int16)
+    karr = _np.asarray(key, dtype=_np.int16).copy()
+    karr[..., :3] = _np.clip(karr[..., :3] + noise, 0, 255)
+    key = Image.fromarray(karr.astype('uint8'), 'RGBA')
+    key.putalpha(mask)
+
+    kd = ImageDraw.Draw(key)
+    # seating shadow: the face falls away into the bezel at the foot
+    for i in range(3):
+        aa = (46, 30, 18)[i]
+        kd.rounded_rectangle(
+            [x0 + H * 0.012 * i, y0 + H * 0.012 * i,
+             x1 - H * 0.012 * i, y1 - H * 0.018 * i],
+            radius=max(2, r - H * 0.012 * i),
+            outline=(24, 18, 12, aa), width=max(1, int(H * 0.018)))
+    # lamp sheen across the crown
+    sheen = Image.new('L', (W, H), 0)
+    sd = ImageDraw.Draw(sheen)
+    crown_h = hh_ * 0.42
+    for i in range(18):
+        aa = int(34 * (1.0 - i / 18.0))
+        sd.rectangle([x0, y0 + crown_h * i / 18.0,
+                      x1, y0 + crown_h * (i + 1) / 18.0], fill=aa)
+    sheen = Image.composite(Image.new('L', (W, H), 0), sheen,
+                            mask.point(lambda v: 255 - v))
+    lamp = Image.new('RGBA', (W, H), (255, 250, 236, 0))
+    lamp.putalpha(sheen)
+    key = Image.alpha_composite(key, lamp)
+
+    kd = ImageDraw.Draw(key)
     if glow is not None:
-        d.rounded_rectangle([x0 - H * 0.02, y0 - H * 0.02,
-                             x1 + H * 0.02, y1 + H * 0.02],
-                            radius=r + H * 0.02, outline=glow,
-                            width=max(2, int(H * 0.035)))
-    d.line([(x0 + r * 0.9, y0 + H * 0.02), (x1 - r * 0.9, y0 + H * 0.02)],
-           fill=(255, 252, 240, 90), width=max(1, int(H * 0.012)))
-    d.rounded_rectangle([x0, y0, x1, y1], radius=r, outline=edge,
-                        width=max(2, int(H * 0.032)))
-    return img.resize((w, h), Image.LANCZOS)
+        kd.rounded_rectangle([x0 - H * 0.02, y0 - H * 0.02,
+                              x1 + H * 0.02, y1 + H * 0.02],
+                             radius=r + H * 0.02, outline=glow,
+                             width=max(2, int(H * 0.035)))
+    kd.line([(x0 + r * 0.9, y0 + H * 0.02),
+             (x1 - r * 0.9, y0 + H * 0.02)],
+            fill=(255, 252, 240, 110), width=max(1, int(H * 0.012)))
+    # machined double bezel: warm hairline inside the dark rim
+    kd.rounded_rectangle([x0 + H * 0.030, y0 + H * 0.030,
+                          x1 - H * 0.030, y1 - H * 0.030],
+                         radius=max(2, r - H * 0.030),
+                         outline=(255, 246, 214, 60),
+                         width=max(1, int(H * 0.012)))
+    kd.rounded_rectangle([x0, y0, x1, y1], radius=r, outline=edge,
+                         width=max(2, int(H * 0.032)))
+    img = Image.alpha_composite(img, key)
+    img = img.resize((w, h), Image.LANCZOS)
+    # mipmap bleed: transparent margins blend toward the shadow tone
+    arr = _np.asarray(img).copy()
+    void = arr[..., 3] == 0
+    arr[void, 0], arr[void, 1], arr[void, 2] = 18, 14, 10
+    return Image.fromarray(arr, 'RGBA')
 
 
 def button_assets(kind, hw, hh, corner=0.42):
@@ -1411,27 +1634,402 @@ def button_assets(kind, hw, hh, corner=0.42):
     never stretched from a square master. corner= is the radius as a
     fraction of key height (the square menu keys sit less rounded
     than the long command pills)."""
-    os.makedirs(ICON_DIR, exist_ok=True)
     pal = 'red' if kind == 'red' else 'panel'
     aq = max(0.5, min(14.0, round((hw / max(1e-6, hh)) * 4) / 4.0))
     H = 160
     W = int(round(H * aq))
     paths = {}
     for state in ('ready', 'press', 'hover'):
-        fname = 'btn_%s_%s_a%s_r%s_v%d.png' % (
+        rel = os.path.join('keys', '%s_%s_a%s_r%s.png' % (
             pal, state, ('%.2f' % aq).replace('.', '_'),
-            ('%.2f' % corner).replace('.', '_'), BUTTON_VERSION)
-        path = os.path.join(ICON_DIR, fname)
-        if not os.path.exists(path):
+            ('%.2f' % corner).replace('.', '_')))
+
+        def paint(state=state):
             top, bot, glow = _BTN_STATES[pal][state]
-            _paint_button(W, H, top, bot, _BTN_EDGE[pal],
-                          glow, corner=corner).save(path)
-        paths[state] = path
+            return _paint_button(W, H, top, bot, _BTN_EDGE[pal],
+                                 glow, corner=corner)
+        paths[state] = _ensure(rel, BUTTON_VERSION, paint)
     m = H * 0.15
     fx = (W - 2.0 * m) / W
     fz = (H - 2.0 * m) / H
     return ((paths['ready'], paths['press'], paths['hover'],
              paths['ready']), hw / fx, hh / fz)
+
+
+SHEET_VERSION = 2
+
+
+def _grain(arr, rng, amp):
+    import numpy as _np
+    noise = rng.randint(-amp, amp + 1,
+                        arr.shape[:2] + (1,)).astype(_np.int16)
+    arr[..., :3] = _np.clip(arr[..., :3].astype(_np.int16) + noise,
+                            0, 255).astype(arr.dtype)
+
+
+def _paint_sheet(kind):
+    """Painted UI surfaces, replacing the flat frameColor fills:
+
+    'bar'       -- the command-console panel: blackened steel with a
+                   faint centre light, machining grain, and a brass
+                   hairline along either edge;
+    'paper'     -- the FAX sheet: warm rag paper, fibre grain, a few
+                   pressed flecks, edges toned by the roller;
+    'newsprint' -- the broadsheet: cooler pulp stock, heavier grain,
+                   a soft centre-fold shadow;
+    'plate'     -- the tooltip slip: near-black bakelite plate with
+                   a whisper of lamp light at the top edge."""
+    import numpy as _np
+    rng = _np.random.RandomState(1944)
+    if kind == 'bar':
+        W, H = 1024, 128
+        arr = _np.zeros((H, W, 4), dtype=_np.uint8)
+        ramp = _np.linspace(0, 1, H, dtype=_np.float32)
+        base = 24 + 10 * _np.exp(-((ramp - 0.28) ** 2) / 0.10)
+        arr[..., 0] = base[:, None]
+        arr[..., 1] = (base * 0.97)[:, None]
+        arr[..., 2] = (base * 0.90)[:, None]
+        arr[..., 3] = 232
+        _grain(arr, rng, 4)
+        img = Image.fromarray(arr, 'RGBA')
+        d = ImageDraw.Draw(img)
+        for y in (2, H - 3):
+            d.line([(0, y), (W, y)], fill=(178, 148, 88, 150), width=2)
+        for y in (5, H - 6):
+            d.line([(0, y), (W, y)], fill=(0, 0, 0, 110), width=1)
+        return img
+    if kind == 'paper':
+        W, H = 512, 640
+        arr = _np.zeros((H, W, 4), dtype=_np.uint8)
+        arr[..., 0] = 233; arr[..., 1] = 225; arr[..., 2] = 200
+        arr[..., 3] = 250
+        _grain(arr, rng, 5)
+        # sparse pressed flecks in the rag stock
+        for _ in range(240):
+            yy, xx = rng.randint(0, H), rng.randint(0, W)
+            arr[yy, xx, :3] = _np.clip(
+                arr[yy, xx, :3].astype(_np.int16) -
+                rng.randint(12, 30), 0, 255)
+        # roller-toned edges: a gentle darkening ramp all round
+        edge = 20
+        fade = _np.linspace(0.90, 1.0, edge, dtype=_np.float32)
+        arr[:edge, :, :3] = (arr[:edge, :, :3] *
+                             fade[:, None, None]).astype(_np.uint8)
+        arr[-edge:, :, :3] = (arr[-edge:, :, :3] *
+                              fade[::-1, None, None]).astype(_np.uint8)
+        arr[:, :edge, :3] = (arr[:, :edge, :3] *
+                             fade[None, :, None]).astype(_np.uint8)
+        arr[:, -edge:, :3] = (arr[:, -edge:, :3] *
+                              fade[None, ::-1, None]).astype(_np.uint8)
+        return Image.fromarray(arr, 'RGBA')
+    if kind == 'newsprint':
+        W, H = 512, 640
+        arr = _np.zeros((H, W, 4), dtype=_np.uint8)
+        arr[..., 0] = 228; arr[..., 1] = 223; arr[..., 2] = 207
+        arr[..., 3] = 253
+        _grain(arr, rng, 7)
+        xs = _np.arange(W, dtype=_np.float32)
+        # the centre fold: a soft vertical shadow
+        fold = 1.0 - 0.07 * _np.exp(-((xs - W / 2.0) ** 2) / 220.0)
+        # the FLY EDGE curls: reading right, the page rolls away --
+        # a broad dimming as the paper turns from the light, then a
+        # bright lip where the curled edge catches it, then the deep
+        # crease shadow at the very edge
+        curl_w = int(W * 0.14)
+        t = _np.linspace(0.0, 1.0, curl_w, dtype=_np.float32)
+        curve = (1.0 - 0.16 * _np.sin(t * 3.14159 * 0.5) ** 2)
+        curve[-6:-2] = 1.06          # the lit lip of the curl
+        curve[-2:] = 0.70            # the crease at the edge
+        fold[-curl_w:] *= curve
+        arr[..., :3] = _np.clip(arr[..., :3] *
+                                fold[None, :, None], 0,
+                                255).astype(_np.uint8)
+        edge = 14
+        fade = _np.linspace(0.86, 1.0, edge, dtype=_np.float32)
+        arr[:edge, :, :3] = (arr[:edge, :, :3] *
+                             fade[:, None, None]).astype(_np.uint8)
+        arr[-edge:, :, :3] = (arr[-edge:, :, :3] *
+                              fade[::-1, None, None]).astype(_np.uint8)
+        return Image.fromarray(arr, 'RGBA')
+    # 'plate'
+    W, H = 256, 96
+    arr = _np.zeros((H, W, 4), dtype=_np.uint8)
+    arr[..., 0] = 27; arr[..., 1] = 24; arr[..., 2] = 20
+    arr[..., 3] = 242
+    _grain(arr, rng, 3)
+    img = Image.fromarray(arr, 'RGBA')
+    d = ImageDraw.Draw(img)
+    d.line([(0, 1), (W, 1)], fill=(255, 244, 210, 60), width=1)
+    return img
+
+
+def sheet_texture(kind):
+    """Path to a painted UI surface texture, rendered on first use."""
+    return _ensure(os.path.join('sheets', kind + '.png'),
+                   SHEET_VERSION, lambda: _paint_sheet(kind))
+
+
+# ------------------------------------------------------- nation flags
+# Tiny standards flown above FOREIGN units and works on the map.
+# Simplified for legibility at counter scale; period palettes, no
+# devices finer than the size can carry.
+# Bump when flag geometry changes so artist-replaced files stay safe
+# and procedural paints refresh for unreplaced names.
+FLAG_VERSION = 2
+
+_WHITE_F = (244, 241, 232)
+# Period national standards (c. 1939–45), simplified for ~20 px map use.
+_FLAG_SPECS = {
+    # German Reich national flag 1935–45 (Hakenkreuzflagge)
+    'germany':     ('reich',),
+    'britain':     ('jack',),
+    'usa':         ('usa48',),           # 48-star Stars and Stripes 1912–59
+    'japan':       ('disc', _WHITE_F, (198, 38, 34)),  # Hinomaru
+    'soviet':      ('ussr',),            # hammer, sickle, star
+    'france':      ('v', ((36, 58, 128), _WHITE_F, (190, 38, 40))),
+    'italy':       ('v', ((36, 108, 62), _WHITE_F, (190, 38, 40))),  # Kingdom tricolour
+    'china':       ('china',),           # ROC Blue Sky, White Sun, Wholly Red Earth
+    'poland':      ('h', (_WHITE_F, (196, 34, 44))),
+    'netherlands': ('h', ((178, 34, 40), _WHITE_F, (36, 58, 128))),
+    'belgium':     ('v', ((30, 28, 28), (238, 198, 68), (190, 38, 40))),
+    'norway':      ('nordic', (188, 38, 46), _WHITE_F, (36, 48, 112)),
+    'denmark':     ('nordic', (186, 32, 40), _WHITE_F, None),
+    'finland':     ('nordic', _WHITE_F, (46, 72, 148), None),
+    'greece':      ('greece',),
+    'yugoslavia':  ('h', ((36, 58, 128), _WHITE_F, (190, 38, 40))),  # Kingdom
+    'romania':     ('v', ((36, 58, 128), (238, 198, 68), (190, 38, 40))),
+    'hungary':     ('h', ((190, 38, 40), _WHITE_F, (52, 110, 62))),
+    'bulgaria':    ('h', (_WHITE_F, (52, 110, 62), (190, 38, 40))),
+    'iraq':        ('iraq',),            # Kingdom of Iraq
+    'iran':        ('h', ((52, 110, 62), _WHITE_F, (190, 38, 40))),  # Pahlavi tricolour
+    'siam':        ('siam',),            # Trairanga (Thailand)
+    'brit_med':    ('ensign', (32, 52, 108)),
+    'raj':         ('ensign', (168, 40, 38)),   # British India red ensign
+    'fareast':     ('ensign', (40, 84, 108)),
+    'australia':   ('australia',),       # Blue Ensign + Commonwealth star + Southern Cross
+    'neutral':     ('h', ((150, 146, 136), (120, 116, 108))),
+}
+
+
+def _paint_jack(d, x0, y0, x1, y1):
+    """The Union flag, simplified to what a tiny standard can carry."""
+    d.rectangle([x0, y0, x1, y1], fill=(34, 52, 110))
+    w = x1 - x0
+    d.line([(x0, y0), (x1, y1)], fill=_WHITE_F, width=int(w * 0.13))
+    d.line([(x0, y1), (x1, y0)], fill=_WHITE_F, width=int(w * 0.13))
+    d.line([(x0, y0), (x1, y1)], fill=(184, 38, 40), width=int(w * 0.05))
+    d.line([(x0, y1), (x1, y0)], fill=(184, 38, 40), width=int(w * 0.05))
+    cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+    d.rectangle([x0, cy - int(w * 0.085), x1, cy + int(w * 0.085)],
+                fill=_WHITE_F)
+    d.rectangle([cx - int(w * 0.085), y0, cx + int(w * 0.085), y1],
+                fill=_WHITE_F)
+    d.rectangle([x0, cy - int(w * 0.05), x1, cy + int(w * 0.05)],
+                fill=(184, 38, 40))
+    d.rectangle([cx - int(w * 0.05), y0, cx + int(w * 0.05), y1],
+                fill=(184, 38, 40))
+
+
+def _star_pts(cx, cy, r):
+    import math as _m
+    pts = []
+    for i in range(10):
+        rr = r if i % 2 == 0 else r * 0.4
+        a = _m.pi * (i / 5.0) - _m.pi / 2
+        pts.append((cx + rr * _m.sin(a), cy - rr * _m.cos(a)))
+    return pts
+
+
+def _paint_swastika(d, cx, cy, arm, color):
+    """Black swastika centered at (cx, cy); arm is half-width of the device.
+    Historical national emblem of the German Reich 1935–45."""
+    import math as _m
+    # Build upright swastika as thick poly strokes, then rotate 45°
+    t = arm * 0.28  # bar thickness
+    a = arm
+    # horizontal bar and vertical bar of the cross
+    segs = [
+        # center cross
+        [(-a, -t), (a, -t), (a, t), (-a, t)],
+        [(-t, -a), (t, -a), (t, a), (-t, a)],
+        # hooks: top arm right, right arm down, bottom arm left, left arm up
+        [(a - t, -a), (a, -a), (a, -t), (a - t, -t)],
+        [(t, a - t), (a, a - t), (a, a), (t, a)],
+        [(-a, t), (-a + t, t), (-a + t, a), (-a, a)],
+        [(-a, -a), (-t, -a), (-t, -a + t), (-a, -a + t)],
+    ]
+    ang = _m.radians(45)
+    cos_a, sin_a = _m.cos(ang), _m.sin(ang)
+    for poly in segs:
+        rot = []
+        for x, y in poly:
+            rx = cx + x * cos_a - y * sin_a
+            ry = cy + x * sin_a + y * cos_a
+            rot.append((rx, ry))
+        d.polygon(rot, fill=color)
+
+
+def _paint_roc_sun(d, cx, cy, r, color):
+    """12-ray White Sun of the Republic of China (Nationalist) flag."""
+    import math as _m
+    # rays
+    for i in range(12):
+        a0 = _m.radians(i * 30 - 90)
+        a1 = _m.radians(i * 30 - 90 + 12)
+        pts = [(cx, cy),
+               (cx + r * 1.15 * _m.cos(a0), cy + r * 1.15 * _m.sin(a0)),
+               (cx + r * 1.15 * _m.cos(a1), cy + r * 1.15 * _m.sin(a1))]
+        d.polygon(pts, fill=color)
+    # disc
+    d.ellipse([cx - r * 0.42, cy - r * 0.42, cx + r * 0.42, cy + r * 0.42],
+              fill=color)
+    # ring cut (blue shows through as darker ring via smaller hole simulation:
+    # draw inner darker? canton is blue so draw blue ring)
+    # skip hole — solid white sun reads at tiny size
+
+
+def _paint_flag(country):
+    W, H = 720, 480
+    img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    spec = _FLAG_SPECS.get(country, _FLAG_SPECS['neutral'])
+    kind = spec[0]
+    if kind == 'h':
+        bands = spec[1]
+        bh = H / len(bands)
+        for i, c in enumerate(bands):
+            d.rectangle([0, i * bh, W, (i + 1) * bh], fill=c)
+    elif kind == 'v':
+        bands = spec[1]
+        bw = W / len(bands)
+        for i, c in enumerate(bands):
+            d.rectangle([i * bw, 0, (i + 1) * bw, H], fill=c)
+    elif kind == 'disc':
+        d.rectangle([0, 0, W, H], fill=spec[1])
+        r = H * 0.30
+        d.ellipse([W / 2 - r, H / 2 - r, W / 2 + r, H / 2 + r],
+                  fill=spec[2])
+    elif kind == 'star':
+        d.rectangle([0, 0, W, H], fill=spec[1])
+        d.polygon(_star_pts(W * 0.28, H * 0.34, H * 0.22),
+                  fill=spec[2])
+    elif kind == 'ussr':
+        # USSR national flag: red field, gold star + hammer & sickle canton
+        d.rectangle([0, 0, W, H], fill=(186, 32, 28))
+        gold = (238, 198, 68)
+        # five-point star
+        d.polygon(_star_pts(W * 0.18, H * 0.22, H * 0.10), fill=gold)
+        # simplified hammer (handle + head) and sickle
+        hx, hy = W * 0.20, H * 0.42
+        d.rectangle([hx - H * 0.02, hy - H * 0.12, hx + H * 0.02, hy + H * 0.14],
+                    fill=gold)
+        d.rectangle([hx - H * 0.10, hy - H * 0.14, hx + H * 0.08, hy - H * 0.06],
+                    fill=gold)
+        # sickle arc
+        d.arc([W * 0.10, H * 0.28, W * 0.34, H * 0.58], 200, 50,
+              fill=gold, width=max(4, int(H * 0.045)))
+        d.ellipse([W * 0.26, H * 0.48, W * 0.32, H * 0.56], fill=gold)
+    elif kind == 'reich':
+        # German national flag 1935–45: red field, white disc, black swastika
+        d.rectangle([0, 0, W, H], fill=(186, 32, 28))
+        r = H * 0.32
+        d.ellipse([W / 2 - r, H / 2 - r, W / 2 + r, H / 2 + r], fill=_WHITE_F)
+        _paint_swastika(d, W / 2, H / 2, H * 0.22, (20, 18, 16))
+    elif kind == 'nordic':
+        field, cross, inner = spec[1], spec[2], spec[3]
+        d.rectangle([0, 0, W, H], fill=field)
+        cw = int(H * 0.20)
+        cx = int(W * 0.38)
+        d.rectangle([0, H // 2 - cw, W, H // 2 + cw], fill=cross)
+        d.rectangle([cx - cw, 0, cx + cw, H], fill=cross)
+        if inner:
+            iw = int(cw * 0.5)
+            d.rectangle([0, H // 2 - iw, W, H // 2 + iw], fill=inner)
+            d.rectangle([cx - iw, 0, cx + iw, H], fill=inner)
+    elif kind in ('usa', 'usa48'):
+        # 13 stripes, blue canton, 48 stars in 6×8 grid (1912–1959)
+        red, blue = (178, 34, 40), (38, 52, 108)
+        sh = H / 13.0
+        for i in range(13):
+            d.rectangle([0, i * sh, W, (i + 1) * sh],
+                        fill=(red if i % 2 == 0 else _WHITE_F))
+        cw, ch = W * 0.40, H * 7 / 13.0
+        d.rectangle([0, 0, cw, ch], fill=blue)
+        # 6 rows × 8 stars
+        for row in range(6):
+            for col in range(8):
+                sx = cw * (col + 0.5) / 8.0
+                sy = ch * (row + 0.5) / 6.0
+                d.polygon(_star_pts(sx, sy, H * 0.035), fill=_WHITE_F)
+    elif kind == 'jack':
+        _paint_jack(d, 0, 0, W, H)
+    elif kind == 'china':
+        # Republic of China (Nationalist) flag
+        d.rectangle([0, 0, W, H], fill=(186, 32, 30))
+        d.rectangle([0, 0, W * 0.45, H * 0.5], fill=(30, 46, 110))
+        _paint_roc_sun(d, W * 0.225, H * 0.25, H * 0.14, _WHITE_F)
+    elif kind == 'greece':
+        blue = (44, 78, 148)
+        sh = H / 9.0
+        for i in range(9):
+            d.rectangle([0, i * sh, W, (i + 1) * sh],
+                        fill=(blue if i % 2 == 0 else _WHITE_F))
+        d.rectangle([0, 0, W * 0.37, H * 5 / 9.0], fill=blue)
+        cw = int(H * 0.055)
+        d.rectangle([0, H * 5 / 18.0 - cw, W * 0.37, H * 5 / 18.0 + cw],
+                    fill=_WHITE_F)
+        d.rectangle([W * 0.185 - cw, 0, W * 0.185 + cw, H * 5 / 9.0],
+                    fill=_WHITE_F)
+    elif kind == 'iraq':
+        # Kingdom of Iraq 1924–59: black / white / green with red triangle + 2 stars
+        for i, c in enumerate(((30, 28, 28), _WHITE_F, (52, 110, 62))):
+            d.rectangle([0, i * H / 3, W, (i + 1) * H / 3], fill=c)
+        d.polygon([(0, 0), (W * 0.30, H / 2), (0, H)],
+                  fill=(178, 34, 40))
+        for sy in (H * 0.38, H * 0.62):
+            d.polygon(_star_pts(W * 0.12, sy, H * 0.07), fill=_WHITE_F)
+    elif kind == 'siam':
+        for (a, b, c) in ((0.0, 1 / 6, (190, 38, 40)),
+                          (1 / 6, 2 / 6, _WHITE_F),
+                          (2 / 6, 4 / 6, (36, 48, 112)),
+                          (4 / 6, 5 / 6, _WHITE_F),
+                          (5 / 6, 1.0, (190, 38, 40))):
+            d.rectangle([0, a * H, W, b * H], fill=c)
+    elif kind == 'australia':
+        # Australian Blue Ensign (1909–): Union Jack canton, 7-point Commonwealth
+        # star under jack, Southern Cross on fly
+        d.rectangle([0, 0, W, H], fill=(30, 48, 104))
+        _paint_jack(d, 0, 0, int(W * 0.5), int(H * 0.5))
+        d.polygon(_star_pts(W * 0.25, H * 0.75, H * 0.12), fill=_WHITE_F)
+        # Southern Cross (simplified 5 stars)
+        for (fx, fy, fr) in ((0.72, 0.28, 0.055), (0.82, 0.42, 0.045),
+                             (0.70, 0.55, 0.055), (0.78, 0.72, 0.05),
+                             (0.62, 0.45, 0.035)):
+            d.polygon(_star_pts(W * fx, H * fy, H * fr), fill=_WHITE_F)
+    elif kind in ('ensign', 'ensign_star'):
+        d.rectangle([0, 0, W, H], fill=spec[1])
+        _paint_jack(d, 0, 0, int(W * 0.5), int(H * 0.5))
+        if kind == 'ensign_star':
+            d.polygon(_star_pts(W * 0.72, H * 0.62, H * 0.20),
+                      fill=_WHITE_F)
+    # the standard hangs with a little life in it: shaded foot, lit
+    # head, a dark rim so it reads against any ground
+    import numpy as _np
+    arr = _np.asarray(img, dtype=_np.float32)
+    ramp = _np.linspace(1.06, 0.86, H, dtype=_np.float32)[:, None, None]
+    arr[..., :3] = _np.clip(arr[..., :3] * ramp, 0, 255)
+    img = Image.fromarray(arr.astype('uint8'), 'RGBA')
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, W - 1, H - 1], outline=(30, 24, 20, 255),
+                width=int(H * 0.045))
+    return img.resize((180, 120), Image.LANCZOS)
+
+
+def flag_texture(country):
+    """Path to a nation's tiny standard, painted on first use (and
+    artist-replaceable like every other file in the folder)."""
+    return _ensure(os.path.join('flags', country + '.png'),
+                   FLAG_VERSION, lambda: _paint_flag(country))
 
 
 def prewarm_button_assets():
@@ -1450,27 +2048,138 @@ def prewarm_button_assets():
     ]
     for kind, hw, hh, corner in combos:
         button_assets(kind, hw, hh, corner=corner)
+    for kind in ('bar', 'paper', 'newsprint', 'plate'):
+        sheet_texture(kind)
+    for country in _FLAG_SPECS:
+        flag_texture(country)
+
+
+# ------------------------------------------------- the ART REGISTER
+# Every sprite file carries a stable, human-readable name so an
+# artist can work the folder directly. The majors' signature
+# equipment resolves to its historical name; any (type, nation) not
+# listed shares the generic file named for the type. The register
+# mirrors the nation branches inside the _tu_ drawers EXACTLY --
+# add a branch there, add its name here.
+UNIT_ART = {
+    ('tank', 'germany'): 'tiger',
+    ('tank', 'soviet'): 't34',
+    ('tank', 'britain'): 'churchill',
+    ('tank', 'japan'): 'chi_ha',
+    ('supply_truck', 'usa'): 'studebaker_us6',
+    ('supply_truck', 'soviet'): 'studebaker_us6',
+    ('transport_truck', 'germany'): 'halftrack',
+    ('transport_truck', 'usa'): 'halftrack',
+    ('transport_truck', 'britain'): 'bren_carrier',
+    ('transport_truck', 'soviet'): 'zis_5',
+    ('aa_artillery', 'germany'): 'flak_88',
+    ('naval_command', 'japan'): 'yamato',
+    ('destroyer_sea_sea', 'japan'): 'fubuki',
+    ('destroyer_sea_sea', 'britain'): 'tribal_class',
+    ('aircraft_carrier', 'britain'): 'illustrious',
+    ('aircraft_carrier', 'japan'): 'akagi',
+    ('fighter', 'britain'): 'spitfire',
+    ('fighter', 'germany'): 'bf_109',
+    ('fighter', 'japan'): 'zero',
+    ('fighter', 'soviet'): 'yak_3',
+    ('bomber', 'usa'): 'b_17',
+    ('bomber', 'britain'): 'halifax',
+    ('bomber', 'soviet'): 'il_2',
+    ('bomber', 'japan'): 'g4m_betty',
+    ('heavy_bomber', 'britain'): 'lancaster',
+    ('battleship', 'japan'): 'nagato',
+    # the air command ship is the nation's bomber wearing the flash
+    ('airforce_command', 'usa'): 'b_17_command',
+    ('airforce_command', 'britain'): 'halifax_command',
+    ('airforce_command', 'soviet'): 'il_2_command',
+    ('airforce_command', 'japan'): 'g4m_command',
+}
+# art name -> (unit_type, nation) that paints it (generation only)
+_ART_PAINT = {}
+for (_t, _n), _name in UNIT_ART.items():
+    _ART_PAINT[_name] = (_t, _n)
+
+# ---------------------------------------- generated-file manifest
+# .generated.json records every file THIS code painted (version +
+# content hash). A file missing from the manifest, or whose bytes no
+# longer match its record, is the ARTIST'S and is never repainted --
+# not even when the procedural art bumps its version.
+_MANIFEST_PATH = os.path.join(ICON_DIR, '.generated.json')
+_manifest = None
+
+
+def _load_manifest():
+    global _manifest
+    if _manifest is None:
+        try:
+            with open(_MANIFEST_PATH) as f:
+                _manifest = json.load(f)
+        except (OSError, ValueError):
+            _manifest = {}
+    return _manifest
+
+
+def _file_hash(path):
+    with open(path, 'rb') as f:
+        return hashlib.md5(f.read()).hexdigest()
+
+
+def _ensure(rel, version, paint):
+    """Return the asset's path, painting it only when it is absent
+    or is OUR OWN stale generation. Hand-made art always wins."""
+    path = os.path.join(ICON_DIR, rel)
+    key = rel.replace(os.sep, '/')
+    man = _load_manifest()
+    if os.path.exists(path):
+        rec = man.get(key)
+        if (rec is None                       # the artist's file
+                or rec.get('v') == version    # current generation
+                or rec.get('h') != _file_hash(path)):   # repainted
+            return path
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        paint().save(path)
+        man[key] = {'v': version, 'h': _file_hash(path)}
+        with open(_MANIFEST_PATH, 'w') as f:
+            json.dump(man, f, indent=0, sort_keys=True)
+    except OSError:
+        pass        # read-only install: assets ship pre-baked
+    return path
 
 
 def get_icon_path(unit_type, variant='dark', nation=None):
     """Path to the icon PNG, generating it on first request. Top-down
-    unit sprites vary by nation (each power fields its own marks).
-    Icons are drawn onto an 8x supersampled canvas and downsampled to
-    OUT_SIZE, so their edges are anti-aliased and stay smooth even
-    magnified at street-level zoom."""
-    os.makedirs(ICON_DIR, exist_ok=True)
-    tag = ("%s@%s" % (unit_type, nation)
-           if (nation and variant == 'unit') else unit_type)
-    path = os.path.join(ICON_DIR, "%s_%s_v%d.png"
-                        % (tag, variant, ICON_VERSION))
-    if not os.path.exists(path):
-        img = Image.new('RGBA', (SIZE * _SS, SIZE * _SS), (0, 0, 0, 0))
-        d = _ScaledDraw(ImageDraw.Draw(img), _SS)
-        if variant == 'unit':
-            _TOP_DOWN.get(unit_type, _tu_infantry)(d, _WHITE, nation)
-        else:
-            ink = _INKS.get(variant, INK_DARK)
+    unit sprites resolve through the ART REGISTER: nations fielding
+    their own marks get files named for the real equipment, everyone
+    else shares the generic type file. Icons are drawn onto an 8x
+    supersampled canvas and downsampled to OUT_SIZE, so their edges
+    stay smooth even magnified at street-level zoom."""
+    if variant == 'unit':
+        art = UNIT_ART.get((unit_type, nation), unit_type)
+        rel = os.path.join('units', art + '.png')
+
+        def paint(art=art, unit_type=unit_type):
+            img = Image.new('RGBA', (SIZE * _SS, SIZE * _SS),
+                            (0, 0, 0, 0))
+            d = _ScaledDraw(ImageDraw.Draw(img), _SS)
+            t, nat = _ART_PAINT.get(art, (unit_type, None))
+            _TOP_DOWN.get(t, _tu_infantry)(d, _WHITE, nat)
+            img = _finish_icon(img, 'unit')
+            return img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
+    else:
+        # ONE image per pictogram: the old dark/light ink pair is
+        # folded into a single file (same colour and shade on every
+        # surface). Only the red alert ink keeps its own file.
+        suffix = '_red' if variant == 'red' else ''
+        rel = os.path.join('ui', unit_type + suffix + '.png')
+
+        def paint(unit_type=unit_type, variant=variant):
+            img = Image.new('RGBA', (SIZE * _SS, SIZE * _SS),
+                            (0, 0, 0, 0))
+            d = _ScaledDraw(ImageDraw.Draw(img), _SS)
+            ink = INK_RED if variant == 'red' else INK_DARK
             _DRAWERS.get(unit_type, _draw_infantry)(d, ink)
-        img = img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
-        img.save(path)
-    return path
+            img = _finish_icon(img, 'red' if variant == 'red'
+                               else 'dark')
+            return img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
+    return _ensure(rel, ICON_VERSION, paint)

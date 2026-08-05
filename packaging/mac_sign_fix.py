@@ -14,7 +14,7 @@ __LINKEDIT segment (so codesign hashes it with everything else),
 patch the blobinfo headers to the blob's new offset, ad-hoc sign, and
 sign every nested library. Run AFTER `python setup.py build_apps`:
 
-    python packaging/mac_sign_fix.py [path/to/Schattenfront.app]
+    python packaging/mac_sign_fix.py [path/to/Zero Hour 1939.app]
 """
 import glob
 import os
@@ -66,7 +66,7 @@ def extend_linkedit(macho, extra):
 
 def main():
     app = sys.argv[1] if len(sys.argv) > 1 else \
-        'build/macosx_11_0_arm64/Schattenfront.app'
+        'build/macosx_11_0_arm64/Zero Hour 1939.app'
     exe = glob.glob(os.path.join(app, 'Contents', 'MacOS', '*'))[0]
     data = open(exe, 'rb').read()
     slices = fat_slices(data)

@@ -9,17 +9,17 @@ READS at runtime ships prebuilt so first launch pays no bake.
 from setuptools import setup
 
 setup(
-    name='schattenfront',
-    version='0.1.1',
+    name='zero-hour-1939',
+    version='1.2.0',
     options={
         'build_apps': {
-            'gui_apps': {'Schattenfront': 'main.py'},
-            'icons': {'Schattenfront': [
+            'gui_apps': {'Zero Hour 1939': 'main.py'},
+            'icons': {'Zero Hour 1939': [
                 'packaging/icon-1024.png', 'packaging/icon-512.png',
                 'packaging/icon-256.png', 'packaging/icon-128.png',
                 'packaging/icon-64.png', 'packaging/icon-48.png',
                 'packaging/icon-32.png', 'packaging/icon-16.png']},
-            'log_filename': '$USER_APPDATA/Schattenfront/output.log',
+            'log_filename': '$USER_APPDATA/Zero Hour 1939/output.log',
             'log_append': False,
             'plugins': ['pandagl', 'p3openal_audio', 'p3ffmpeg'],
             # numpy's add_newdoc pulls this test extension at import

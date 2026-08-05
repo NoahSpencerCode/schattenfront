@@ -14,6 +14,7 @@ from panda3d.core import CardMaker, MovieTexture, TextNode, TextureStage
 
 from config import COUNTRIES, MEDIA_PATH, MENU_VIDEO_PATH
 from ui import PAPER, PAPER_EDGE, INK, INK_FAINT
+from icons import sheet_texture
 
 TITLE_COLOR = (0.92, 0.87, 0.70, 1.0)
 SUB_COLOR = (0.70, 0.66, 0.55, 1.0)
@@ -168,7 +169,7 @@ class MenuScreen:
     # --------------------------------------------------------------- pages
     def show_main(self):
         self._clear()
-        self._text("SCHATTENFRONT", (0, 0.62), 0.15, TITLE_COLOR)
+        self._text("ZERO HOUR: 1939", (0, 0.62), 0.15, TITLE_COLOR)
         self._text("A WORLD AT WAR  *  1939 - 1945", (0, 0.50), 0.05,
                    SUB_COLOR)
         self._button("[N]  NEW GAME", (0, 0.24), self.show_country_select,
@@ -192,7 +193,8 @@ class MenuScreen:
         """Filed campaigns, newest first, as a records-office fax."""
         import saveload
         self._clear()
-        frame = DirectFrame(parent=self.root, frameColor=PAPER,
+        frame = DirectFrame(parent=self.root, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                             frameSize=(-0.95, 0.95, -0.78, 0.78),
                             state=DGG.NORMAL)
         self.widgets.append(frame)
@@ -263,7 +265,8 @@ class MenuScreen:
 
     def show_country_select(self, mode='new'):
         self._clear()
-        frame = DirectFrame(parent=self.root, frameColor=PAPER,
+        frame = DirectFrame(parent=self.root, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                             frameSize=(-0.95, 0.95, -0.78, 0.78),
                             state=DGG.NORMAL)
         self.widgets.append(frame)
@@ -341,7 +344,8 @@ class MenuScreen:
 
     def show_settings(self):
         self._clear()
-        frame = DirectFrame(parent=self.root, frameColor=PAPER,
+        frame = DirectFrame(parent=self.root, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                             frameSize=(-0.95, 0.95, -0.78, 0.78),
                             state=DGG.NORMAL)
         self.widgets.append(frame)

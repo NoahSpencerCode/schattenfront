@@ -89,7 +89,7 @@ CITIES = [
     ('Stuttgart', 'germany', 48.7758, 9.1829),
     ('Vienna', 'germany', 48.2082, 16.3738),
     ('Prague', 'germany', 50.0755, 14.4378),
-    ('Warsaw', 'germany', 52.2297, 21.0122),
+    ('Warsaw', 'poland', 52.2297, 21.0122),
     ('Dresden', 'germany', 51.0504, 13.7373),
 
     ('Washington DC', 'usa', 38.9072, -77.0369),
@@ -304,7 +304,7 @@ CITIES = [
 # The five capitals (everything else, including neutral towns, is not)
 CAPITALS = {'London', 'Berlin', 'Washington DC', 'Tokyo', 'Moscow',
             # NPC nation seats of government (1939)
-            'Paris', 'Rome', 'Chungking', 'Krakow', 'Amsterdam',
+            'Paris', 'Rome', 'Chungking', 'Warsaw', 'Amsterdam',
             'Brussels', 'Oslo', 'Copenhagen', 'Helsinki', 'Athens',
             'Belgrade', 'Bucharest', 'Budapest', 'Sofia', 'Baghdad',
             'Tehran', 'Bangkok', 'Cairo', 'Delhi', 'Singapore',

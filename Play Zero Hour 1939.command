@@ -1,5 +1,5 @@
 #!/bin/bash
-# Schattenfront — double-click launcher for macOS.
+# Zero Hour: 1939 — double-click launcher for macOS.
 # First run creates a local Python environment and installs dependencies,
 # then starts the game. Later runs start immediately.
 

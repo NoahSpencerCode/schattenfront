@@ -1,5 +1,5 @@
 @echo off
-REM Schattenfront — double-click launcher for Windows.
+REM Zero Hour: 1939 — double-click launcher for Windows.
 cd /d "%~dp0"
 
 where python >nul 2>nul

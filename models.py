@@ -172,6 +172,33 @@ def make_icon_quad(loader, name, variant, half=0.55, depth=7,
     return icon
 
 
+_flag_tex_cache = {}
+
+
+def make_flag_quad(loader, country, half=0.34, depth=8, flat=True):
+    """A nation's tiny standard, flown above foreign units and works
+    so ownership reads at a glance now every counter wears the same
+    ink. 3:2 cloth; flat lies on the map, upright rides a billboard."""
+    from icons import flag_texture
+    tex = _flag_tex_cache.get(country)
+    if tex is None:
+        tex = loader.loadTexture(flag_texture(country))
+        tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
+        tex.setMagfilter(SamplerState.FTLinear)
+        tex.setAnisotropicDegree(4)
+        _flag_tex_cache[country] = tex
+    hh = half * 2.0 / 3.0
+    cm = CardMaker('flag_' + country)
+    cm.setFrame(-half, half, -hh, hh)
+    np_ = NodePath(cm.generate())
+    if flat:
+        np_.setP(-90)
+    np_.setTexture(tex)
+    np_.setTransparency(TransparencyAttrib.MAlpha)
+    np_.setDepthOffset(depth)
+    return np_
+
+
 def make_counter(loader, unit_type, faction_color, layer_base=100):
     """A unit counter: round faction-coloured disc with polished silver
     trim and the unit's pictogram, lying flat on the map.  Pieces are

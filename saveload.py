@@ -22,7 +22,7 @@ import time
 
 from panda3d.core import Vec3
 
-SAVE_VERSION = 2
+SAVE_VERSION = 3
 
 
 # ------------------------------------------------------------ location
@@ -32,7 +32,7 @@ def save_dir():
     else under the user's documents (a translocated mac install is
     read-only)."""
     cands = [os.path.abspath('saves'),
-             os.path.expanduser('~/Documents/Schattenfront/saves')]
+             os.path.expanduser('~/Documents/Zero Hour 1939/saves')]
     for d in cands:
         try:
             os.makedirs(d, exist_ok=True)
@@ -50,7 +50,10 @@ def list_saves():
     """[(path, meta), ...] newest first; unreadable files skipped."""
     out = []
     seen = set()
+    # the last entry is the game's PRE-RENAME documents folder: old
+    # campaigns saved under the working title still show in LOAD GAME
     for d in (os.path.abspath('saves'),
+              os.path.expanduser('~/Documents/Zero Hour 1939/saves'),
               os.path.expanduser('~/Documents/Schattenfront/saves')):
         if not os.path.isdir(d) or d in seen:
             continue
@@ -213,6 +216,9 @@ def snapshot(game):
         'kills': game.kills, 'losses': game.losses,
         'stats_ledger': dict(game.stats_ledger),
         'funds': dict(game.funds),
+        'resources': {c: dict(r) for c, r in game.resources.items()},
+        'trade': [dict(t) for t in game.trade_deals],
+        'rights': [dict(r) for r in getattr(game, 'rights', [])],
         'research_points': dict(game.research_points),
         'researched': {c: sorted(s) for c, s in game.researched.items()},
         'research_pct': dict(game.research_pct),
@@ -390,6 +396,11 @@ def restore(game, data):
         g.losses = data['losses']
         g.stats_ledger = dict(data['stats_ledger'])
         g.funds.update(data['funds'])
+        for c, r in data.get('resources', {}).items():
+            if c in g.resources:
+                g.resources[c].update(r)
+        g.trade_deals = [dict(t) for t in data.get('trade', [])]
+        g.rights = [dict(r) for r in data.get('rights', [])]
         g.research_points.update(data['research_points'])
         for c, lst in data['researched'].items():
             g.researched[c] = set(lst)
@@ -422,6 +433,11 @@ def restore(game, data):
             c.draft_pool = row.get('draft', c.draft_rate())
             c.production = [[t, s] for (t, s) in row['production']]
             c.refresh_marker()
+        # deposits follow their city's flag
+        for dep in getattr(g, 'deposits', ()):
+            if dep.country != dep.city.country:
+                dep.country = dep.city.country
+                dep.refresh_marker()
 
         # ---- structures ----
         def sync_yards(rows, fleet, ctor):

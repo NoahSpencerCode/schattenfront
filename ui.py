@@ -12,9 +12,25 @@ import textwrap
 
 from direct.gui.OnscreenImage import OnscreenImage
 from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
-from panda3d.core import TextNode
+from panda3d.core import SamplerState, TextNode
 
-from icons import get_icon_path
+from icons import get_icon_path, sheet_texture
+
+
+def crisp_image(widget):
+    """UI pictograms are 384 px sources minified onto ~50 px keys:
+    DirectGui loads them with plain bilinear sampling, which skips
+    texels at that ratio and pixelates the art (the MAP icons set
+    mipmaps explicitly and stay clean). Give every texture under a
+    gui widget trilinear mipmaps and a touch of anisotropy. Textures
+    are shared by path, so one application covers every later user
+    of the same file."""
+    tc = widget.findAllTextures()
+    for i in range(tc.getNumTextures()):
+        tex = tc.getTexture(i)
+        tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
+        tex.setAnisotropicDegree(4)
+    return widget
 
 PAPER = (0.91, 0.88, 0.78, 0.97)
 PAPER_EDGE = (0.25, 0.22, 0.18, 1.0)
@@ -27,6 +43,18 @@ ALERT = (0.9, 0.45, 0.3, 1.0)
 
 BTN_PAPER = ((0.82, 0.78, 0.64, 0.95), (0.95, 0.90, 0.72, 1.0),
              (0.70, 0.66, 0.54, 0.95), (0.5, 0.5, 0.5, 0.6))
+
+# wire shorthand for the diplomatic traffic
+NAT_CODE = {
+    'britain': 'GBR', 'germany': 'GER', 'usa': 'USA', 'japan': 'JPN',
+    'soviet': 'SOV', 'france': 'FRA', 'italy': 'ITA', 'china': 'CHN',
+    'poland': 'POL', 'netherlands': 'NED', 'belgium': 'BEL',
+    'norway': 'NOR', 'denmark': 'DEN', 'finland': 'FIN',
+    'greece': 'GRE', 'yugoslavia': 'YUG', 'romania': 'ROM',
+    'hungary': 'HUN', 'bulgaria': 'BUL', 'iraq': 'IRQ', 'iran': 'IRN',
+    'siam': 'SIA', 'brit_med': 'EGY', 'raj': 'IND', 'fareast': 'MAL',
+    'australia': 'AUS',
+}
 
 
 def _make_text(parent, font, pos, scale, color, align=TextNode.ALeft):
@@ -73,7 +101,7 @@ def pill_button(parent, text, command, extraArgs=(), pos=(0, 0, 0),
     kwargs.update(extra)
     b = DirectButton(**kwargs)
     b.setTransparency(True)
-    return b
+    return crisp_image(b)
 
 
 def add_tooltip(btn, text, font=None, dy=0.085, left=None):
@@ -86,9 +114,11 @@ def add_tooltip(btn, text, font=None, dy=0.085, left=None):
     hw = 0.31 * scale * len(text) + 0.014
     pos = ((-(left + hw + 0.015), 0, 0) if left is not None
            else (0, 0, dy))
-    f = DirectFrame(parent=btn, frameColor=(0.10, 0.09, 0.08, 0.94),
+    f = DirectFrame(parent=btn, frameColor=(1, 1, 1, 0.96),
+                    frameTexture=sheet_texture('plate'),
                     frameSize=(-hw, hw, -0.020, 0.032),
                     relief=DGG.FLAT, state=DGG.DISABLED, pos=pos)
+    f.setTransparency(True)
     edge = DirectFrame(parent=f, frameColor=(0.55, 0.48, 0.34, 1.0),
                        frameSize=(-hw - 0.003, hw + 0.003,
                                   -0.023, 0.035), relief=DGG.FLAT,
@@ -110,6 +140,7 @@ def add_tooltip(btn, text, font=None, dy=0.085, left=None):
     np_.setPos(0, 0, -0.008)
     np_.setScale(scale)
     np_.setBin('gui-popup', 2)
+    f._tip_tn = tn
     f.hide()
     btn.bind(DGG.WITHIN, lambda e, f=f: f.show())
     btn.bind(DGG.WITHOUT, lambda e, f=f: f.hide())
@@ -121,23 +152,31 @@ class TopBar:
     """Main stats strip: each stat is a titled column, value beneath."""
 
     COLUMNS = [
-        ('NATION', -1.42, TextNode.ALeft),
-        ('TREASURY', -1.06, TextNode.ALeft),
-        ('FORCES', -0.72, TextNode.ALeft),
-        ('CITIES', -0.48, TextNode.ALeft),
-        ('TIME', -0.02, TextNode.ACenter),
-        ('[OUT OF CONTACT]', 0.52, TextNode.ACenter),
-        ('KILLS', 0.82, TextNode.ACenter),
-        ('LOSSES', 1.00, TextNode.ACenter),
-        ('SPEED', 1.18, TextNode.ACenter),
+        ('NATION', -1.56, TextNode.ALeft),
+        ('TREASURY', -1.31, TextNode.ALeft),
+        ('OIL', -1.09, TextNode.ALeft),
+        ('STEEL', -0.90, TextNode.ALeft),
+        ('FOOD', -0.69, TextNode.ALeft),
+        ('FORCES', -0.47, TextNode.ALeft),
+        ('CITIES', -0.29, TextNode.ALeft),
+        ('TIME', 0.10, TextNode.ACenter),
+        ('[OUT OF CONTACT]', 0.54, TextNode.ACenter),
+        ('KILLS', 0.84, TextNode.ACenter),
+        ('LOSSES', 1.02, TextNode.ACenter),
+        ('SPEED', 1.20, TextNode.ACenter),
     ]
 
-    def __init__(self, base, on_budget, on_factory=None):
+    RESOURCE_COLS = ('OIL', 'STEEL', 'FOOD')
+
+    def __init__(self, base, on_budget, on_factory=None,
+                 on_resources=None):
         self.base = base
         self.frame = DirectFrame(parent=base.a2dTopCenter,
-                                 frameColor=BAR_BG,
+                                 frameColor=(1, 1, 1, 0.92),
+                                 frameTexture=sheet_texture('bar'),
                                  frameSize=(-2.0, 2.0, -0.155, 0.0),
                                  state=DGG.NORMAL)
+        self.frame.setTransparency(True)
         self.values = {}
         for (title, x, align) in self.COLUMNS:
             head, _ = _make_text(self.frame, base.hud_font,
@@ -150,27 +189,80 @@ class TopBar:
                                 (x, -0.118), 0.040, color, align)
             self.values[title] = val
         self.budget_btn = pill_button(
-            self.frame, "BUDGET", on_budget, pos=(1.49, 0, -0.068),
-            hw=0.19, hh=0.037, text_scale=0.036, font=base.hud_font)
-        # war-industries report, beside the budget
-        self.factory_btn = DirectButton(
-            parent=self.frame,
-            image=get_icon_path('factory_button', 'dark'),
-            image_scale=0.042, relief=None,
-            frameColor=(0, 0, 0, 0),
-            frameSize=(-0.045, 0.045, -0.045, 0.045),
-            pos=(1.76, 0, -0.062), command=on_factory)
-        self.factory_btn.setTransparency(True)
+            self.frame, "BUDGET", on_budget, pos=(1.44, 0, -0.068),
+            hw=0.155, hh=0.037, text_scale=0.034, font=base.hud_font)
+        # war-industries report, beside the budget: a proper console
+        # key, not a bare pictogram floating on the panel
+        self.factory_btn = pill_button(
+            self.frame, '', on_factory, pos=(1.645, 0, -0.062),
+            hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
+        pic = OnscreenImage(image=get_icon_path('factory_button',
+                                                'dark'),
+                            parent=self.factory_btn, scale=0.034,
+                            pos=(0, 0, 0))
+        pic.setTransparency(True)
+        crisp_image(pic)
+        add_tooltip(self.factory_btn, "WAR INDUSTRIES -- PRODUCTION "
+                    "REPORT", font=base.hud_font, dy=-0.105)
+        # the quartermaster's ledger, beside the factory key
+        self.resource_btn = pill_button(
+            self.frame, '', on_resources, pos=(1.755, 0, -0.062),
+            hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
+        pic = OnscreenImage(image=get_icon_path('resource_button',
+                                                'dark'),
+                            parent=self.resource_btn, scale=0.034,
+                            pos=(0, 0, 0))
+        pic.setTransparency(True)
+        crisp_image(pic)
+        add_tooltip(self.resource_btn, "STRATEGIC RESOURCES -- "
+                    "STOCKS AND SUPPLY", font=base.hud_font,
+                    dy=-0.105)
         # fourteen dots: the days of the running fortnight
         self.day_dots = []
         for i in range(14):
-            x = 1.49 - 0.169 + i * 0.026
+            x = 1.44 - 0.169 + i * 0.026
             dot = DirectFrame(parent=self.frame,
                               frameColor=(0.32, 0.30, 0.26, 1.0),
                               frameSize=(-0.008, 0.008, -0.008, 0.008),
                               pos=(x, 0, -0.132))
             self.day_dots.append(dot)
         self._fortnight_day = 0
+        # the RESOURCE STRIP explains itself on hover: each column
+        # carries an invisible plate whose tooltip itemizes the flow
+        self.res_tips = {}
+        for res, x, _a in self.COLUMNS:
+            if res not in self.RESOURCE_COLS:
+                continue
+            hov = DirectButton(parent=self.frame, relief=None,
+                              frameColor=(0, 0, 0, 0),
+                              frameSize=(-0.02, 0.18, -0.150, -0.02),
+                              pos=(x, 0, 0), state=DGG.NORMAL)
+            tip = add_tooltip(
+                hov, "AWAITING THE FORTNIGHT'S FIRST RETURNS",
+                font=base.hud_font, dy=-0.175)
+            self.res_tips[res] = tip
+        # a red pip on the factory key while any line stands halted
+        self.factory_pip = DirectFrame(
+            parent=self.factory_btn, relief=DGG.FLAT,
+            frameColor=(0.72, 0.18, 0.10, 1.0),
+            frameSize=(-0.009, 0.009, -0.009, 0.009),
+            pos=(0.036, 0, 0.036))
+        self.factory_pip.hide()
+
+    def set_resource_detail(self, res, text):
+        tip = self.res_tips.get(res)
+        if tip is not None:
+            tip._tip_tn.setText(text)
+
+    def set_resource_color(self, res, color):
+        if res in self.values:
+            self.values[res].setTextColor(*color)
+
+    def set_factory_alert(self, on):
+        if on and self.factory_pip.isHidden():
+            self.factory_pip.show()
+        elif not on and not self.factory_pip.isHidden():
+            self.factory_pip.hide()
 
     def set_stats(self, stats):
         """stats: dict keyed by column title."""
@@ -202,9 +294,11 @@ class BottomBar:
     def __init__(self, base):
         self.base = base
         self.frame = DirectFrame(parent=base.a2dBottomCenter,
-                                 frameColor=BAR_BG,
+                                 frameColor=(1, 1, 1, 0.92),
+                                 frameTexture=sheet_texture('bar'),
                                  frameSize=(-1.35, 1.35, 0.0, 0.35),
                                  state=DGG.NORMAL)
+        self.frame.setTransparency(True)
         self.title_tn, _ = _make_text(self.frame, base.hud_font,
                                       (-1.30, 0.290), 0.05, ACCENT)
         self.info_tn, _ = _make_text(self.frame, base.hud_font,
@@ -231,6 +325,7 @@ class BottomBar:
             frameSize=(-0.05, 0.05, -0.05, 0.05),
             pos=(1.28, 0, 0.285), command=None)
         self.info_btn.setTransparency(True)
+        crisp_image(self.info_btn)
         add_tooltip(self.info_btn, "UNIT BRIEFING", font=base.hud_font)
         self.info_btn.hide()
         # red CAPTURE button: appears on an enemy city's menu when the
@@ -340,9 +435,13 @@ class BottomBar:
                               hw=side, hh=side, corner=0.30,
                               font=self.base.hud_font)
             if icon:
+                # a captioned key rides its icon high to clear the
+                # chip; a bare key wears the icon dead centre
+                pic_z = 0.012 if (label and len(label) <= 8) else 0.0
                 pic = OnscreenImage(image=icon, parent=btn,
-                                    scale=0.044, pos=(0, 0, 0.012))
+                                    scale=0.044, pos=(0, 0, pic_z))
                 pic.setTransparency(True)
+                crisp_image(pic)
                 if label and len(label) <= 8:
                     # short caption (hp, cost) on a paper chip at the
                     # key's foot, so it stays legible over the larger
@@ -389,6 +488,43 @@ class BottomBar:
 NEWSPRINT = (0.89, 0.87, 0.80, 0.99)
 
 
+_WIRE_LEAD = (
+    "Reports reaching this desk", "Despatches from the frontier",
+    "A communique issued at dawn", "Travellers arriving by rail",
+    "The wireless from the coast", "Officials speaking last night",
+    "A correspondent at the front", "Sources close to the ministry")
+_WIRE_BODY = (
+    "speak of columns on the move before first light",
+    "describe heavy traffic on every road to the east",
+    "confirm that reserves have been called to the colours",
+    "tell of bridges watched and crossings counted",
+    "report the harbours working under blackout",
+    "note long trains of lorries moving under tarpaulin",
+    "insist the situation remains fluid but contained",
+    "count fresh batteries dug in along the ridge")
+_WIRE_TAIL = (
+    "No further detail was available at press time.",
+    "The ministry declined to comment.",
+    "Censors passed this despatch without amendment.",
+    "Confirmation is awaited from the capital.",
+    "The public is asked to remain calm.",
+    "More in the late edition.")
+
+
+def _wire_filler(seed, n_sent):
+    """Column filler in the house style: plausible wire-copy nonsense
+    so the sheet reads like a REAL broadsheet, deterministic per
+    edition so the paper doesn't rewrite itself on a glance."""
+    import random as _random
+    rng = _random.Random(seed)
+    out = []
+    for _ in range(n_sent):
+        out.append("%s %s. %s" % (rng.choice(_WIRE_LEAD),
+                                  rng.choice(_WIRE_BODY),
+                                  rng.choice(_WIRE_TAIL)))
+    return "  ".join(out)
+
+
 class Newspaper:
     """A broadsheet on the stand: masthead, dateline, banner headline
     and the deck beneath, in the manner of the wire-service extras.
@@ -404,9 +540,11 @@ class Newspaper:
         self.on_dismiss = on_dismiss
         tall = 0.48 if final is None else 0.86
         self.frame = DirectFrame(parent=base.aspect2d,
-                                 frameColor=NEWSPRINT,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('newsprint'),
                                  frameSize=(-0.98, 0.98, -tall, tall),
                                  state=DGG.NORMAL, pos=(0, 0, 0.06))
+        self.frame.setTransparency(True)
         edge = DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
                            frameSize=(-0.99, 0.99, -tall - 0.012,
                                       -tall))
@@ -443,6 +581,34 @@ class Newspaper:
         y -= 0.075 * (1 + headline.count(' ') // 12)
         y -= 0.075
         text(deck, y, 0.034, wordwrap=46.0)
+        if final is None:
+            # below the fold the sheet reads like a REAL broadsheet:
+            # a rule, then three columns of wire copy behind thin
+            # column rules (filler, deterministic per edition)
+            ry = y - 0.055
+            DirectFrame(parent=self.frame, frameColor=INK,
+                        frameSize=(-0.90, 0.90, ry, ry + 0.003))
+            col_w, gap = 0.56, 0.05
+            x_left = -0.90
+            seed = hash((headline, deck)) & 0xffffffff
+            for ci in range(3):
+                cx = x_left + ci * (col_w + gap)
+                tn = TextNode('wire')
+                tn.setAlign(TextNode.ALeft)
+                if base.hud_font:
+                    tn.setFont(base.hud_font)
+                tn.setTextColor(0.32, 0.28, 0.23, 1.0)
+                tn.setWordwrap(col_w / 0.021)
+                tn.setText(_wire_filler(seed + ci, 2))
+                np_ = self.frame.attachNewNode(tn)
+                np_.setPos(cx, 0, ry - 0.045)
+                np_.setScale(0.021)
+                if ci:
+                    DirectFrame(parent=self.frame,
+                                frameColor=(0.55, 0.51, 0.44, 1.0),
+                                frameSize=(cx - gap / 2 - 0.0012,
+                                           cx - gap / 2 + 0.0012,
+                                           -tall + 0.13, ry - 0.02))
         if final is not None:
             y -= 0.30
             text("++ %s ++" % ("TOTAL VICTORY" if final == 'victory'
@@ -486,7 +652,8 @@ class DiplomacyLedger:
         self._COUNTRIES = COUNTRIES
         self._PLAYABLE = PLAYABLE
         self.frame = DirectFrame(parent=game.aspect2d,
-                                 frameColor=PAPER,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-1.42, 1.42, -0.86, 0.86),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -521,90 +688,620 @@ class DiplomacyLedger:
                     kind='red')
 
     def rebuild(self):
+        """Two pages, one sheet. The ROSTER: every nation as a big
+        flag card, plus the wars raging -- that is all. Click a card
+        for the DOSSIER: that nation's standing, wars, pacts, and
+        the player's diplomatic keys, writ large."""
         g = self.game
         for w in self.widgets:
             w.destroy() if hasattr(w, 'destroy') else w.removeNode()
         self.widgets = []
+        view = getattr(self, 'view', None)
+        if view is not None and (view in g.eliminated
+                                 or view == g.player_country):
+            view = self.view = None
+        if view is None:
+            self.table = None
+            self._build_roster()
+        elif getattr(self, 'table', None) == view:
+            self._build_table(view)
+        else:
+            self._build_dossier(view)
+
+    def _open_dossier(self, nat):
+        self.view = nat
+        self.table = None
+        self.rebuild()
+
+    def _card(self, nat, x, y, big=False):
+        from icons import flag_texture
+        from config import short_name
+        g = self.game
+        fw = 0.075 if big else 0.056
+        chip = DirectButton(parent=self.frame, relief=None,
+                            frameColor=(0, 0, 0, 0),
+                            image=flag_texture(nat),
+                            image_scale=(fw, 1, fw * 2 / 3),
+                            frameSize=(-fw, fw, -fw * 2 / 3,
+                                       fw * 2 / 3),
+                            pos=(x, 0, y),
+                            command=self._open_dossier,
+                            extraArgs=[nat])
+        chip.setTransparency(True)
+        crisp_image(chip)
+        self.widgets.append(chip)
+        return chip
+
+    def _open_table(self, nat):
+        self.view = nat
+        self.table = nat
+        self.offer = {}
+        self.ask = {}
+        self.rebuild()
+
+    def _table_adjust(self, side, key, delta, step):
+        book = self.offer if side == 'offer' else self.ask
+        book[key] = max(0, book.get(key, 0) + delta * step)
+        if book[key] == 0:
+            book.pop(key, None)
+        self.rebuild()
+
+    def _clear_sheet(self):
+        self.offer = {}
+        self.ask = {}
+        self.rebuild()
+
+    TOKEN_TIP = {
+        'passage': "OUR LAND COLUMNS MAY CROSS THEIR COUNTRY "
+                   "WITHOUT A DECLARATION OF WAR",
+        'supply': "OUR COLUMNS MAY WATER AND RESUPPLY AT THEIR "
+                  "TOWNS AND QUAYS",
+        'nonaggression': "NEITHER POWER MAY DECLARE WAR ON THE "
+                         "OTHER WHILE IT STANDS",
+        'alliance': "THEIR WARS BECOME OURS AND OURS THEIRS -- "
+                    "AND THEIR VOLUNTEERS MAY BE ASKED FOR",
+        'peace': "THE GUNS FALL SILENT BETWEEN US",
+        'funds_once': "A SINGLE PAYMENT FROM THE TREASURY",
+        'funds_ftn': "A STANDING SUBSIDY, PAID EVERY FORTNIGHT",
+        'res_ftn': "CARGO SHIPPED EVERY FORTNIGHT UNTIL CANCELLED",
+    }
+
+    def _table_toggle(self, side, key):
+        book = self.offer if side == 'offer' else self.ask
+        if key in book:
+            book.pop(key)
+        else:
+            book[key] = 1
+        self.rebuild()
+
+    def _tokens(self, book):
+        """The book of counters as a list of deal tokens."""
+        out = []
+        for key, n in book.items():
+            if n <= 0:
+                continue
+            if key == 'funds_once':
+                out.append({'kind': 'funds_once', 'amount': n})
+            elif key == 'funds_ftn':
+                out.append({'kind': 'funds_ftn', 'amount': n})
+            elif key.startswith('res_ftn:'):
+                out.append({'kind': 'res_ftn',
+                            'res': key.split(':')[1], 'amount': n})
+            elif key.startswith('res_once:'):
+                out.append({'kind': 'res_once',
+                            'res': key.split(':')[1], 'amount': n})
+            else:
+                out.append({'kind': key})
+        return out
+
+    def _dispatch_envoy(self, nat):
+        g = self.game
+        g.propose_deal(nat, self._tokens(self.offer),
+                       self._tokens(self.ask))
+        self.offer = {}
+        self.ask = {}
+        self.rebuild()
+
+    def _build_table(self, nat):
+        """THE NEGOTIATING TABLE: every concession is a counter laid
+        on one side of the sheet or the other."""
+        import deals as _d
+        g = self.game
+        from config import short_name, RESOURCES
+        me = g.player_country
+        f = self.base.hud_font
+        b = pill_button(self.frame, "<< THE DOSSIER",
+                        self._open_dossier, extraArgs=[nat],
+                        pos=(-1.16, 0, 0.775), hw=0.19, hh=0.040,
+                        font=f)
+        self.widgets.append(b)
+        st = g.standing(nat)
+        word, mult = _d.standing_word(st)
+        col = ((0.16, 0.38, 0.14, 1.0) if st >= 30 else
+               (0.62, 0.14, 0.10, 1.0) if st < -10 else
+               (0.40, 0.36, 0.30, 1.0))
+        self._card(nat, -1.14, 0.60)
+        self._text("THE ENVOY'S SHEET -- %s" % short_name(nat).upper(),
+                   (-1.02, 0.615), 0.044)
+        self._text("THEIR FOREIGN OFFICE STANDS %s -- THEY PRICE "
+                   "OUR ASKS AT %d%% OF WORTH" % (word, int(mult * 100)),
+                   (-1.02, 0.556), 0.025, color=INK_FAINT)
+        # the standing gauge: where this office sits on the ladder
+        self._text("STANDING", (0.58, 0.612), 0.022, color=INK_FAINT)
+        self._meter(0.58, 0.573, 0.42, (st + 100) / 200.0, col)
+        self._stamp(1.04, 0.612, word, col, scale=0.024)
+        self._rule(-1.30, 1.30, 0.505)
+
+        gates = g.deal_gates(nat)
+        cols = {'name': -1.28, 'offer': -0.30, 'ask': 0.62}
+        self._text("ON THE TABLE", (cols['name'], 0.455), 0.024,
+                   color=INK_FAINT)
+        self._text("WE OFFER", (cols['offer'] + 0.09, 0.455), 0.024,
+                   color=INK_FAINT, align=TextNode.ACenter)
+        self._text("WE ASK", (cols['ask'] + 0.09, 0.455), 0.024,
+                   color=INK_FAINT, align=TextNode.ACenter)
+
+        rows = [('funds_once', 'FUNDS (ONE PAYMENT)', 100),
+                ('funds_ftn', 'FUNDS EACH FORTNIGHT', 50)]
+        for res in RESOURCES:
+            rows.append(('res_ftn:%s' % res,
+                         '%s EACH FORTNIGHT' % res.upper(), 10))
+        rows += [('passage', 'RIGHT OF PASSAGE', 0),
+                 ('supply', 'USE OF THE SUPPLY NET', 0),
+                 ('nonaggression', 'PACT OF NON-AGGRESSION', 0),
+                 ('alliance', 'PACT OF ALLIANCE', 0)]
+        if g.at_war(me, nat):
+            rows.append(('peace', 'AN END TO THE WAR', 0))
+
+        y = 0.405
+        for key, label, step in rows:
+            kind = key.split(':')[0]
+            lab = self._text(label, (cols['name'], y), 0.027)
+            tip = self.TOKEN_TIP.get(kind)
+            if tip:
+                # an inert hover plate explains what the counter buys
+                hov = DirectButton(parent=self.frame, relief=None,
+                                   frameColor=(0, 0, 0, 0),
+                                   frameSize=(0, 0.62, -0.016,
+                                              0.028),
+                                   pos=(cols['name'], 0, y),
+                                   state=DGG.NORMAL)
+                add_tooltip(hov, tip, font=f, dy=0.055)
+                self.widgets.append(hov)
+            for side in ('offer', 'ask'):
+                x = cols[side]
+                book = self.offer if side == 'offer' else self.ask
+                mutual = kind in _d.GIVE_ONLY_MUTUAL
+                # a pact binds BOTH sides: it is asked for, never
+                # "offered" as a one-way concession
+                if mutual and side == 'offer':
+                    self._text("--", (x + 0.09, y), 0.024,
+                               color=INK_FAINT,
+                               align=TextNode.ACenter)
+                    continue
+                if side == 'ask' and gates.get(kind, True) is False:
+                    self._text("NOT ON OFFER", (x + 0.09, y), 0.021,
+                               color=INK_FAINT,
+                               align=TextNode.ACenter)
+                    continue
+                if step == 0:
+                    # a right already signed is never sold twice --
+                    # and the sheet says which WAY it runs, so a
+                    # frontier we opened to them reads WE GRANTED
+                    if kind in ('passage', 'supply',
+                                'nonaggression'):
+                        to_us, to_them = g.right_between(nat, kind)
+                        held = to_us if side == 'ask' else to_them
+                        if held:
+                            self._stamp(
+                                x + 0.09, y + 0.004,
+                                "IN FORCE" if kind == 'nonaggression'
+                                else ("THEY GRANTED" if side == 'ask'
+                                      else "WE GRANTED"),
+                                (0.16, 0.38, 0.14, 1.0),
+                                scale=0.018, center=True)
+                            continue
+                    if kind == 'alliance' and g.allied(me, nat):
+                        self._stamp(x + 0.09, y + 0.004, "IN FORCE",
+                                    (0.16, 0.38, 0.14, 1.0),
+                                    scale=0.018, center=True)
+                        continue
+                    on = key in book
+                    bt = pill_button(
+                        self.frame, "PLEDGED" if on else "--",
+                        self._table_toggle, extraArgs=[side, key],
+                        pos=(x + 0.09, 0, y + 0.008), hw=0.10,
+                        hh=0.030, text_scale=0.021, font=f,
+                        latched=on)
+                    self.widgets.append(bt)
+                else:
+                    bt = pill_button(
+                        self.frame, "-", self._table_adjust,
+                        extraArgs=[side, key, -1, step],
+                        pos=(x - 0.02, 0, y + 0.008), hw=0.028,
+                        hh=0.028, text_scale=0.030, font=f)
+                    self.widgets.append(bt)
+                    self._text("%d" % book.get(key, 0),
+                               (x + 0.09, y), 0.028,
+                               align=TextNode.ACenter)
+                    bt = pill_button(
+                        self.frame, "+", self._table_adjust,
+                        extraArgs=[side, key, +1, step],
+                        pos=(x + 0.20, 0, y + 0.008), hw=0.028,
+                        hh=0.028, text_scale=0.030, font=f)
+                    self.widgets.append(bt)
+            y -= 0.066
+            self._rule(-1.30, 1.30, y + 0.036,
+                       color=(0.45, 0.40, 0.33, 0.28), w=0.0014)
+
+        # ---- THE SHEET AS IT STANDS: both baskets in words, the
+        # envoy's reading, and what is already signed between us
+        offer, ask = self._tokens(self.offer), self._tokens(self.ask)
+        verdict, vword, _reply, gain = _d.evaluate(
+            offer, ask, st, gates)
+        y -= 0.035
+        self._rule(-1.30, 1.30, y + 0.02)
+        y -= 0.045
+        self._text("THE SHEET AS IT STANDS", (-1.28, y), 0.026,
+                   color=INK_FAINT)
+        y -= 0.055
+        for label, toks, cx in (("WE GIVE", offer, -1.28),
+                                ("WE RECEIVE", ask, 0.06)):
+            self._text(label, (cx, y), 0.024, color=INK_FAINT)
+            if not toks:
+                self._text("nothing", (cx + 0.26, y), 0.026,
+                           color=INK_FAINT)
+            else:
+                for i, tok in enumerate(toks[:4]):
+                    self._text(_d.token_text(tok),
+                               (cx + 0.26, y - i * 0.042), 0.026)
+        y -= 0.042 * max(1, min(4, max(len(offer), len(ask)))) + 0.03
+        self._text("THE ENVOY'S READING", (-1.28, y), 0.024,
+                   color=INK_FAINT)
+        if not offer and not ask:
+            hint = ("Lay counters on the sheet -- what we give on "
+                    "the left, what we want on the right.")
+            hcol = INK_FAINT
+        elif verdict == 'ungated':
+            hint = "They will not treat for that at all -- not yet."
+            hcol = (0.62, 0.14, 0.10, 1.0)
+        else:
+            hint = _d.shortfall_hint(gain)
+            hcol = ((0.16, 0.38, 0.14, 1.0) if gain >= 0
+                    else (0.62, 0.14, 0.10, 1.0))
+        self._text(hint, (-0.94, y), 0.028, color=hcol)
+        # what already stands between the two powers
+        standing_lines = ["%s (%s)" % (what, how)
+                          for what, how in
+                          self._agreement_lines(nat)]
+        y -= 0.06
+        self._text("ALREADY SIGNED", (-1.28, y), 0.024,
+                   color=INK_FAINT)
+        if not standing_lines:
+            self._text("no instrument stands between us",
+                       (-0.94, y), 0.026, color=INK_FAINT)
+        else:
+            for i, line in enumerate(standing_lines[:4]):
+                self._text(line, (-0.94 + (i % 2) * 1.05,
+                                  y - (i // 2) * 0.042), 0.025,
+                           color=(0.16, 0.38, 0.14, 1.0))
+        bt = pill_button(self.frame, "CLEAR THE SHEET",
+                         self._clear_sheet, extraArgs=[],
+                         pos=(-0.52, 0, -0.755), hw=0.20, hh=0.046,
+                         text_scale=0.028, font=f)
+        self.widgets.append(bt)
+        bt = pill_button(self.frame, "++ DISPATCH THE ENVOY ++",
+                         self._dispatch_envoy, extraArgs=[nat],
+                         pos=(0.16, 0, -0.755), hw=0.34, hh=0.050,
+                         text_scale=0.032, font=f)
+        self.widgets.append(bt)
+        self._text("A SHEET IS ANSWERED AT ONCE -- MONEY AND CARGO "
+                   "MOVE ON THE FORTNIGHT, RIGHTS THE MOMENT IT IS "
+                   "SIGNED", (0, -0.83), 0.023,
+                   color=INK_FAINT, align=TextNode.ACenter)
+
+    def _build_roster(self):
+        g = self.game
+        from config import short_name
+        from icons import flag_texture
         me = g.player_country
         nations = [c for c in self._COUNTRIES
                    if c not in (me, 'neutral')
                    and c not in g.eliminated]
-        # the majors head the ledger; then the world alphabetically
         nations.sort(key=lambda c: (c not in self._PLAYABLE,
-                                    self._COUNTRIES[c]['name']))
-        per_col = 13
-        for i, nat in enumerate(nations[:26]):
-            col, row = divmod(i, per_col)
-            x0 = -1.36 + col * 1.44
-            y = 0.60 - row * 0.104
-            info = self._COUNTRIES[nat]
-            chip = DirectFrame(parent=self.frame,
-                               frameColor=tuple(info['color']) + (1.0,),
-                               frameSize=(-0.020, 0.020, -0.020, 0.020),
-                               relief=DGG.FLAT, pos=(x0 + 0.02, 0, y))
-            self.widgets.append(chip)
-            self._text(info['name'].upper()[:24], (x0 + 0.06, y - 0.010),
-                       0.030)
+                                    short_name(c)))
+        # the roster: 5 columns of flag cards, names beneath, the
+        # stance toward YOU printed only when it matters
+        for ry in (0.675, 0.667):
+            self._rule(-1.30, 1.30, ry,
+                       color=(0.25, 0.21, 0.17, 0.9), w=0.0024)
+        per_row = 5
+        for i, nat in enumerate(nations[:25]):
+            row, col = divmod(i, per_row)
+            x = -1.08 + col * 0.44
+            y = 0.53 - row * 0.27
+            self._card(nat, x, y)
             at_war = g.at_war(me, nat)
             allied = g.allied(me, nat)
-            pend = g.pouch_pending(nat)
-            stance = ("AT WAR" if at_war else
-                      "ALLIED" if allied else "AT PEACE")
-            scol = ((0.62, 0.14, 0.10, 1) if at_war else
-                    (0.16, 0.35, 0.14, 1) if allied else INK_FAINT)
-            self._text(stance, (x0 + 0.60, y - 0.010), 0.028,
-                       color=scol)
-            bx = x0 + 0.96
-            if pend is not None:
-                self._text("COURIER EN ROUTE...",
-                           (bx - 0.06, y - 0.010), 0.026,
-                           color=INK_FAINT)
+            self._text(short_name(nat).upper(), (x, y - 0.100),
+                       0.032, align=TextNode.ACenter)
+            if at_war or allied:
+                self._stamp(x, y - 0.152,
+                            "AT WAR" if at_war else "ALLY",
+                            (0.62, 0.14, 0.10, 1.0) if at_war
+                            else (0.16, 0.38, 0.14, 1.0),
+                            scale=0.020, center=True)
+        # THE WARS RAGING: the right edge is a battle-board -- each
+        # war a pair of standards crossed by the swords
+        wx = 1.18
+        box = DirectFrame(parent=self.frame, relief=DGG.FLAT,
+                          frameColor=(0.45, 0.40, 0.33, 0.55),
+                          frameSize=(-0.222, 0.222, -1.475, 0.075),
+                          pos=(wx, 0, 0.62), state=DGG.DISABLED)
+        inner = DirectFrame(parent=box, relief=DGG.FLAT,
+                            frameColor=PAPER[:3] + (1.0,),
+                            frameSize=(-0.218, 0.218, -1.471,
+                                       0.071), state=DGG.DISABLED)
+        self.widgets.append(box)
+        self._text("++ WARS RAGING ++", (wx, 0.63), 0.040,
+                   color=(0.62, 0.14, 0.10, 1),
+                   align=TextNode.ACenter)
+        wars = sorted({tuple(sorted(w)) for w in g.wars})
+        if not wars:
+            self._text("ALL QUIET ON EVERY FRONT", (wx, 0.50),
+                       0.026, color=INK_FAINT,
+                       align=TextNode.ACenter)
+        for i, (a, b) in enumerate(wars[:8]):
+            wy = 0.49 - i * 0.165
+            for nat, dx in ((a, -0.115), (b, 0.115)):
+                chip = DirectFrame(parent=self.frame, relief=None,
+                                   frameColor=(0, 0, 0, 0),
+                                   image=flag_texture(nat),
+                                   image_scale=(0.050, 1, 0.0333),
+                                   frameSize=(-0.05, 0.05,
+                                              -0.034, 0.034),
+                                   pos=(wx + dx, 0, wy))
+                chip.setTransparency(True)
+                crisp_image(chip)
+                self.widgets.append(chip)
+            swords = DirectFrame(parent=self.frame, relief=None,
+                                 frameColor=(0, 0, 0, 0),
+                                 image=get_icon_path('crossed_swords',
+                                                     'dark'),
+                                 image_scale=0.036,
+                                 frameSize=(-0.04, 0.04,
+                                            -0.04, 0.04),
+                                 pos=(wx, 0, wy))
+            swords.setTransparency(True)
+            crisp_image(swords)
+            self.widgets.append(swords)
+            self._text("%s v %s" % (short_name(a).upper(),
+                                    short_name(b).upper()),
+                       (wx, wy - 0.070), 0.021,
+                       color=INK_FAINT, align=TextNode.ACenter)
+        if len(wars) > 8:
+            self._text("AND %d MORE FRONTS AFLAME"
+                       % (len(wars) - 8),
+                       (wx, 0.49 - 8 * 0.165), 0.023,
+                       color=(0.62, 0.14, 0.10, 1),
+                       align=TextNode.ACenter)
+        self._text("CLICK A NATION FOR ITS DOSSIER -- WAR, PACTS "
+                   "AND TERMS ARE OFFERED THERE",
+                   (-0.10, -0.80), 0.026, color=INK_FAINT,
+                   align=TextNode.ACenter)
+
+    def _rule(self, x0, x1, y, color=None, w=0.0022):
+        r = DirectFrame(parent=self.frame,
+                        frameColor=color or (0.45, 0.40, 0.33, 0.8),
+                        frameSize=(x0, x1, y - w / 2, y + w / 2),
+                        relief=DGG.FLAT, state=DGG.DISABLED)
+        self.widgets.append(r)
+        return r
+
+    def _meter(self, x, y, w, frac, color):
+        """A ruled gauge: an empty trough with an inked fill."""
+        trough = DirectFrame(parent=self.frame, relief=DGG.FLAT,
+                             frameColor=(0.45, 0.40, 0.33, 0.5),
+                             frameSize=(0, w, -0.012, 0.012),
+                             pos=(x, 0, y), state=DGG.DISABLED)
+        inner = DirectFrame(parent=trough, relief=DGG.FLAT,
+                            frameColor=PAPER[:3] + (1.0,),
+                            frameSize=(0.002, w - 0.002,
+                                       -0.010, 0.010),
+                            state=DGG.DISABLED)
+        fill = max(0.0, min(1.0, frac))
+        if fill > 0.001:
+            DirectFrame(parent=inner, relief=DGG.FLAT,
+                        frameColor=color,
+                        frameSize=(0.002, 0.002 + (w - 0.004) * fill,
+                                   -0.010, 0.010),
+                        state=DGG.DISABLED)
+        self.widgets.append(trough)
+        return trough
+
+    def _panel_head(self, x0, x1, y, title):
+        self._text(title, (x0, y), 0.026, color=INK_FAINT)
+        self._rule(x0, x1, y - 0.018)
+
+    def _stamp(self, x, y, text, color, scale=0.030,
+               center=False):
+        """A rubber-stamped chip: bordered, inked, a hair off true."""
+        w = 0.31 * scale * len(text) + scale
+        hh = scale + 0.002
+        box = DirectFrame(parent=self.frame, relief=DGG.FLAT,
+                          frameColor=(0, 0, 0, 0),
+                          frameSize=(-w, w, -hh, hh),
+                          pos=(x if center else x + w, 0, y),
+                          state=DGG.DISABLED)
+        for inset, a in ((0.0, 0.9), (0.006, 0.0)):
+            edge = DirectFrame(parent=box, relief=DGG.FLAT,
+                              frameColor=color[:3] + (a,),
+                              frameSize=(-w + inset, w - inset,
+                                         -hh + inset, hh - inset),
+                              state=DGG.DISABLED)
+            if a == 0.0:
+                edge['frameColor'] = PAPER[:3] + (1.0,)
+        tn = TextNode('stamp')
+        tn.setAlign(TextNode.ACenter)
+        if self.base.hud_font:
+            tn.setFont(self.base.hud_font)
+        tn.setTextColor(*color)
+        tn.setText(text)
+        np_ = box.attachNewNode(tn)
+        np_.setScale(scale)
+        np_.setPos(0, 0, -scale * 0.34)
+        box.setR(-2.5)
+        self.widgets.append(box)
+        return box
+
+    def _agreement_lines(self, nat):
+        """Every instrument standing between us, in plain words."""
+        import deals as _d
+        g = self.game
+        out = []
+        for kind in ('passage', 'supply', 'nonaggression'):
+            to_us, to_them = g.right_between(nat, kind)
+            label = _d.KIND_LABEL[kind]
+            if kind == 'nonaggression':
+                if to_us:
+                    out.append((label, 'BINDS BOTH'))
                 continue
-            if allied:
-                price = g.volunteer_price(nat)
-                b = pill_button(self.frame,
-                                "MEN $%d" % price if price else
-                                "MEN FREE",
-                                g._diplo_action,
-                                extraArgs=['volunteers', nat],
-                                pos=(bx - 0.005, 0, y), hw=0.062,
-                                hh=0.034, text_scale=0.020,
-                                font=self.base.hud_font)
-                self.widgets.append(b)
-                b2 = pill_button(self.frame, "BREAK",
-                                 g._diplo_break, extraArgs=[nat],
-                                 pos=(bx + 0.150, 0, y), hw=0.062,
-                                 hh=0.034, text_scale=0.022,
-                                 font=self.base.hud_font)
-                self.widgets.append(b2)
-            elif at_war:
-                b = pill_button(self.frame, "OFFER PEACE",
-                                g._diplo_action,
-                                extraArgs=['peace', nat],
-                                pos=(bx + 0.13, 0, y), hw=0.13,
-                                hh=0.034, text_scale=0.024,
-                                font=self.base.hud_font)
-                self.widgets.append(b)
+            if to_us:
+                out.append((label, 'GRANTED TO US'))
+            if to_them:
+                out.append((label, 'GRANTED TO THEM'))
+        for t in g.trade_deals:
+            if t['with'] != nat:
+                continue
+            if t['res'] == 'funds':
+                out.append(("SUBSIDY $%d EACH FORTNIGHT" % t['price'],
+                            'WE PAY' if t['dir'] == 'out'
+                            else 'THEY PAY'))
             else:
-                b = pill_button(self.frame, "WAR", g._diplo_action,
-                                extraArgs=['war', nat],
-                                pos=(bx, 0, y), hw=0.062, hh=0.034,
-                                text_scale=0.024,
-                                font=self.base.hud_font, kind='red',
-                                text_fg=(0.97, 0.90, 0.80, 1.0))
-                self.widgets.append(b)
-                b2 = pill_button(self.frame, "ALLY", g._diplo_action,
-                                 extraArgs=['alliance', nat],
-                                 pos=(bx + 0.150, 0, y), hw=0.062,
-                                 hh=0.034, text_scale=0.024,
-                                 font=self.base.hud_font)
-                self.widgets.append(b2)
-        n_wars = len([w for w in g.wars if me in w])
-        n_allies = len(g.alliances.get(me, ()))
-        self._text("AT WAR WITH %d NATION(S)   BOUND TO %d ALLY(S)   "
-                   "DISPATCHES TRAVEL BY COURIER AND ARE ANSWERED IN "
-                   "KIND" % (n_wars, n_allies),
-                   (0, -0.80), 0.026, color=INK_FAINT,
+                out.append(("%d %s EACH FORTNIGHT"
+                            % (t['amount'], t['res'].upper()),
+                            'WE SHIP' if t['dir'] == 'out'
+                            else 'WE RECEIVE'))
+        return out
+
+    def _build_dossier(self, nat):
+        """The nation's file: what they are, what stands between us,
+        and the UNILATERAL acts open to us. Everything that must be
+        NEGOTIATED lives at the table."""
+        g = self.game
+        from config import short_name
+        me = g.player_country
+        f = self.base.hud_font
+        b = pill_button(self.frame, "<< THE WORLD",
+                        self._open_dossier, extraArgs=[None],
+                        pos=(-1.16, 0, 0.775), hw=0.17, hh=0.040,
+                        font=f)
+        self.widgets.append(b)
+
+        # ---- header band
+        self._card(nat, -1.10, 0.56, big=True)
+        self._text(short_name(nat).upper(), (-0.90, 0.560), 0.068)
+        self._text(self._COUNTRIES[nat]['name'].upper(),
+                   (-0.90, 0.478), 0.026, color=INK_FAINT)
+        at_war = g.at_war(me, nat)
+        allied = g.allied(me, nat)
+        st = g.standing(nat)
+        import deals as _d
+        word, _m = _d.standing_word(st)
+        col = ((0.16, 0.38, 0.14, 1.0) if st >= 30 else
+               (0.62, 0.14, 0.10, 1.0) if st < -10 else
+               (0.40, 0.36, 0.30, 1.0))
+        self._stamp(0.55, 0.565,
+                    "AT WAR" if at_war else
+                    "ALLIED" if allied else "AT PEACE",
+                    (0.62, 0.14, 0.10, 1.0) if at_war else
+                    (0.16, 0.38, 0.14, 1.0) if allied else
+                    (0.40, 0.36, 0.30, 1.0))
+        self._text("THEIR FOREIGN OFFICE", (0.98, 0.596), 0.021,
+                   color=INK_FAINT)
+        self._meter(0.98, 0.556, 0.30, (st + 100) / 200.0, col)
+        self._text(word, (0.98, 0.512), 0.024, color=col)
+        self._rule(-1.30, 1.30, 0.415)
+
+        # ---- their standing in the world
+        all_nats = [c for c in self._COUNTRIES if c != 'neutral']
+        wars = [short_name(o).upper() for o in all_nats
+                if o != nat and g.at_war(nat, o)]
+        pacts = [short_name(o).upper()
+                 for o in sorted(g.alliances.get(nat, ()))
+                 if o != nat]
+        self._panel_head(-1.30, 1.30, 0.355, "THEIR STANDING IN "
+                                             "THE WORLD")
+        self._text("AT WAR WITH", (-1.30, 0.285), 0.026,
+                   color=INK_FAINT)
+        self._text(", ".join(wars) if wars else "NOBODY",
+                   (-0.86, 0.285), 0.028,
+                   color=((0.62, 0.14, 0.10, 1.0) if wars
+                          else INK_FAINT))
+        self._text("BOUND TO", (-1.30, 0.225), 0.026,
+                   color=INK_FAINT)
+        self._text(", ".join(pacts) if pacts else "NOBODY",
+                   (-0.86, 0.225), 0.028,
+                   color=((0.16, 0.38, 0.14, 1.0) if pacts
+                          else INK_FAINT))
+
+        # ---- what is already signed between the two of us
+        self._panel_head(-1.30, 1.30, 0.145,
+                         "WHAT STANDS BETWEEN US")
+        lines = self._agreement_lines(nat)
+        if not lines:
+            self._text("No instrument stands between us -- open the "
+                       "table to treat.", (-1.30, 0.078), 0.026,
+                       color=INK_FAINT)
+        else:
+            for i, (what, how) in enumerate(lines[:6]):
+                cx = -1.30 + (i % 2) * 1.28
+                cy = 0.078 - (i // 2) * 0.050
+                self._text(what, (cx, cy), 0.025)
+                self._text(how, (cx + 0.86, cy), 0.022,
+                           color=(0.16, 0.38, 0.14, 1.0))
+
+        # ---- the table: every negotiated act lives there
+        bt = pill_button(self.frame, "++ OPEN THE NEGOTIATING "
+                                     "TABLE ++",
+                         self._open_table, extraArgs=[nat],
+                         pos=(0.0, 0, -0.28), hw=0.46, hh=0.058,
+                         text_scale=0.036, font=f)
+        self.widgets.append(bt)
+        self._text("TRADE, PASSAGE, SUPPLY RIGHTS, PACTS AND PEACE "
+                   "ARE ALL TREATED FOR AT THE TABLE",
+                   (0, -0.365), 0.024, color=INK_FAINT,
+                   align=TextNode.ACenter)
+
+        # ---- acts that need no other man's signature
+        self._panel_head(-1.30, 1.30, -0.46,
+                         "ACTS REQUIRING NO NEGOTIATION")
+        kx, keys = -0.62, []
+        if not at_war:
+            keys.append(("DECLARE WAR", g._diplo_action,
+                         ['war', nat], 'red'))
+        if allied:
+            price = g.volunteer_price(nat)
+            keys.append(("REQUEST VOLUNTEERS%s"
+                         % (" ($%d)" % price if price else " (FREE)"),
+                         g._diplo_action, ['volunteers', nat],
+                         'panel'))
+            keys.append(("BREAK THE PACT", g._diplo_break, [nat],
+                         'red'))
+        if not keys:
+            self._text("The war leaves nothing to do here but "
+                       "treat for its end.", (-1.30, -0.545), 0.026,
+                       color=INK_FAINT)
+        for i, (label, cmd, args, kind) in enumerate(keys[:3]):
+            bt = pill_button(
+                self.frame, label, cmd, extraArgs=args,
+                pos=(kx + i * 0.64, 0, -0.555), hw=0.29, hh=0.048,
+                text_scale=0.028, font=f, kind=kind,
+                text_fg=((0.97, 0.90, 0.80, 1.0) if kind == 'red'
+                         else INK))
+            self.widgets.append(bt)
+        self._text("DISPATCHES TRAVEL BY COURIER AND ARE ANSWERED "
+                   "IN KIND", (0, -0.80), 0.024, color=INK_FAINT,
                    align=TextNode.ACenter)
 
     def destroy(self):
@@ -633,7 +1330,8 @@ class _Toast:
         self.leave_age = 0.0
 
         self.frame = DirectFrame(parent=base.a2dBottomLeft,
-                                 frameColor=PAPER,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(0, self.width, 0, self.height),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -762,10 +1460,13 @@ class BudgetFax:
     TRANSMITs (locking the budget for two weeks) or DISCARDs."""
 
     def __init__(self, base, game, funds, unit_types, has_harbor,
-                 on_transmit, on_discard, initial=None, subtitle=None):
+                 on_transmit, on_discard, initial=None, subtitle=None,
+                 mat_costs=None, stock=None):
         self.base = base
         self.game = game
         self.funds = int(funds)
+        self.mat_costs = mat_costs or {}
+        self.stock = stock or {}
         self.unit_types = unit_types
         self.has_harbor = has_harbor
         self.on_transmit = on_transmit
@@ -778,7 +1479,8 @@ class BudgetFax:
         self.qty_tns = {}
 
         f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-1.18, 1.18, -0.92, 0.92),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -814,9 +1516,20 @@ class BudgetFax:
                 text(row[1], (x, y), 0.036, INK_FAINT)
                 continue
             ut, stats, available = row[1], row[2], row[3]
-            label = "%s %s" % (stats['icon'].ljust(4), stats['label'][:24])
-            text(label, (x, y), 0.030)
-            text("$%d" % stats['cost'], (x + 0.62, y), 0.030, INK_FAINT)
+            ic = DirectFrame(parent=self.frame, relief=None,
+                             frameColor=(0, 0, 0, 0),
+                             image=get_icon_path(ut, 'dark'),
+                             image_scale=0.026,
+                             frameSize=(-0.027, 0.027, -0.027, 0.027),
+                             pos=(x + 0.024, 0, y + 0.009))
+            ic.setTransparency(True)
+            crisp_image(ic)
+            text(stats['label'][:24], (x + 0.06, y), 0.030)
+            mat = self.mat_costs.get(ut, {})
+            cost_s = "$%d" % stats['cost']
+            if mat.get('steel'):
+                cost_s += " %dS" % mat['steel']
+            text(cost_s, (x + 0.56, y), 0.024, INK_FAINT)
             if not available:
                 text("NO HARBOR", (x + 0.80, y), 0.028, INK_FAINT)
                 continue
@@ -866,10 +1579,21 @@ class BudgetFax:
         return sum(self.unit_types[ut]['cost'] * n
                    for ut, n in self.counts.items())
 
+    def _mat_alloc(self, res):
+        return sum(self.mat_costs.get(ut, {}).get(res, 0) * n
+                   for ut, n in self.counts.items())
+
     def _adjust(self, ut, delta):
         cost = self.unit_types[ut]['cost']
         if delta > 0 and self._allocated() + cost > self.funds:
             return
+        if delta > 0:
+            mat = self.mat_costs.get(ut, {})
+            for res in ('steel',):
+                if (mat.get(res) and self.stock
+                        and self._mat_alloc(res) + mat[res]
+                        > self.stock.get(res, 0)):
+                    return          # the yards lack the material
         self.counts[ut] = max(0, self.counts[ut] + delta)
         self.qty_tns[ut].setText(str(self.counts[ut]))
         self._refresh_totals()
@@ -904,7 +1628,8 @@ class BriefingFax:
         self.on_close = on_close
         f = base.hud_font
         W, H = self.HALF_W, self.HALF_H
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-W, W, -H, H),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -981,7 +1706,8 @@ class TaxFax:
                      else city.tax_rate)
 
         f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-0.85, 0.85, -0.62, 0.62),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -1064,11 +1790,13 @@ class ProductionFax:
 
     BAR_W = 0.40
 
-    def __init__(self, base, sections, on_close):
+    def __init__(self, base, sections, on_close, bottlenecks=()):
         self.base = base
         self.on_close = on_close
+        self.bottlenecks = list(bottlenecks)
         self.f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-1.12, 1.12, -0.88, 0.88),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -1081,6 +1809,24 @@ class ProductionFax:
         tn, _ = _make_text(self.frame, self.f, (0, 0.655), 0.032, INK,
                            TextNode.ACenter)
         tn.setText("-" * 74)
+        # BOTTLENECKS lead the page: halted lines are the news
+        self._bneck_drop = 0.0
+        if self.bottlenecks:
+            by = 0.595
+            tn, _ = _make_text(self.frame, self.f, (-1.04, by), 0.032,
+                               (0.62, 0.14, 0.10, 1.0))
+            tn.setText("++ BOTTLENECKS -- LINES HALTED FOR "
+                       "MATERIALS ++")
+            shown = self.bottlenecks[:3]
+            for i, line in enumerate(shown):
+                tn, _ = _make_text(self.frame, self.f,
+                                   (-1.04, by - 0.048 - i * 0.042),
+                                   0.027, INK_FAINT)
+                tn.setText(line + (
+                    "   (+%d MORE)" % (len(self.bottlenecks) - 3)
+                    if i == len(shown) - 1
+                    and len(self.bottlenecks) > 3 else ""))
+            self._bneck_drop = 0.048 + len(shown) * 0.042 + 0.03
         pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
                     self._close, pos=(0, 0, -0.772), hw=0.42, hh=0.046,
                     text_scale=0.040, font=self.f)
@@ -1144,7 +1890,7 @@ class ProductionFax:
             return
 
         col_x = (-1.02, 0.10)
-        row_y0 = 0.56
+        row_y0 = 0.56 - getattr(self, '_bneck_drop', 0.0)
         row_h = 0.111
         per_col = 11
         for i, slot in enumerate(slots[:22]):
@@ -1161,6 +1907,7 @@ class ProductionFax:
                              image_scale=0.036,
                              frameSize=(-0.04, 0.04, -0.04, 0.04),
                              pos=(x + 0.035, 0, y - 0.012))
+            crisp_image(ic)
             ic.setTransparency(True)
             self._grid.append(ic)
             text(label[:24], (x + 0.085, y), 0.028)
@@ -1194,6 +1941,111 @@ class ProductionFax:
         self.frame.destroy()
 
 
+class ResourcesFax:
+    """The quartermaster's ledger: what the nation holds, where it
+    comes from, what the fortnight has drunk so far -- and the plain
+    statement of how stores and oil relate."""
+
+    def __init__(self, base, data, on_close):
+        self.base = base
+        self.on_close = on_close
+        f = base.hud_font
+        self.frame = DirectFrame(parent=base.aspect2d,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
+                                 frameSize=(-1.18, 1.18, -0.92, 0.92),
+                                 state=DGG.NORMAL)
+        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                    frameSize=(-1.18, 1.18, 0.895, 0.92))
+
+        def text(t, pos, scale=0.030, color=INK,
+                 align=TextNode.ALeft):
+            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
+            tn.setText(t)
+            return tn
+
+        text("*** STRATEGIC RESOURCES -- THE QUARTERMASTER'S "
+             "LEDGER ***", (0, 0.82), 0.043, INK, TextNode.ACenter)
+        text("STOCKS ON HAND, THE FORTNIGHT'S TAKE, AND THE PUMPS",
+             (0, 0.755), 0.027, INK_FAINT, TextNode.ACenter)
+        cols = {'oil': -0.78, 'steel': 0.0, 'food': 0.78}
+        for res, cx in cols.items():
+            d = data[res]
+            text(res.upper(), (cx, 0.66), 0.045, INK,
+                 TextNode.ACenter)
+            text("%d TONS IN STOCK" % d['stock'], (cx, 0.585),
+                 0.036, INK, TextNode.ACenter)
+            y = 0.505
+            text("THE TAKE (PER FORTNIGHT, PAID DAILY):",
+                 (cx - 0.33, y),
+                 0.026, INK_FAINT)
+            y -= 0.048
+            for name, n in d['income'][:6]:
+                text("%s +%d" % (name, n), (cx - 0.29, y), 0.027)
+                y -= 0.044
+            if d['more_income']:
+                text("+%d MORE SITES" % d['more_income'],
+                     (cx - 0.29, y), 0.025, INK_FAINT)
+                y -= 0.044
+            text("SPENT SO FAR THIS FORTNIGHT: %d" % d['spent'],
+                 (cx - 0.33, y - 0.010), 0.026,
+                 (0.62, 0.14, 0.10, 1.0))
+            y -= 0.070
+            if d['foreign']:
+                text("FOREIGN SOURCES OF NOTE:", (cx - 0.33, y),
+                     0.025, INK_FAINT)
+                y -= 0.044
+                for name, owner, n in d['foreign'][:3]:
+                    text("%s +%d  (%s)" % (name, n, owner),
+                         (cx - 0.29, y), 0.024, INK_FAINT)
+                    y -= 0.040
+        # THE SUPPLY NET: the plain statement of the relationship
+        ry = -0.42
+        tn, _ = _make_text(self.frame, f, (0, ry), 0.032, INK,
+                           TextNode.ACenter)
+        tn.setText("-" * 74)
+        text("THE SUPPLY NET", (0, ry - 0.055), 0.034, INK,
+             TextNode.ACenter)
+        text("%s LBS OF STORES IN TOWN AND STATION STOCKS   //   "
+             "%s LBS ABOARD THE COLUMNS AND FLEETS"
+             % ("{:,}".format(data['net_stocks']),
+                "{:,}".format(data['unit_stores'])),
+             (0, ry - 0.105), 0.027, INK_FAINT, TextNode.ACenter)
+        text("THE PUMPS: %s LBS ISSUED TO MACHINES SO FAR THIS "
+             "FORTNIGHT DREW %d TONS OF OIL"
+             % ("{:,}".format(int(data['pump_lbs'])),
+                int(data['pump_oil'])),
+             (0, ry - 0.155), 0.027, INK_FAINT, TextNode.ACenter)
+        text("ONE TON OF OIL MOVES 1,250 LBS OF STORES INTO A "
+             "MACHINE -- MEN AND THE RAILWAYS DRAW NONE",
+             (0, ry - 0.205), 0.027, INK, TextNode.ACenter)
+        if data.get('ration'):
+            text(data['ration'], (0, ry - 0.245), 0.027, INK,
+                 TextNode.ACenter)
+        if data.get('trade'):
+            text("IMPORTS & EXPORTS BY TREATY:", (-1.04, ry - 0.265),
+                 0.028, INK)
+            for i, line in enumerate(data['trade'][:4]):
+                text(line, (-1.00 + (i % 2) * 1.10,
+                            ry - 0.310 - (i // 2) * 0.045),
+                     0.025, INK_FAINT)
+        pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
+                    self._close, pos=(0, 0, -0.79), hw=0.42,
+                    hh=0.046, text_scale=0.040, font=f)
+        snd = getattr(base, 'fax_snd', None)
+        if snd is not None:
+            snd.play()
+
+    def _close(self):
+        cb = self.on_close
+        self.on_close = None
+        if cb:
+            cb()
+
+    def destroy(self):
+        self.frame.destroy()
+
+
 class TechFax:
     """The DIRECTORATE OF RESEARCH page: three programme columns
     (LAND / AIR / SEA), each a chain of tiers researched in order.
@@ -1208,7 +2060,8 @@ class TechFax:
         self.game = game
         self.on_close = on_close
         f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=PAPER,
+        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
                                  frameSize=(-1.24, 1.24, -0.92, 0.92),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -1295,6 +2148,7 @@ class TechFax:
                         frameSize=(-0.03, 0.03, -0.03, 0.03),
                         pos=(x - 0.30 + k * 0.075, 0, y - 0.095))
                     ic.setTransparency(True)
+                    crisp_image(ic)
                     self._dyn.append(ic)
                 if done:
                     self._text("RESEARCHED", (x + 0.20, y - 0.100),

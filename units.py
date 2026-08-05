@@ -18,8 +18,8 @@ from config import (AIR_VISION_MULT, COMM_RADIUS_FACTOR, COUNTRIES,
                     NIGHT_VISION_FACTOR, UNIT_SPEED_FACTOR,
                     UNIT_SPRITE_SCALE, VISION_SCALE)
 from globe import make_surface_ring, orient_to_surface
-from models import (make_flat_ring, make_icon_quad, set_marker_layer,
-                    unit_layer_base)
+from models import (make_flat_ring, make_flag_quad, make_icon_quad,
+                    set_marker_layer, unit_layer_base)
 from utils import (north_tangent, slerp, angle_between,
                    vec_to_latlon)
 
@@ -181,11 +181,31 @@ for _ut, _s in UNIT_TYPES.items():
         _s.setdefault('supply_cap', 1200.0)
         _s.setdefault('use_move', 5.0)      # lbs per second under way
     else:
-        # tight: a column burns most of its stores crossing one country,
-        # so the supply chain is a critical mechanic, not a garnish
+        # tight: a column burns its stores crossing a small country,
+        # so the supply chain is a critical mechanic, not a garnish.
+        # (2.5 gave infantry a quarter-degree unsupported range --
+        # every advance died at the border; 1.0 keeps the chain
+        # essential over any real distance without strangling the
+        # first march.)
         _s.setdefault('supply_cap', 80.0)
-        _s.setdefault('use_move', 2.5)
+        _s.setdefault('use_move', 1.0)
 FIRE_SUPPLY_FACTOR = 1.8                    # lbs per point of damage dealt
+
+# ---- strategic material costs -----------------------------------------
+# Production spends STEEL (hulls heaviest) and RUBBER (tyres and
+# tracks) alongside money. Men cost neither. Derived from the dollar
+# cost by domain, with flavour overrides where the history insists.
+def material_cost(unit_type, country=None):
+    """{'steel': n} for one piece of equipment. STEEL is the only
+    material a factory spends -- machines do not eat, and men are
+    not built. Tuned so a money-limited fortnight's slate bills
+    roughly one fortnight's mines: it pinches, never strangles."""
+    s = stats_for(unit_type, country) if country else UNIT_TYPES[unit_type]
+    if unit_type == 'infantry':
+        return {'steel': 0}
+    dom = s['domain']
+    div = 50 if dom == 'sea' else 80 if dom == 'air' else 100
+    return {'steel': max(1, int(s['cost'] // div))}
 
 # ---- sprite sizes: real-world proportions ------------------------------
 # Relative to the fleet carrier (1.0, the largest thing afloat). The
@@ -624,16 +644,25 @@ class Unit:
         self.holder = self.root.attachNewNode('holder')
         self.holder.setPos(0, 0, lift)
 
-        color = COUNTRIES[self.country]['color']
         base = unit_layer_base(self.id, self.stats['domain'] == 'air')
         self._layer_base = base
-        # the unit IS its pictogram: a faction-tinted top-down sprite
-        # that turns to face its direction of travel
+        # the unit IS its pictogram: every nation's counter wears the
+        # SAME ink (no faction tinting) and turns to face its
+        # direction of travel; ownership flies on the standard above
         self.counter = make_icon_quad(g.loader, self.unit_type, 'unit',
                                       half=1.0, nation=self.country)
-        self.counter.setColorScale(color[0], color[1], color[2], 1.0)
+        self.counter.setColorScale(0.93, 0.90, 0.83, 1.0)
         self.counter.reparentTo(self.holder)
         set_marker_layer(self.counter, base + 2)
+        # a FOREIGN unit flies its nation's tiny standard; your own
+        # men carry no flag (you know your own)
+        self.flag = None
+        if self.country != g.player_country:
+            self.flag = make_flag_quad(g.loader, self.country,
+                                       half=0.32)
+            self.flag.setPos(0, 1.48, 0)
+            self.flag.reparentTo(self.holder)
+            set_marker_layer(self.flag, base + 8)
 
         friendly = (self.country == g.player_country)
         ring_col = ((0.4, 1.0, 0.4, 0.95) if friendly
@@ -658,7 +687,7 @@ class Unit:
             from models import make_flat_disc
             self.count_badge = self.holder.attachNewNode('count_badge')
             pill = make_flat_disc('pill', 0.46,
-                                  (color[0], color[1], color[2], 0.96),
+                                  (0.93, 0.90, 0.83, 0.96),
                                   segments=20)
             pill.setPos(0, -1.38, 0)
             pill.reparentTo(self.count_badge)

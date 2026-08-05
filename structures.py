@@ -10,8 +10,8 @@ from panda3d.core import TextNode, Vec3
 
 from config import COUNTRIES, GLOBE_RADIUS, LIFT_GROUND
 from globe import orient_to_surface
-from models import (make_flat_disc, make_flat_ring, make_icon_quad,
-                    set_marker_layer, LAYER_STRUCT)
+from models import (make_flat_disc, make_flat_ring, make_flag_quad,
+                    make_icon_quad, set_marker_layer, LAYER_STRUCT)
 from utils import latlon_to_vec
 
 AIRFIELD_STOCK_CAP = 6000.0     # lbs of aviation supply
@@ -19,6 +19,7 @@ AIRFIELD_HP = 260.0             # demolishable, like bridges
 DEPOT_STOCK_CAP = 20000.0
 HARBOR_STOCK_CAP = 24000.0
 BUNKER_RADIUS = 0.2             # infantry sheltered within this range
+BUNKER_HP = 220.0               # field works take a pounding first
 SORTIE_COST = 600.0             # lbs per aircraft takeoff
 
 
@@ -50,6 +51,7 @@ class Structure:
         self.bb = self.holder.attachNewNode('bb')
         self.bb.setBillboardPointEye()
         self.marker = None
+        self.flag = None
         self.sel_ring = make_flat_ring('ssel', self.SEL_RING,
                                        (1.0, 0.9, 0.3, 0.95),
                                        thickness=2.0, segments=28)
@@ -58,12 +60,17 @@ class Structure:
         self.sel_ring.hide()
         self.refresh_marker()
 
-    TINT = 1.0                  # 1 = full owner tint, lower = muted
+    TINT = 0.0                  # every nation's works wear the same
+                                # ink; ownership flies on the standard
 
     def refresh_marker(self):
         if self.marker:
             self.marker.removeNode()
-        c = COUNTRIES[self.country]['color']
+        if getattr(self, 'flag', None):
+            self.flag.removeNode()
+            self.flag = None
+        c = COUNTRIES[self.country]['color'] if self.country else \
+            (1.0, 1.0, 1.0)
         self.marker = make_icon_quad(self.game.loader, self.ICON, 'dark',
                                      half=1.05, depth=5, flat=False)
         t = self.TINT
@@ -73,6 +80,16 @@ class Structure:
         self.marker.reparentTo(self.bb)
         self.marker.setLightOff()
         set_marker_layer(self.marker, LAYER_STRUCT)
+        # FOREIGN works fly their nation's standard above the mark --
+        # rebuilt here, so a capture re-hoists the new colours
+        if (self.country and self.country != 'neutral'
+                and self.country != self.game.player_country):
+            self.flag = make_flag_quad(self.game.loader, self.country,
+                                       half=0.44, flat=False)
+            self.flag.setPos(0, 0, 1.55)
+            self.flag.reparentTo(self.bb)
+            self.flag.setLightOff()
+            set_marker_layer(self.flag, LAYER_STRUCT + 2)
 
     def set_marker_scale(self, scale):
         pass                    # structures keep their fixed size
@@ -98,9 +115,6 @@ class Airfield(Structure):
         self.garrison = []              # land units stored on the field
         self.shells = []                # finished airframes, no crews
         self.crews = 0                  # Enlisted stationed here
-        # every field is laid out on its own compass bearing
-        import zlib as _zlib
-        self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
         Structure.__init__(self, game, lat, lon, country, name)
 
         # parked-aircraft badge (plane pictogram + count)
@@ -202,8 +216,6 @@ class Harbor(Structure):
         self.shells = []                # finished hulls awaiting crews
         self.crews = 0                  # Enlisted stationed at the quay
         self.stock = 0.0                # the quayside supply cache
-        import zlib as _zlib
-        self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
         Structure.__init__(self, game, lat, lon, country, name)
 
         # ways badge (ship pictogram + count of hulls building)
@@ -272,8 +284,6 @@ class ArmyPost(Structure):
         self.shells = []                # finished, waiting for crews
         self.crews = 0                  # Enlisted stationed here
         self.stock = 0.0
-        import zlib as _zlib
-        self.ICON_ROLL = float(_zlib.crc32(name.encode()) % 360)
         Structure.__init__(self, game, lat, lon, country, name)
         c = COUNTRIES[country]['color']
         self.badge = self.holder.attachNewNode('shell_badge')
@@ -317,6 +327,44 @@ class Bunker(Structure):
     bombs and naval shellfire."""
 
     ICON = 'bunker'
+    FIXED_SCALE = 0.042         # reads smaller than a depot
+
+    def __init__(self, game, lat, lon, country, name):
+        self.hp = BUNKER_HP
+        self.max_hp = BUNKER_HP
+        Structure.__init__(self, game, lat, lon, country, name)
+
+
+class Deposit(Structure):
+    """A strategic-resource site beside its city: own the city, work
+    the deposit. Output flows to the owner's national stockpile each
+    fortnight; the mark is the map's strategic geography."""
+
+    FIXED_SCALE = 0.036
+    _ICONS = {'oil': 'derrick', 'steel': 'foundry',
+              'food': 'granary'}
+
+    def __init__(self, game, lat, lon, country, name, resource,
+                 output, city=None):
+        self.resource = resource
+        self.output = output
+        self.city = city
+        self.ICON = self._ICONS[resource]
+        Structure.__init__(self, game, lat, lon, country, name)
+
+        # output badge: +N each fortnight, printed under the mark
+        tn = TextNode('yield')
+        tn.setAlign(TextNode.ACenter)
+        if game.hud_font:
+            tn.setFont(game.hud_font)
+        tn.setTextColor(0.16, 0.13, 0.10, 1)
+        tn.setText("+%d" % output)
+        np_ = self.holder.attachNewNode(tn)
+        np_.setP(-90)
+        np_.setScale(0.55)
+        np_.setPos(0, -1.55, 0)
+        np_.setDepthOffset(8)
+        set_marker_layer(np_, LAYER_STRUCT + 2)
 
 
 class Radar(Structure):

@@ -1,4 +1,4 @@
-# SCHATTENFRONT
+# ZERO HOUR: 1939
 
 A real-time strategy game set in the Second World War, played on a full 3D
 globe built from real geographic data. Command the armies, navies, and air
@@ -16,11 +16,11 @@ arrives as an incoming FAX from the War Office, and the clock starts at
 
 ## Quick Start — click and play
 
-- **macOS**: double-click **`Play Schattenfront.command`**
+- **macOS**: double-click **`Play Zero Hour 1939.command`**
   (If macOS blocks it the first time: right-click → Open. If it opens in a
-  text editor instead, run `chmod +x "Play Schattenfront.command"` once in
+  text editor instead, run `chmod +x "Play Zero Hour 1939.command"` once in
   Terminal.)
-- **Windows**: double-click **`Play Schattenfront.bat`**
+- **Windows**: double-click **`Play Zero Hour 1939.bat`**
 
 The first launch installs dependencies into a local `venv/` and paints the
 globe map from real geographic data (about a minute). Every later launch
@@ -115,7 +115,7 @@ trucks refill at **allied cities** as readily as at home.
 **ESC → SAVE CAMPAIGN** files the whole situation map — every unit
 with its orders and cargo, every war, pact and courier bag in flight,
 every engineer work down to the road cuts — as one timestamped case
-in `saves/` (or under `~/Documents/Schattenfront/saves` when the
+in `saves/` (or under `~/Documents/Zero Hour 1939/saves` when the
 install directory is read-only). **LOAD GAME** at the main menu lists
 the filed campaigns, newest first; one click resumes the war exactly
 where it stood.
@@ -312,5 +312,5 @@ the deep-zoom tile cache rebuilds itself lazily in play.
   download), clear the quarantine flag once:
 
   ```bash
-  xattr -rd com.apple.quarantine Schattenfront.app
+  xattr -rd com.apple.quarantine "Zero Hour 1939.app"
   ```
