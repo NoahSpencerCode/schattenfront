@@ -237,7 +237,6 @@ def snapshot(game):
             'annexing': bool(c.annexing), 'tax': c.tax_rate,
             'pending_tax': c.pending_tax, 'industry': c.industry,
             'draft': getattr(c, 'draft_pool', 0),
-            'quota': getattr(c, 'draft_quota', 0),
             'focus': getattr(c, 'focus', 'finance'),
             'agri': getattr(c, 'agri_level', 0),
             'works': getattr(c, 'works_level', 0),
@@ -436,7 +435,6 @@ def restore(game, data):
             c.pending_tax = row['pending_tax']
             c.industry = row['industry']
             c.draft_pool = row.get('draft', c.draft_rate())
-            c.draft_quota = row.get('quota', 0)
             c.focus = row.get('focus', 'finance')
             c.agri_level = row.get('agri', 0)
             c.works_level = row.get('works', 0)

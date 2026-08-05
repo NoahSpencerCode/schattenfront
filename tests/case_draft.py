@@ -1,60 +1,63 @@
-"""The civilian draft: quota decree, fortnight muster, industry
-grind above the volunteer line, ration gating unchanged."""
-from harness import boot, step, until, check, finish
+"""The civilian draft, immediate: rolls free, conscription mines
+industry to nought, rations gate, rolls refill at the fortnight."""
+from harness import boot, check, finish
 
 g = boot('germany')
 
 berlin = next(c for c in g.cities if c.name == 'Berlin')
 v = berlin.draft_rate()
-check(v >= 1, "Berlin volunteer line %d" % v)
-check(berlin.draft_quota == 0, "quota opens at zero")
+pool0 = berlin.draft_pool
+check(v >= 1 and pool0 >= 1, "Berlin rolls hold %d" % pool0)
 
-# the fax plumbing signs a decree (UI-less: call the transmit hook)
-g.resources['germany']['food'] = 500
-before_pool = berlin.draft_pool
-g._draft_transmit(berlin, v + 2, 0)
-check(berlin.draft_quota == v + 2, "decree sets quota %d" % (v + 2))
+g.resources['germany']['food'] = 5000
 
-# an immediate call-up drains the pool
-n_units0 = sum(1 for u in g.units if u.alive
+
+def count():
+    return sum(1 for u in g.units if u.alive
                and u.country == 'germany'
                and u.unit_type == 'infantry')
-g._draft_transmit(berlin, v + 2, min(2, before_pool))
-n_units1 = sum(1 for u in g.units if u.alive
-               and u.country == 'germany'
-               and u.unit_type == 'infantry')
-check(n_units1 - n_units0 == min(2, before_pool),
-      "immediate muster raises %d" % (n_units1 - n_units0))
 
-# the fortnight musters the quota and grinds industry
+
+# --- free muster from the rolls: industry untouched
+n0 = count()
 ind0 = berlin.industry
-g._fortnight_rollover()
-n_units2 = sum(1 for u in g.units if u.alive
-               and u.country == 'germany'
-               and u.unit_type == 'infantry')
-check(n_units2 - n_units1 >= berlin.draft_quota - 1,
-      "fortnight musters the quota (%d new)" % (n_units2 - n_units1))
-expected_grind = 0.8 * 2          # two sections over the line
-drift = berlin.industry - ind0
-check(drift <= -expected_grind + 0.6,
-      "conscription grinds industry (%.2f)" % drift)
+g._draft_transmit(berlin, pool0)
+check(count() - n0 == pool0, "the rolls muster at once (%d)" % pool0)
+check(berlin.industry == ind0, "rolls are free of industry")
+check(berlin.draft_pool == 0, "the rolls are spent")
 
-# within the volunteer line: no grind
-g._draft_transmit(berlin, v, 0)
-ind1 = berlin.industry
-g._fortnight_rollover()
-check(berlin.industry >= ind1 - 0.1,
-      "volunteer-line quota leaves industry alone (%.2f)"
-      % (berlin.industry - ind1))
+# --- beyond the rolls: conscription mines industry immediately
+n1 = count()
+g._draft_transmit(berlin, 10)
+check(count() - n1 == 10, "conscripts muster at once")
+check(abs(berlin.industry - (ind0 - 8.0)) < 0.01,
+      "10 conscripts cost 8 industry points (%.1f)"
+      % (ind0 - berlin.industry))
 
-# rations still gate the muster
+# --- the ceiling: industry stops at nought, never below
+big = g.draft_ceiling(berlin) + 50
+n2 = count()
+g._draft_transmit(berlin, big)
+check(berlin.industry >= 0.0, "industry floors at nought (%.1f)"
+      % berlin.industry)
+check(berlin.industry < 1.0, "the town was drafted to the bone")
+raised = count() - n2
+check(raised <= big - 50, "the ask beyond the ceiling was trimmed")
+
+# --- drained town: nothing left to raise
+n3 = count()
+g._draft_transmit(berlin, 5)
+check(count() == n3, "a spent town raises nobody")
+
+# --- the fortnight refills the rolls
+g._fortnight_rollover()
+check(berlin.draft_pool >= v, "the rolls refill at the fortnight")
+
+# --- rations still gate
+essen = next(c for c in g.cities if c.name == 'Essen')
 g.resources['germany']['food'] = 0
-g._draft_transmit(berlin, v + 2, 0)
-n3 = sum(1 for u in g.units if u.alive and u.country == 'germany'
-         and u.unit_type == 'infantry')
-g._fortnight_rollover()
-n4 = sum(1 for u in g.units if u.alive and u.country == 'germany'
-         and u.unit_type == 'infantry')
-check(n4 == n3, "no rations, no muster")
+n4 = count()
+g._draft_transmit(essen, essen.draft_pool)
+check(count() == n4, "no rations, no muster")
 
 finish()

@@ -37,7 +37,7 @@ from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     RESOURCE_CAP, STARTING_RESOURCES,
                     TRADE_PRICES, CIVIL_RATION,
                     FOOD_PER_ENLISTED, OCCUPIED_RATION,
-                    DRAFT_INDUSTRY_GRIND, DRAFT_QUOTA_CAP_MULT,
+                    DRAFT_INDUSTRY_GRIND,
                     FOCUS_FINANCE_HEAL, FOCUS_AGRI_FOOD,
                     FOCUS_AGRI_MAX, FOCUS_STEEL_OUT, FOCUS_STEEL_MAX,
                     FOCUS_RESEARCH_RP_PER_M, FOCUS_RESEARCH_RP_MIN,
@@ -129,7 +129,6 @@ class City:
         # the fortnight draft: citizens standing ready to enlist.
         # Manpower is never bought -- it walks in from the towns.
         self.draft_pool = self.draft_rate()
-        self.draft_quota = 0            # standing muster per fortnight
         # the fortnight focus: what the town works at
         self.focus = 'finance'
         self.agri_level = 0             # permanent food improvements
@@ -2156,38 +2155,13 @@ class WW2RTSGame(ShowBase):
             if not city.annexing:
                 if city.country in PLAYABLE:
                     self._apply_city_focus(city)
-                drift = city.industry_drift()
-                # CONSCRIPTION: a standing quota above the volunteer
-                # line grinds the town's industry while it stands
-                drift -= DRAFT_INDUSTRY_GRIND * max(
-                    0, city.draft_quota - city.draft_rate())
-                city.industry = max(5.0, min(100.0,
-                                             city.industry + drift))
+                city.industry = max(5.0, min(
+                    100.0, city.industry + city.industry_drift()))
                 # the draft rolls replenish; unclaimed citizens wait,
                 # but the pool never holds more than three fortnights
                 city.draft_pool = min(city.draft_rate() * 3,
                                       city.draft_pool
                                       + city.draft_rate())
-                # the standing quota musters on its own -- conscripts
-                # beyond the pool are pulled straight from the town
-                if (city.draft_quota > 0
-                        and city.country == self.player_country):
-                    n = self._ration_out(city.country,
-                                         city.draft_quota)
-                    city.draft_pool = max(
-                        0, city.draft_pool - n)
-                    for _ in range(n):
-                        u = self.spawn_unit(
-                            'infantry', city.country, city.lat,
-                            city.lon, jitter=0.3,
-                            seed=random.randrange(99999))
-                        u.supply = u.stats['supply_cap']
-                    if n < city.draft_quota:
-                        self.fax_short(
-                            "%s: %d OF %d QUOTA MUSTER -- THE REST "
-                            "WAIT ON RATIONS"
-                            % (city.name.upper(), n,
-                               city.draft_quota))
             if city.annexing:
                 city.annexing = False
                 if city.country == self.player_country:
@@ -2296,36 +2270,51 @@ class WW2RTSGame(ShowBase):
         if self.attempt_capture(city, self.player_country):
             self._select_city(city)     # reopen as our own municipality
 
+    def draft_ceiling(self, city):
+        """How many sections the town can raise RIGHT NOW: everyone
+        on the rolls for free, then conscripts -- each costing the
+        town industry -- until industry stands at nought."""
+        return city.draft_pool + int(city.industry
+                                     // DRAFT_INDUSTRY_GRIND)
+
     def enlist_city(self, city, n=None):
-        """The recruiting office: citizens standing ready walk out
-        of the town as Enlisted sections. Free -- manpower is the
-        one thing money never buys."""
+        """The recruiting office, IMMEDIATE: the rolls muster free;
+        every man beyond them is CONSCRIPTED and the town's industry
+        pays for each, down to nought. The rolls refill when the
+        fortnight turns. Rations gate every muster."""
         if (self.game_state != 'playing' or city.annexing
                 or city.country != self.player_country):
             return
-        n = city.draft_pool if n is None else min(n, city.draft_pool)
+        ceiling = self.draft_ceiling(city)
+        n = city.draft_pool if n is None else min(int(n), ceiling)
         if n <= 0:
-            self.fax_short("THE ROLLS ARE EMPTY AT %s -- NEW NAMES "
-                           "EACH FORTNIGHT" % city.name.upper())
+            self.fax_short("NO MUSTER AT %s -- THE ROLLS REFILL "
+                           "WHEN THE FORTNIGHT TURNS"
+                           % city.name.upper())
             return
         # RATIONS: a man cannot be raised on an empty granary. What
-        # the stores can feed marches; the rest wait on the rolls.
+        # the stores can feed marches; the rest stay home.
         n = self._ration_out(city.country, n)
         if n <= 0:
             self.fax_short("NO RATIONS FOR THE MUSTER AT %s -- THE "
                            "GRANARIES ARE EMPTY" % city.name.upper())
             return
-        city.draft_pool = max(0, city.draft_pool - n)
+        free = min(n, city.draft_pool)
+        conscripts = n - free
+        city.draft_pool -= free
+        if conscripts > 0:
+            city.industry = max(0.0, city.industry - conscripts
+                                * DRAFT_INDUSTRY_GRIND)
         for _ in range(n):
             u = self.spawn_unit('infantry', city.country, city.lat,
                                 city.lon, jitter=0.3,
                                 seed=random.randrange(99999))
             u.supply = u.stats['supply_cap']
-        left = city.draft_pool
-        self.fax_short("%d ENLISTED MUSTER AT %s%s"
-                       % (n, city.name.upper(),
-                          " -- %d WAIT ON RATIONS" % left
-                          if left else ""))
+        line = "%d ENLISTED MUSTER AT %s" % (n, city.name.upper())
+        if conscripts:
+            line += (" -- %d CONSCRIPTED, INDUSTRY DOWN TO %.0f%%"
+                     % (conscripts, city.industry))
+        self.fax_short(line)
         self._refresh_selection_ui()
 
     def _ai_enlist(self):
@@ -2389,30 +2378,12 @@ class WW2RTSGame(ShowBase):
         self.draft_fax = DraftFax(self, city, self._draft_transmit,
                                   self._draft_discard)
 
-    def _draft_transmit(self, city, quota, now_n):
+    def _draft_transmit(self, city, n):
         if self.draft_fax:
             self.draft_fax.destroy()
             self.draft_fax = None
-        quota = max(0, min(city.draft_rate() * DRAFT_QUOTA_CAP_MULT,
-                           int(quota)))
-        changed = quota != city.draft_quota
-        city.draft_quota = quota
-        if changed:
-            v = city.draft_rate()
-            grind = DRAFT_INDUSTRY_GRIND * max(0, quota - v)
-            self.fax.post(
-                "CIVILIAN DRAFT -- %s" % city.name.upper(),
-                "The standing quota is set to %s section(s) each "
-                "fortnight (%d volunteer). %s" %
-                (B("%d" % quota), v,
-                 ("Conscription above the volunteer line grinds "
-                  "industry %s%% a fortnight while it stands."
-                  % B("-%.1f" % grind)) if grind > 0 else
-                 "The quota stands within the volunteer line -- "
-                 "industry is untouched."),
-                sender="RECRUITING OFFICE")
-        if now_n > 0:
-            self.enlist_city(city, now_n)
+        if n > 0:
+            self.enlist_city(city, n)
         elif self.selected_city is city:
             self._refresh_selection_ui()
 
@@ -7334,9 +7305,9 @@ void main() {
                         ("%d" % city.draft_pool,
                          self.open_draft_fax, [city],
                          get_icon_path('enlist_button', 'dark'), False,
-                         "CIVILIAN DRAFT -- %d STAND READY, QUOTA "
-                         "%d/FTN" % (city.draft_pool,
-                                     city.draft_quota)),
+                         "CIVILIAN DRAFT -- %d ON THE ROLLS, "
+                         "MORE BY CONSCRIPTION"
+                         % city.draft_pool),
                         ("", self.open_focus_fax, [city],
                          get_icon_path('factory_button', 'dark'),
                          False,

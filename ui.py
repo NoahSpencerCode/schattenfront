@@ -294,8 +294,9 @@ class BottomBar:
 
     def __init__(self, base):
         self.base = base
-        # flush with the RIGHT edge of the screen: the far left
-        # corner belongs to the facsimile machine
+        # flush with the RIGHT edge of the screen, and STRETCHED
+        # left to meet the facsimile machine: no dead corner between
+        # them at any window aspect
         self.frame = DirectFrame(parent=base.a2dBottomRight,
                                  frameColor=(1, 1, 1, 0.92),
                                  frameTexture=sheet_texture('bar'),
@@ -303,21 +304,22 @@ class BottomBar:
                                  pos=(-1.35, 0, 0),
                                  state=DGG.NORMAL)
         self.frame.setTransparency(True)
-        self.title_tn, _ = _make_text(self.frame, base.hud_font,
-                                      (-1.30, 0.290), 0.05, ACCENT)
-        self.info_tn, _ = _make_text(self.frame, base.hud_font,
-                                     (-1.30, 0.225), 0.036, BAR_TEXT)
+        self.title_tn, self._title_np = _make_text(
+            self.frame, base.hud_font, (-1.30, 0.290), 0.05, ACCENT)
+        self.info_tn, self._info_np = _make_text(
+            self.frame, base.hud_font, (-1.30, 0.225), 0.036,
+            BAR_TEXT)
         self.info_tn.setText('')
         # the SIGNALS line rides above the bar: short despatches
         # ("REPORTING FOR DUTY", refused orders) print here and fade,
         # never touching the selection's own info line
-        self.signal_tn, _ = _make_text(self.frame, base.hud_font,
-                                       (-1.30, 0.360), 0.034,
-                                       (0.95, 0.82, 0.48, 1.0))
+        self.signal_tn, self._signal_np = _make_text(
+            self.frame, base.hud_font, (-1.30, 0.360), 0.034,
+            (0.95, 0.82, 0.48, 1.0))
         self.signal_tn.setText('')
-        self.hint_tn, _ = _make_text(self.frame, base.hud_font,
-                                     (-1.30, 0.035), 0.033,
-                                     (0.62, 0.60, 0.52, 1.0))
+        self.hint_tn, self._hint_np = _make_text(
+            self.frame, base.hud_font, (-1.30, 0.035), 0.033,
+            (0.62, 0.60, 0.52, 1.0))
         self.buttons = []
         # persistent briefing button, top-right corner of the bar; a
         # rounded-square 'i' icon that opens the selected unit's briefing
@@ -355,6 +357,28 @@ class BottomBar:
             text_fg=(0.97, 0.90, 0.80, 1.0), font=base.hud_font,
             kind='red')
         self.scramble_btn.hide()
+        self._fit_to_screen()
+        base.accept('aspect-ratio-changed', self._fit_to_screen)
+
+    def _fit_to_screen(self):
+        """The bar's LEFT edge lands exactly on the facsimile
+        machine's border, whatever the window aspect; the title
+        column rides that edge."""
+        if not self.frame or self.frame.isEmpty():
+            return
+        try:
+            ar = self.base.getAspectRatio()
+        except Exception:
+            ar = 4.0 / 3.0
+        # machine right edge (incl. its border) in this frame's space
+        left = min(-1.35, 1.35 + FaxPanel.MACH_X1
+                   + FaxPanel.BORDER - 2.0 * ar)
+        self.frame['frameSize'] = (left, 1.35, 0.0, 0.35)
+        x = left + 0.05
+        self._title_np.setX(x)
+        self._info_np.setX(x)
+        self._signal_np.setX(x)
+        self._hint_np.setX(x)
 
     def show_info(self, command, args):
         self.info_btn['command'] = command
@@ -1513,10 +1537,11 @@ class FaxPanel:
     ARCHIVE_CAP = 300
 
     # machine geometry, in a2dBottomLeft space
-    MACH_X0, MACH_X1 = 0.02, 0.53
+    MACH_X0, MACH_X1 = 0.0, 0.53
     MACH_TOP = 0.295
     SLIT_Y = 0.283
-    PAPER_X = 0.045
+    PAPER_X = 0.035
+    BORDER = 0.010              # the ink border all the way around
 
     def __init__(self, base):
         self.base = base
@@ -1535,11 +1560,19 @@ class FaxPanel:
         base = self.base
         f = base.hud_font
         x0, x1, top = self.MACH_X0, self.MACH_X1, self.MACH_TOP
+        bd = self.BORDER
+        # the BORDER: a dark ink frame all the way around, standing
+        # the machine apart from the bar beside it
+        self.border = DirectFrame(
+            parent=base.a2dBottomLeft,
+            frameColor=(0.13, 0.11, 0.09, 1.0),
+            frameSize=(x0, x1 + bd, 0.0, top + bd),
+            state=DGG.NORMAL)
         self.console = DirectFrame(
             parent=base.a2dBottomLeft,
             frameColor=(1, 1, 1, 0.96),
             frameTexture=sheet_texture('bar'),
-            frameSize=(x0, x1, 0.0, top),
+            frameSize=(x0 + bd, x1, bd, top),
             state=DGG.NORMAL)
         self.console.setTransparency(True)
         # the slit housing and the slit itself
@@ -1631,6 +1664,7 @@ class FaxPanel:
         self.queue = []
         self._close_archive()
         self.console.destroy()
+        self.border.destroy()
         self.clip_np.removeNode()
 
 
@@ -1979,115 +2013,105 @@ class TaxFax:
 
 
 class DraftFax:
-    """The CIVILIAN DRAFT for one city: a standing quota of sections
-    mustered each fortnight, and an immediate call-up from the pool.
-    Conscription above the volunteer line grinds industry."""
+    """The CIVILIAN DRAFT for one city: pick a number of sections
+    and they muster AT ONCE. The rolls are free; every man beyond
+    them is conscription and the town's industry pays a head, all
+    the way down to nought. The rolls refill at the fortnight."""
 
     def __init__(self, base, city, on_transmit, on_discard):
-        from config import DRAFT_INDUSTRY_GRIND, DRAFT_QUOTA_CAP_MULT
+        from config import DRAFT_INDUSTRY_GRIND
         self.base = base
         self.city = city
         self.on_transmit = on_transmit
         self.on_discard = on_discard
         self.grind = DRAFT_INDUSTRY_GRIND
-        self.quota = city.draft_quota
-        self.cap = city.draft_rate() * DRAFT_QUOTA_CAP_MULT
-        self.now_n = 0
+        self.ceiling = base.draft_ceiling(city)
+        self.n = min(city.draft_pool, self.ceiling)
 
         f = base.hud_font
         self.frame = DirectFrame(parent=base.aspect2d,
                                  frameColor=(1, 1, 1, 1),
                                  frameTexture=sheet_texture('paper'),
-                                 frameSize=(-0.85, 0.85, -0.72, 0.72),
+                                 frameSize=(-0.85, 0.85, -0.66, 0.66),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-0.85, 0.85, 0.695, 0.72))
+                    frameSize=(-0.85, 0.85, 0.635, 0.66))
 
         def text(t, pos, scale=0.036, color=INK,
                  align=TextNode.ALeft):
-            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
+            tn, _ = _make_text(self.frame, f, pos, scale, color,
+                               align)
             tn.setText(t)
             return tn
 
         text("*** CIVILIAN DRAFT -- %s ***" % city.name.upper(),
-             (0, 0.62), 0.048, INK, TextNode.ACenter)
-        text("FROM : THE RECRUITING OFFICE", (-0.78, 0.54))
-        text("RE   : THE STANDING QUOTA OF THE MUNICIPALITY",
-             (-0.78, 0.49))
-        text("-" * 56, (0, 0.445), 0.036, INK, TextNode.ACenter)
+             (0, 0.56), 0.048, INK, TextNode.ACenter)
+        text("FROM : THE RECRUITING OFFICE", (-0.78, 0.48))
+        text("RE   : IMMEDIATE MUSTER OF THE MUNICIPALITY",
+             (-0.78, 0.43))
+        text("-" * 56, (0, 0.385), 0.036, INK, TextNode.ACenter)
         text("POPULATION ......... %s"
-             % "{:,}".format(city.population), (-0.78, 0.38))
-        text("VOLUNTEER LINE ..... %d SECTION(S) A FORTNIGHT"
-             % city.draft_rate(), (-0.78, 0.32))
-        text("STANDING READY ..... %d SECTION(S)" % city.draft_pool,
-             (-0.78, 0.26))
+             % "{:,}".format(city.population), (-0.78, 0.32))
+        text("ON THE ROLLS ....... %d SECTION(S), FREE -- REFILLED "
+             "AT THE FORTNIGHT" % city.draft_pool, (-0.78, 0.26))
         text("INDUSTRY HEALTH .... %.0f%%" % city.industry,
              (-0.78, 0.20))
-        text("EVERY SECTION ABOVE THE VOLUNTEER LINE IS "
-             "CONSCRIPTION: -%.1f%% INDUSTRY EACH, EVERY FORTNIGHT."
-             % self.grind, (-0.78, 0.14), 0.028, INK_FAINT)
+        text("BEYOND THE ROLLS IS CONSCRIPTION: -%.1f%% INDUSTRY A "
+             "SECTION, DOWN TO NOUGHT." % self.grind,
+             (-0.78, 0.14), 0.028, INK_FAINT)
 
-        text("THE QUOTA -- MUSTERED EACH FORTNIGHT",
-             (0, 0.055), 0.032, INK, TextNode.ACenter)
-        pill_button(self.frame, "-", self._adjust, extraArgs=[-1],
-                    pos=(-0.30, 0, -0.021), hw=0.045, hh=0.043,
-                    text_scale=0.052, font=f, kind='key')
-        self.quota_tn, _ = _make_text(self.frame, f, (0, -0.035),
-                                      0.075, INK, TextNode.ACenter)
-        pill_button(self.frame, "+", self._adjust, extraArgs=[+1],
-                    pos=(0.30, 0, -0.021), hw=0.045, hh=0.043,
-                    text_scale=0.052, font=f, kind='key')
-        self.drift_tn, _ = _make_text(self.frame, f, (0, -0.135),
-                                      0.032, INK, TextNode.ACenter)
-
-        text("CALL UP AT ONCE -- FROM THOSE STANDING READY",
-             (0, -0.235), 0.032, INK, TextNode.ACenter)
-        pill_button(self.frame, "-", self._adjust_now, extraArgs=[-1],
-                    pos=(-0.30, 0, -0.311), hw=0.045, hh=0.043,
-                    text_scale=0.052, font=f, kind='key')
-        self.now_tn, _ = _make_text(self.frame, f, (0, -0.325),
-                                    0.075, INK, TextNode.ACenter)
-        pill_button(self.frame, "+", self._adjust_now, extraArgs=[+1],
-                    pos=(0.30, 0, -0.311), hw=0.045, hh=0.043,
-                    text_scale=0.052, font=f, kind='key')
-
+        text("SECTIONS TO MUSTER AT ONCE", (0, 0.045), 0.032, INK,
+             TextNode.ACenter)
+        for dx, d, lbl in ((-0.44, -5, "-5"), (-0.30, -1, "-"),
+                           (0.30, +1, "+"), (0.44, +5, "+5")):
+            pill_button(self.frame, lbl, self._adjust, extraArgs=[d],
+                        pos=(dx, 0, -0.031), hw=0.052, hh=0.043,
+                        text_scale=0.042, font=f, kind='key')
+        self.n_tn, _ = _make_text(self.frame, f, (0, -0.045), 0.085,
+                                  INK, TextNode.ACenter)
+        self.cost_tn, _ = _make_text(self.frame, f, (0, -0.165),
+                                     0.030, INK, TextNode.ACenter)
+        self.cap_tn, _ = _make_text(self.frame, f, (0, -0.225),
+                                    0.026, INK_FAINT,
+                                    TextNode.ACenter)
         text("EVERY MUSTER STILL WANTS ITS RATIONS -- 4 TONS OF "
-             "FOOD THE SECTION.", (0, -0.43), 0.030, INK_FAINT,
+             "FOOD THE SECTION.", (0, -0.335), 0.030, INK_FAINT,
              TextNode.ACenter)
         self._refresh()
 
-        pill_button(self.frame, "++ SIGN THE DECREE ++",
-                    self._transmit,
-                    pos=(-0.32, 0, -0.592), hw=0.26, hh=0.044,
+        pill_button(self.frame, "++ MUSTER ++", self._transmit,
+                    pos=(-0.32, 0, -0.532), hw=0.26, hh=0.044,
                     text_scale=0.040, text_fg=(0.1, 0.25, 0.1, 1),
                     font=f)
         pill_button(self.frame, "-- DISCARD --", self._discard,
-                    pos=(0.32, 0, -0.592), hw=0.26, hh=0.044,
+                    pos=(0.32, 0, -0.532), hw=0.26, hh=0.044,
                     text_scale=0.040, text_fg=(0.45, 0.12, 0.08, 1),
                     font=f)
 
     def _adjust(self, d):
-        self.quota = max(0, min(self.cap, self.quota + d))
-        self._refresh()
-
-    def _adjust_now(self, d):
-        self.now_n = max(0, min(self.city.draft_pool, self.now_n + d))
+        self.n = max(0, min(self.ceiling, self.n + d))
         self._refresh()
 
     def _refresh(self):
-        self.quota_tn.setText("%d / FTN" % self.quota)
-        over = max(0, self.quota - self.city.draft_rate())
-        if over > 0:
-            self.drift_tn.setText(
-                "CONSCRIPTION: -%.1f%% INDUSTRY A FORTNIGHT WHILE "
-                "IT STANDS" % (self.grind * over))
+        self.n_tn.setText("%d" % self.n)
+        free = min(self.n, self.city.draft_pool)
+        cons = self.n - free
+        if cons > 0:
+            after = max(0.0, self.city.industry - cons * self.grind)
+            self.cost_tn.setText(
+                "%d FROM THE ROLLS (FREE)  +  %d CONSCRIPTED  "
+                "--  INDUSTRY %.0f%% -> %.0f%%"
+                % (free, cons, self.city.industry, after))
         else:
-            self.drift_tn.setText(
-                "WITHIN THE VOLUNTEER LINE -- INDUSTRY UNTOUCHED")
-        self.now_tn.setText("%d NOW" % self.now_n)
+            self.cost_tn.setText(
+                "%d FROM THE ROLLS -- FREE, INDUSTRY UNTOUCHED"
+                % free)
+        self.cap_tn.setText(
+            "THE TOWN CAN RAISE AT MOST %d SECTION(S) BEFORE "
+            "INDUSTRY STANDS AT NOUGHT" % self.ceiling)
 
     def _transmit(self):
-        self.on_transmit(self.city, self.quota, self.now_n)
+        self.on_transmit(self.city, self.n)
 
     def _discard(self):
         self.on_discard()
