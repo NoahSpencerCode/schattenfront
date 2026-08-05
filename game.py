@@ -877,8 +877,11 @@ class WW2RTSGame(ShowBase):
         self.radars = []
         self.armyposts = []
         for c in self.cities:
+            # a town is a HARBOUR TOWN if the data says so or open
+            # water lies within a short walk -- Marseille and Genoa
+            # are ports whatever the old lists forgot
             c.harbor = self.world.harbor_sites.get(c.name) is not None \
-                or c.harbor
+                or c.harbor or self._coastal_probe(c.lat, c.lon)
         # the strategic map: deposits beside their historical cities
         from structures import Deposit
         self.deposits = []
@@ -1001,7 +1004,7 @@ class WW2RTSGame(ShowBase):
         fleet = {'army': self.armyposts, 'air': self.airfields,
                  'naval': self.harbors}[kind]
         for b in fleet:
-            if b.city is city:
+            if b.city is city and getattr(b, 'is_base', False):
                 return b
         return None
 
@@ -1044,13 +1047,16 @@ class WW2RTSGame(ShowBase):
             la, lo = self.world.nearest_land(la, lo)
         name = "%s %s" % (city.name.upper(), self.BASE_LABEL[kind])
         if kind == 'army':
-            b = ArmyPost(self, la, lo, city.country, name, city=city)
+            b = ArmyPost(self, la, lo, city.country, name, city=city,
+                         is_base=True)
             self.armyposts.append(b)
         elif kind == 'air':
-            b = Airfield(self, la, lo, city.country, name, city=city)
+            b = Airfield(self, la, lo, city.country, name, city=city,
+                         is_base=True)
             self.airfields.append(b)
         else:
-            b = Harbor(self, la, lo, city.country, name, city=city)
+            b = Harbor(self, la, lo, city.country, name, city=city,
+                       is_base=True)
             self.harbors.append(b)
         if announce and city.country == self.player_country:
             self.fax_short("%s STANDS %s OF THE TOWN -- SUPPLIED "
@@ -1059,11 +1065,71 @@ class WW2RTSGame(ShowBase):
                                                  la, lo)))
         return b
 
+    def _coastal_probe(self, lat, lon, reach=0.40):
+        """Open water within a short walk of the town?"""
+        for radius in (0.12, 0.22, 0.32, reach):
+            for k in range(12):
+                a = k * math.pi / 6.0
+                if self.world.is_water(
+                        lat + radius * math.sin(a),
+                        lon + radius * math.cos(a) / max(
+                            0.2, math.cos(math.radians(lat)))):
+                    return True
+        return False
+
+    def _found_port(self, city):
+        """A NAVAL PORT on the town's waterfront: fleet supply,
+        no yard. The 1939 world is full of them."""
+        for h in self.harbors:
+            if h.city is city:
+                return None
+        import zlib
+        rng = random.Random(zlib.crc32(
+            ("%s|port" % city.name).encode()))
+        la = lo = None
+        for radius in (0.18, 0.26, 0.34, 0.45, 0.60, 0.80, 1.00):
+            for k in range(16):
+                a = (k + rng.random()) * math.pi / 8.0
+                ca = city.lat + radius * math.sin(a)
+                co = city.lon + radius * math.cos(a) / max(
+                    0.2, math.cos(math.radians(city.lat)))
+                if self.world.is_water(ca, co):
+                    la, lo = ca, co
+                    break
+            if la is not None:
+                break
+        if la is None:
+            return None
+        h = Harbor(self, la, lo, city.country,
+                   "%s PORT" % city.name.upper(), city=city)
+        self.harbors.append(h)
+        city.harbor = True
+        return h
+
+    def _found_field(self, city):
+        """An AIRFIELD outside the town: sorties and stores, no
+        production line."""
+        for a in self.airfields:
+            if a.city is city:
+                return None
+        import zlib
+        rng = random.Random(zlib.crc32(
+            ("%s|field" % city.name).encode()))
+        la = city.lat + rng.uniform(-0.30, 0.30)
+        lo = city.lon + rng.uniform(-0.30, 0.30)
+        la, lo = self.world.nearest_land(la, lo)
+        f = Airfield(self, la, lo, city.country,
+                     "%s FIELD" % city.name.upper(), city=city)
+        self.airfields.append(f)
+        return f
+
     def _spawn_starting_forces(self, faction):
-        """The opening order of battle is a SEED, not an army: one
-        base by national character in the power's biggest city, five
-        supply trucks, five transport trucks and three engineers.
-        The war machine is built, not inherited."""
+        """The opening order of battle is a SEED, not an army: ONE
+        producing base by national character in the power's biggest
+        city, plus the standing infrastructure of 1939 -- ports at
+        the great harbour towns and an airfield at the capital
+        (supply and sorties, no production) -- and five supply
+        trucks, five transport trucks, three engineers."""
         towns = [c for c in self.cities if c.country == faction]
         if not towns:
             return
@@ -1078,6 +1144,14 @@ class WW2RTSGame(ShowBase):
         else:
             seat = max(towns, key=lambda c: c.population)
         self._found_base(seat, kind, announce=False)
+        # the standing infrastructure: ports at the two biggest
+        # harbour towns, a field at the capital
+        coastal = sorted((c for c in towns if c.harbor),
+                         key=lambda c: -c.population)
+        for c in coastal[:2]:
+            self._found_port(c)
+        cap = next((c for c in towns if c.capital), seat)
+        self._found_field(cap)
         for i, ut in enumerate(STARTING_PARK):
             u = self.spawn_unit(ut, faction, seat.lat, seat.lon,
                                 jitter=0.25, seed=700 + i)
@@ -1087,8 +1161,13 @@ class WW2RTSGame(ShowBase):
         """An NPC nation's standing army: a home-defense garrison
         posted AT its cities, sized by the town. It never marches and
         never grows -- the auto-acquire law makes it fight anyone who
-        brings a war to its soil."""
+        brings a war to its soil. Its great harbour towns keep
+        their PORTS: the world's quays did not vanish in 1939."""
         from geodata import CITY_POPULATION
+        for c in self.cities:
+            if (c.home_country == faction and c.harbor
+                    and CITY_POPULATION.get(c.name, 0) >= 450):
+                self._found_port(c)
         for c in self.cities:
             if c.home_country != faction:
                 continue
@@ -2141,10 +2220,12 @@ class WW2RTSGame(ShowBase):
         want = []
         if not any(p_.country == country for p_ in self.armyposts):
             want.append('base_army')
-        if not any(a.country == country and a.city is not None
+        if not any(a.country == country
+                   and getattr(a, 'is_base', False)
                    for a in self.airfields):
             want.append('base_air')
-        if not any(h.country == country and h.city is not None
+        if not any(h.country == country
+                   and getattr(h, 'is_base', False)
                    for h in self.harbors) and \
                 any(c.harbor for c in towns):
             want.append('base_naval')
@@ -2629,10 +2710,11 @@ class WW2RTSGame(ShowBase):
         across each family. A power with no base of the right kind
         gets a refund: capability must be FOUNDED first."""
         yards = [h for h in self.harbors
-                 if h.country == country and h.city is not None]
+                 if h.country == country
+                 and getattr(h, 'is_base', False)]
         fields = [a for a in self.airfields
                   if a.country == country and a.alive
-                  and a.city is not None]
+                  and getattr(a, 'is_base', False)]
         posts = [p_ for p_ in self.armyposts
                  if p_.country == country]
         rr = {'land': 0, 'sea': 0, 'air': 0}
@@ -7562,7 +7644,7 @@ void main() {
         self._refresh_air_roster(field)
 
     def _refresh_harbor_ui(self, harbor):
-        if harbor.city is not None:
+        if getattr(harbor, 'is_base', False):
             self._refresh_station_ui(
                 harbor, "NAVAL BASE", "HULL",
                 "SUPPLIED BY THE CITY -- NEW HULLS TAKE THE WATER "
@@ -7663,9 +7745,10 @@ void main() {
             empty_hint = ("NO AIRCRAFT ABOARD -- ORDER SQUADRONS TO LAND "
                           "ON THE CARRIER TO EMBARK THEM")
         else:
-            bar.set_title("%s -- %s" % (base.name,
-                          "AIRFORCE BASE" if base.city is not None
-                          else "AIRFIELD"))
+            bar.set_title("%s -- %s" % (
+                base.name,
+                "AIRFORCE BASE" if getattr(base, 'is_base', False)
+                else "AIRFIELD"))
             bar.set_info("AVIATION STOCK %d LBS   AIRCRAFT %d%s" %
                          (int(base.stock), len(wing),
                           "   (SUPPLIED BY CITY)" if base.city is not None

@@ -249,6 +249,7 @@ def snapshot(game):
             'stock': getattr(f, 'stock', 0.0),
             'production': [[t, s] for (t, s) in f.production],
             'built': f.city is None,
+            'base': getattr(f, 'is_base', False),
             'city': f.city.name if f.city is not None else None,
         } for f in game.airfields],
         'harbors': [{
@@ -257,6 +258,7 @@ def snapshot(game):
             'stock': getattr(h, 'stock', 0.0),
             'production': [[t, s] for (t, s) in h.production],
             'built': h.city is None,
+            'base': getattr(h, 'is_base', False),
             'city': h.city.name if h.city is not None else None,
         } for h in game.harbors],
         'armyposts': [{
@@ -472,14 +474,18 @@ def restore(game, data):
                 game._refresh_station_badge(s)
                 s.refresh_marker()
 
+        # an early-1.3.0 save had no 'base' flag: a city link
+        # meant a producing base then
         sync_yards(data['airfields'], g.airfields,
-                   lambda r, c: Airfield(g, r['lat'], r['lon'],
-                                         r['country'], r['name'],
-                                         city=c))
+                   lambda r, c: Airfield(
+                       g, r['lat'], r['lon'], r['country'],
+                       r['name'], city=c,
+                       is_base=r.get('base', c is not None)))
         sync_yards(data['harbors'], g.harbors,
-                   lambda r, c: Harbor(g, r['lat'], r['lon'],
-                                       r['country'], r['name'],
-                                       city=c))
+                   lambda r, c: Harbor(
+                       g, r['lat'], r['lon'], r['country'],
+                       r['name'], city=c,
+                       is_base=r.get('base', c is not None)))
         posts = {p_.name: p_ for p_ in g.armyposts}
         for row in data.get('armyposts', []):
             p_ = posts.get(row['name'])

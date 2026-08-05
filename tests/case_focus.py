@@ -9,10 +9,15 @@ essen = next(c for c in g.cities if c.name == 'Essen')
 
 # --- the opening: Germany holds ONE army base, nothing else
 mine_posts = [p for p in g.armyposts if p.country == 'germany']
-mine_air = [a for a in g.airfields if a.country == 'germany']
-mine_yards = [h for h in g.harbors if h.country == 'germany']
+mine_air = [a for a in g.airfields
+            if a.country == 'germany' and a.is_base]
+mine_yards = [h for h in g.harbors
+              if h.country == 'germany' and h.is_base]
 check(len(mine_posts) == 1 and not mine_air and not mine_yards,
-      "Germany opens with one army base only")
+      "Germany opens with one PRODUCING base only")
+check(any(h.country == 'germany' and not h.is_base
+          for h in g.harbors),
+      "...but her ports stand dressed on the coast")
 
 # --- production: land builds at the base; air is REFUNDED
 g.funds['germany'] = 10000

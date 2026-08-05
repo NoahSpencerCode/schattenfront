@@ -106,8 +106,10 @@ class Airfield(Structure):
     TINT = 0.0                  # drawn in the city-sketch palette, like
                                 # the towns; owner shows in the badge
 
-    def __init__(self, game, lat, lon, country, name, city=None):
+    def __init__(self, game, lat, lon, country, name, city=None,
+                 is_base=False):
         self.city = city                # linked city, if beside one
+        self.is_base = is_base          # AIRFORCE BASE: produces
         self.stock = AIRFIELD_STOCK_CAP
         self.hp = AIRFIELD_HP
         self.max_hp = AIRFIELD_HP
@@ -208,8 +210,10 @@ class Harbor(Structure):
 
     STOCK_CAP = HARBOR_STOCK_CAP
 
-    def __init__(self, game, lat, lon, country, name, city=None):
+    def __init__(self, game, lat, lon, country, name, city=None,
+                 is_base=False):
         self.city = city
+        self.is_base = is_base          # NAVAL BASE: produces
         self.production = []            # hulls on the ways: [type, time]
         self.stock = 0.0                # the quayside supply cache
         Structure.__init__(self, game, lat, lon, country, name)
@@ -274,8 +278,10 @@ class ArmyPost(Structure):
     TINT = 0.0                  # city-sketch palette, like the towns
     STOCK_CAP = 20000.0
 
-    def __init__(self, game, lat, lon, country, name, city=None):
+    def __init__(self, game, lat, lon, country, name, city=None,
+                 is_base=True):
         self.city = city
+        self.is_base = is_base          # army bases always produce
         self.production = []            # vehicles building: [type, s]
         self.stock = 0.0
         Structure.__init__(self, game, lat, lon, country, name)

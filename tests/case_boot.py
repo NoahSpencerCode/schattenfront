@@ -19,9 +19,9 @@ for nat in ('soviet', 'usa', 'britain', 'japan'):
     n_bases = (
         sum(1 for p in g.armyposts if p.country == nat)
         + sum(1 for a in g.airfields
-              if a.country == nat and a.city is not None)
+              if a.country == nat and getattr(a, 'is_base', False))
         + sum(1 for h in g.harbors
-              if h.country == nat and h.city is not None))
+              if h.country == nat and getattr(h, 'is_base', False)))
     check(n_bases >= 2, "%s founded bases (%d standing)"
           % (nat, n_bases))
 
