@@ -1005,63 +1005,59 @@ class WW2RTSGame(ShowBase):
                 return b
         return None
 
-    def _lay_spur(self, city, to_lat, to_lon):
-        """A spur road from the town to its new works, drawn onto
-        the map and into the routing graph -- a base is never left
-        off the network."""
-        la2, lo2 = to_lat, to_lon
-        if self.world.is_water(la2, lo2):
-            la2, lo2 = self.world.nearest_land(la2, lo2)
-        if latlon_dist_deg((city.lon, city.lat), (lo2, la2)) < 0.06:
-            return
-        seed = zlib.crc32(("spur:%s:%.3f,%.3f"
-                           % (city.name, la2, lo2)).encode())
-        curve = self.world._curved_road_points(
-            city.lat, city.lon, la2, lo2, seed, passes=5, amp=0.04)
-        self._auto_bridge_curve(curve, quiet=True)
-        poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
-        self.planner.add_custom_road(poly, rail=False)
-        if not hasattr(self.world, 'custom_road_paths'):
-            self.world.custom_road_paths = []
-        self.world.custom_road_paths.append(list(curve))
+    def _coastal_probe(self, lat, lon, reach=0.40):
+        """Open water within a short walk of the town? Marks a
+        harbour town the old lists forgot (Marseille), which is what
+        opens the naval-base focus there."""
+        for radius in (0.12, 0.22, 0.32, reach):
+            for k in range(12):
+                a = k * math.pi / 6.0
+                if self.world.is_water(
+                        lat + radius * math.sin(a),
+                        lon + radius * math.cos(a) / max(
+                            0.2, math.cos(math.radians(lat)))):
+                    return True
+        return False
 
-    def _found_base(self, city, kind, announce=True):
-        """A city raises its own base: sited on open ground (or on
-        the water, for a yard) scattered beside the town, and
-        supplied BY the town for as long as it holds."""
-        if self.base_of_city(city, kind) is not None:
-            return None
-        # a STABLE seed: str hash() is salted per process, and a
-        # base must stand in the same place on every launch
+    _SITE_MAP = {'army': 'armypost_sites', 'air': 'airfield_sites',
+                 'naval': 'harbor_sites'}
+
+    def base_site(self, city, kind):
+        """Where a base of this kind belongs beside the town: the
+        map's OWN station site, which already has its spur road
+        drawn from the city. Cities the map granted no site fall
+        back to a short scatter (and get no spur)."""
+        site = getattr(self.world, self._SITE_MAP[kind], {}).get(
+            city.name)
+        if site is not None:
+            return float(site[0]), float(site[1]), True
         import zlib
         rng = random.Random(zlib.crc32(
             ("%s|%s" % (city.name, kind)).encode()))
         if kind == 'naval':
-            # the yard wants the city's OWN waterfront: walk rings
-            # of anchorages outward, tightest first, and take the
-            # first open water -- the base must stand INSIDE the
-            # view of a player looking at the town
-            la = lo = None
-            for radius in (0.18, 0.26, 0.34, 0.45, 0.60,
-                           0.80, 1.00):
+            for radius in (0.18, 0.26, 0.34, 0.45, 0.60, 0.80, 1.00):
                 for k in range(16):
                     a = (k + rng.random()) * math.pi / 8.0
                     ca = city.lat + radius * math.sin(a)
                     co = city.lon + radius * math.cos(a) / max(
                         0.2, math.cos(math.radians(city.lat)))
                     if self.world.is_water(ca, co):
-                        la, lo = ca, co
-                        break
-                if la is not None:
-                    break
-            if la is None:
-                la, lo = self.world.nearest_water(
-                    city.lat, city.lon, max_deg=2.0)
-        else:
-            # a short march out of town, never a province away
-            la = city.lat + rng.uniform(-0.30, 0.30)
-            lo = city.lon + rng.uniform(-0.30, 0.30)
-            la, lo = self.world.nearest_land(la, lo)
+                        return ca, co, False
+            la, lo = self.world.nearest_water(city.lat, city.lon,
+                                              max_deg=2.0)
+            return la, lo, False
+        la = city.lat + rng.uniform(-0.30, 0.30)
+        lo = city.lon + rng.uniform(-0.30, 0.30)
+        la, lo = self.world.nearest_land(la, lo)
+        return la, lo, False
+
+    def _found_base(self, city, kind, announce=True):
+        """A city raises its own base: on the map's station site
+        beside the town -- the site its spur road already serves --
+        and supplied BY the town for as long as it holds."""
+        if self.base_of_city(city, kind) is not None:
+            return None
+        la, lo, on_site = self.base_site(city, kind)
         name = "%s %s" % (city.name.upper(), self.BASE_LABEL[kind])
         if kind == 'army':
             b = ArmyPost(self, la, lo, city.country, name, city=city,
@@ -1075,10 +1071,24 @@ class WW2RTSGame(ShowBase):
             b = Harbor(self, la, lo, city.country, name, city=city,
                        is_base=True)
             self.harbors.append(b)
-        self._lay_spur(city, la, lo)
+        if not on_site:
+            # the map drew no station site for this town, so no spur
+            # runs there: lay one by the map's OWN rule and give it
+            # to the route graph
+            book = {'army': self.world.armypost_spurs,
+                    'air': self.world.airfield_spurs,
+                    'naval': self.world.harbor_spurs}[kind]
+            if city.name not in book:
+                spur = self.world._curved_road_points(
+                    city.lat, city.lon, la, lo,
+                    zlib.crc32(("spur:%s:%s" % (kind, city.name))
+                               .encode()), passes=3)
+                book[city.name] = spur
+                self.planner.add_custom_road(
+                    [latlon_to_vec(cla, clo) for (cla, clo) in spur],
+                    rail=False)
         if announce:
-            # a base founded in play redraws the map's roads at once;
-            # the opening lays all its spurs before the overlay bakes
+            # a base founded in play brings its spur onto the map
             self._build_road_overlay()
         if announce and city.country == self.player_country:
             self.fax_short("%s STANDS %s OF THE TOWN -- SUPPLIED "
@@ -1087,41 +1097,39 @@ class WW2RTSGame(ShowBase):
                                                  la, lo)))
         return b
 
-    def _coastal_probe(self, lat, lon, reach=0.40):
-        """Open water within a short walk of the town?"""
-        for radius in (0.12, 0.22, 0.32, reach):
-            for k in range(12):
-                a = k * math.pi / 6.0
-                if self.world.is_water(
-                        lat + radius * math.sin(a),
-                        lon + radius * math.cos(a) / max(
-                            0.2, math.cos(math.radians(lat)))):
-                    return True
-        return False
-
     def _spawn_starting_forces(self, faction):
         """The opening order of battle, playable and AI powers
-        alike: ONE base of each type -- the ARMY BASE in the
-        biggest city, the AIRFORCE BASE at the capital (or the next
-        city), the NAVAL BASE at the biggest harbour town -- each
-        wired to its town by a spur road, and the logistics seed:
-        five supply trucks, five transport trucks, three engineers.
-        NO ports and NO airfields stand at the bell: those are the
-        engineers' trade."""
+        alike: ONE base of each type -- ARMY, AIRFORCE and NAVAL --
+        each raised on the map's OWN station site beside its town,
+        so the spur road already drawn there serves it. Plus the
+        logistics seed: five supply trucks, five transport trucks,
+        three engineers. No ports and no airfields stand at the
+        bell: those are the engineers' trade."""
         towns = [c for c in self.cities if c.country == faction]
         if not towns:
             return
         ranked = sorted(towns, key=lambda c: -c.population)
-        army_seat = ranked[0]
-        self._found_base(army_seat, 'army', announce=False)
         cap = next((c for c in towns if c.capital), ranked[0])
-        air_seat = cap if cap is not army_seat else (
-            ranked[1] if len(ranked) > 1 else ranked[0])
+        w = self.world
+
+        def seat(book, prefer_capital=False):
+            """The best town that HOLDS such a site: the capital
+            first when asked, else the biggest."""
+            have = [c for c in ranked if c.name in book]
+            if prefer_capital and cap.name in book:
+                return cap
+            return have[0] if have else None
+
+        army_seat = seat(w.armypost_sites) or ranked[0]
+        self._found_base(army_seat, 'army', announce=False)
+        air_seat = seat(w.airfield_sites, prefer_capital=True) or cap
         self._found_base(air_seat, 'air', announce=False)
-        coastal = sorted((c for c in towns if c.harbor),
-                         key=lambda c: -c.population)
-        if coastal:
-            self._found_base(coastal[0], 'naval', announce=False)
+        navy_seat = seat(w.harbor_sites)
+        if navy_seat is None:
+            coastal = [c for c in ranked if c.harbor]
+            navy_seat = coastal[0] if coastal else None
+        if navy_seat is not None:
+            self._found_base(navy_seat, 'naval', announce=False)
         for i, ut in enumerate(STARTING_PARK):
             u = self.spawn_unit(ut, faction, army_seat.lat,
                                 army_seat.lon, jitter=0.25,
@@ -2778,9 +2786,7 @@ class WW2RTSGame(ShowBase):
             fov_v = _m.radians(self.camLens.getFov()[1])
         except Exception:
             return CLICK_RADIUS * 1.9
-        drawn = fixed_scale * max(1.0, getattr(self, 'struct_factor',
-                                                1.0))
-        on_screen = (drawn * 1.4) / (alt * _m.tan(fov_v / 2.0))
+        on_screen = (fixed_scale * 1.4) / (alt * _m.tan(fov_v / 2.0))
         return max(CLICK_RADIUS * 1.9, on_screen)
 
     def _unit_world_pos(self, u):
@@ -4998,6 +5004,24 @@ class WW2RTSGame(ShowBase):
                 out.append(run)
         return out
 
+    def _live_spurs(self):
+        """The spur roads that actually serve a standing station:
+        one per airfield, harbour and army post that sits on its
+        town's map site."""
+        w = self.world
+        out = []
+        for group, book in (
+                (self.airfields, getattr(w, 'airfield_spurs', {})),
+                (self.harbors, getattr(w, 'harbor_spurs', {})),
+                (self.armyposts, getattr(w, 'armypost_spurs', {}))):
+            for st in group:
+                if st.city is None:
+                    continue
+                spur = book.get(st.city.name)
+                if spur:
+                    out.append(spur)
+        return out
+
     def _build_road_overlay(self):
         """EVERY road on the map -- map-born and engineer-laid alike
         -- is one chain of consistent-length SECTIONS, each its own
@@ -5018,8 +5042,11 @@ class WW2RTSGame(ShowBase):
         self.custom_roads = []
         self.road_sections = []
         self._glow_section = None
+        # SPURS ARE DRAWN ONLY WHERE THEY SERVE SOMETHING: the
+        # map data lays a spur to every possible station site, but
+        # a road to a site nobody built on leads nowhere
         road_srcs = list(self.world.road_paths.values()) \
-            + list(getattr(self.world, 'spur_paths', [])) \
+            + self._live_spurs() \
             + list(getattr(self.world, 'custom_road_paths', []))
         rail_srcs = list(getattr(self.world, 'rail_paths', [])) \
             + list(getattr(self.world, 'custom_rail_paths', []))
@@ -6819,24 +6846,17 @@ void main() {
         alt = self.cam_dist - GLOBE_RADIUS
         self.marker_scale = max(0.008, min(0.72, alt * 0.0115))
         city_scale = self.marker_scale * 0.32
+        # units, structures and city names all keep fixed map sizes;
+        # only the city selection rings scale to stay clickable
         for c in self.cities:
             c.set_marker_scale(city_scale)
-        # STRUCTURES hold their drawn size close in and GROW with
-        # altitude beyond it: a base must read on the strategic map,
-        # not shrink into the ground it stands on
-        self.struct_factor = max(1.0, min(9.0, alt / 3.5))
-        groups = (self.airfields, self.harbors, self.depots,
-                  self.bunkers, self.armyposts,
-                  getattr(self, 'deposits', ()),
-                  getattr(self, 'radars', ()))
-        for group in groups:
-            for s in group:
-                s.set_marker_scale(self.struct_factor)
-        # only the whole-globe view drops them
-        show = alt < 70.0
+        # LOD: at strategic altitudes the fixed-size structure markers
+        # are sub-pixel -- hide them (and their billboard math) outright
+        show = alt < 26.0
         if show != getattr(self, '_structs_shown', True):
             self._structs_shown = show
-            for group in groups:
+            for group in (self.airfields, self.harbors, self.depots,
+                          self.bunkers, self.armyposts):
                 for s in group:
                     if show:
                         s.root.show()

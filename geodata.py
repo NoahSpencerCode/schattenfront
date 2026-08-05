@@ -941,6 +941,7 @@ class WorldData:
         self.armypost_sites = {}
         self.airfield_spurs = {}        # name -> the DRAWN polyline; the
         self.harbor_spurs = {}          # route graph follows it exactly
+        self.armypost_spurs = {}
         self.spur_paths = []
 
         def popk(name):
@@ -1054,6 +1055,7 @@ class WorldData:
                 spur = self._curved_road_points(
                     lat, lon, site[0], site[1],
                     zlib.crc32(('spur:ap:' + name).encode()), passes=3)
+                self.armypost_spurs[name] = spur
                 self.spur_paths.append(spur)
 
     # ================================================== base texture

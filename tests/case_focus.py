@@ -72,14 +72,17 @@ check(g.research_points['germany'] > rp0,
       "laboratories pay %.1f RP" % (g.research_points['germany'] - rp0))
 
 # --- focus: raise a SECOND airforce base at another town
+munich = next(c for c in g.cities if c.name == 'Munich')
 g.funds['germany'] = 2000
 g.resources['germany']['steel'] = 50
-berlin.focus = 'base_air'
-g._apply_city_focus(berlin)
-check(g.base_of_city(berlin, 'air') is not None,
-      "airforce base founded at Berlin by focus")
+munich.focus = 'base_air'
+g._apply_city_focus(munich)
+ab = g.base_of_city(munich, 'air')
+check(ab is not None, "airforce base founded at Munich by focus")
 check(g.funds['germany'] == 1500, "base cost drawn ($500)")
-check(berlin.focus == 'finance', "focus resets after the founding")
+check(munich.focus == 'finance', "focus resets after the founding")
+check('Munich' in g.world.airfield_spurs,
+      "a town with no map site gets its spur laid")
 
 # --- naval base refused inland
 berlin.focus = 'base_naval'
