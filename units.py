@@ -923,10 +923,51 @@ class Unit:
         ang = angle_between(self.pos, target)
         step = speed * dt / GLOBE_RADIUS
         if ang <= step or ang < 1e-5:
-            self.pos = Vec3(target)
-            self.path.pop(0)
+            newpos = Vec3(target)
+            arrived = True
         else:
-            self.pos = slerp(self.pos, target, step / ang)
+            newpos = slerp(self.pos, target, step / ang)
+            arrived = False
+        # THE WALL: field works admit only men on foot. A vehicle
+        # stepping into a bunker's perimeter is turned along the
+        # rim and rolls around it; Enlisted walk straight through.
+        if (self.stats['domain'] == 'land'
+                and self.unit_type != 'infantry' and not on_rail):
+            from structures import BUNKER_RADIUS
+            wall_ang = BUNKER_RADIUS / GLOBE_RADIUS
+            for b in self.game.bunkers:
+                d_ang = angle_between(newpos, b.pos)
+                if d_ang >= wall_ang:
+                    continue
+                # radial direction in the tangent plane at the works
+                out = newpos - Vec3(b.pos) * newpos.dot(b.pos)
+                if out.lengthSquared() < 1e-12:
+                    # dead centre: pick the side nearer the goal
+                    out = Vec3(target) - Vec3(b.pos) \
+                        * Vec3(target).dot(b.pos)
+                    if out.lengthSquared() < 1e-12:
+                        out = north_tangent(Vec3(b.pos))
+                out.normalize()
+                # a touch of spin so a head-on approach still slides
+                # around instead of butting the wall forever
+                spin = Vec3(b.pos).cross(out)
+                to_goal = Vec3(target) - Vec3(newpos)
+                if spin.dot(to_goal) < 0:
+                    spin = -spin
+                out = out + spin * 0.35
+                out.normalize()
+                import math as _m
+                newpos = (Vec3(b.pos) * _m.cos(wall_ang)
+                          + out * _m.sin(wall_ang))
+                newpos.normalize()
+                # a goal INSIDE the wall can never be reached by a
+                # vehicle: the rim IS arrival, or it stalls forever
+                arrived = (angle_between(Vec3(target), Vec3(b.pos))
+                           < wall_ang)
+                break
+        self.pos = newpos
+        if arrived:
+            self.path.pop(0)
         moved_wu = min(step, ang) * GLOBE_RADIUS
         if self.stats['domain'] == 'air':
             # the fuel odometer: what a retasking mid-air may still ask

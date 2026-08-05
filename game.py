@@ -31,6 +31,7 @@ from panda3d.core import (AmbientLight, AntialiasAttrib, CardMaker,
 
 from ai import NationAI
 from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
+                    CAPTURE_CLEAR_RANGE,
                     BASELINE_IMPORTS, DEPOSITS, OIL_PER_LB,
                     OIL_PER_SORTIE, PLAYABLE, RESOURCES,
                     RESOURCE_CAP, STARTING_RESOURCES,
@@ -63,9 +64,9 @@ from globe import (Globe, NAT_ORDER, make_surface_ring,
                    orient_to_surface)
 from menu import MenuScreen
 from settings import load_settings, save_settings
-from tech import (TECH_TREES, TECH_BRANCHES, RESEARCH_DOLLARS_PER_POINT,
+from tech import (TECH_BRANCHES, RESEARCH_DOLLARS_PER_POINT,
                   RESEARCH_PCT_CHOICES, unlocked_units, radar_unlocked,
-                  next_tier)
+                  NODES, available_nodes, node_name, normalize)
 from icons import get_icon_path
 from models import (make_bridge_marker, make_flag_quad,
                     make_flat_ring, make_icon_quad,
@@ -1463,7 +1464,10 @@ class WW2RTSGame(ShowBase):
         spent = 0
         stock = self.resources.get(country)
         halted = []
+        allowed = unlocked_units(country, self.researched[country])
         for ut, n in dict(counts).items():
+            if ut not in allowed:
+                continue        # a stale order for an unresearched arm
             cost = stats_for(ut, country)['cost']
             mat = material_cost(ut, country)
             for _ in range(n):
@@ -2499,24 +2503,27 @@ class WW2RTSGame(ShowBase):
         return {ut: s for ut, s in NATION_UNIT_STATS[country].items()
                 if ut in allowed and ut != 'infantry'}
 
-    def research_tier(self, country, branch):
-        """Spend RP on the next tier of a branch (instant). Returns
-        True when the programme completes."""
-        idx = next_tier(country, branch, self.researched[country])
-        if idx is None:
+    def research_node(self, country, node_id):
+        """Buy one node of the chart (instant): prerequisites must
+        stand and the points must be on hand."""
+        self.researched[country] = normalize(self.researched[country])
+        if node_id not in available_nodes(self.researched[country]):
             return False
-        name, cost, unlocks = TECH_TREES[country][branch][idx]
+        cost = NODES[node_id]['cost']
         if self.research_points[country] < cost:
             return False
         self.research_points[country] -= cost
-        self.researched[country].add((branch, idx))
+        self.researched[country].add(node_id)
         if country == self.player_country:
+            unlocks = NODES[node_id]['unlocks']
             self.fax.post(
-                "RESEARCH COMPLETE -- %s" % name,
+                "RESEARCH COMPLETE -- %s" % node_name(country,
+                                                      node_id),
                 "The laboratories deliver. %s now on the books." %
-                B(", ".join(stats_for(u, country)['label'].upper()
-                            for u in unlocks if u != 'radar_station')
-                  or "NEW WORKS"),
+                B(", ".join(
+                    ("THE RADAR STATION WORKS" if u == 'radar_station'
+                     else stats_for(u, country)['label'].upper())
+                    for u in unlocks)),
                 sender="DIRECTORATE OF RESEARCH")
         return True
 
@@ -4346,13 +4353,14 @@ class WW2RTSGame(ShowBase):
                 and not self.at_war(attacker.country, target.country)):
             return
         dmg = attacker.stats['damage'] * random.uniform(0.75, 1.25)
-        # bunkered infantry shrug off bombs and naval shellfire
-        if (isinstance(target, Unit) and target.unit_type == 'infantry'
-                and attacker.stats['domain'] in ('air', 'sea')):
+        # THE SHELTER LAW: Enlisted under a bunker's walls take a
+        # QUARTER of any fire -- shell, bomb, or bullet alike
+        if (isinstance(target, Unit)
+                and target.unit_type == 'infantry'):
             for b in self.bunkers:
                 if (b.country == target.country
                         and target.dist_to(b.pos) < BUNKER_RADIUS):
-                    dmg *= 0.33
+                    dmg *= 0.25
                     break
         # ammunition is supply too
         if attacker.stats['supply_cap'] > 0:
@@ -6174,14 +6182,36 @@ void main() {
             'minutes': self.clock_minutes})
         self.fax_short(headline)
 
+    def enemies_near_city(self, city, country):
+        """Enemy fighting units standing close enough to contest the
+        town. No annexation proceeds under the enemy's guns."""
+        n = 0
+        for u in self.units:
+            if (u.alive and not u.carried_by
+                    and self.at_war(country, u.country)
+                    and u.stats['domain'] != 'air'
+                    and u.dist_to(city.pos) < CAPTURE_CLEAR_RANGE):
+                n += 1
+        return n
+
     def attempt_capture(self, city, country):
         """Annex a city: costs one infantry division per million souls
         (the cost of control -- they garrison it and leave the order of
-        battle). The city cannot be taxed until the next fortnight."""
+        battle). The city cannot be taxed until the next fortnight.
+        REFUSED while enemy units stand near: the field must be
+        cleared before the flag is raised."""
         if city.country == country or not self.units:
             return False
         if not self.at_war(country, city.country):
             return False        # no seizures at peace: war must exist
+        foes = self.enemies_near_city(city, country)
+        if foes:
+            if country == self.player_country:
+                self.fax_short(
+                    "CANNOT RAISE THE FLAG OVER %s -- %d ENEMY "
+                    "UNIT(S) CONTEST THE TOWN" %
+                    (city.name.upper(), foes))
+            return False
         garrison = self._capture_garrison(city, country)
         need = city.required_infantry()
         if len(garrison) < need:
@@ -7280,8 +7310,9 @@ void main() {
                 <= BUNKER_RADIUS)
             bar.set_info(
                 "STRENGTH %d/%d   SHELTERING %d SECTION(S) -- "
-                "BOMBS AND SHELLFIRE STRIKE AT ONE THIRD WITHIN "
-                "THE WALLS" % (int(b.hp), int(b.max_hp), sheltered))
+                "ENEMY FIRE STRIKES AT ONE QUARTER WITHIN THE "
+                "WALLS; NO VEHICLE PASSES THE PERIMETER"
+                % (int(b.hp), int(b.max_hp), sheltered))
             bar.add_buttons([])
             bar.set_hint("INFANTRY WITHIN THE PERIMETER FIGHT "
                          "UNDER COVER")
@@ -7336,9 +7367,19 @@ void main() {
                                  "DECLARATION FROM THE DIPLOMACY "
                                  "LEDGER OPENS THIS CITY TO CAPTURE")
                 elif have >= need:
-                    bar.show_capture(self._capture_clicked, [city])
-                    bar.set_hint("THE GARRISON STANDS READY -- CAPTURING "
-                                 "COSTS %d ENLISTED" % need)
+                    foes = self.enemies_near_city(
+                        city, self.player_country)
+                    if foes:
+                        bar.set_hint(
+                            "%d ENEMY UNIT(S) CONTEST THE TOWN -- "
+                            "CLEAR THE FIELD BEFORE THE FLAG CAN "
+                            "RISE" % foes)
+                    else:
+                        bar.show_capture(self._capture_clicked,
+                                         [city])
+                        bar.set_hint("THE GARRISON STANDS READY -- "
+                                     "CAPTURING COSTS %d ENLISTED"
+                                     % need)
                 else:
                     bar.set_hint("MARCH %d ENLISTED ONTO THE CITY TO "
                                  "TAKE IT (1 PER MILLION SOULS)" % need)
@@ -7710,7 +7751,10 @@ void main() {
         entries = [("", self.begin_build_mode, [kind],
                     get_icon_path(work_icon.get(kind, 'depot'), 'dark'),
                     False, "%s -- %d LB OF STORES" % (label, cost))
-                   for kind, (label, cost, _t) in self.BUILD_WORKS.items()]
+                   for kind, (label, cost, _t) in self.BUILD_WORKS.items()
+                   if kind != 'radar' or radar_unlocked(
+                       self.player_country,
+                       self.researched[self.player_country])]
         entries.append(("", self._noop, [],
                         get_icon_path('repair_button', 'dark'), False,
                         "REPAIR -- RMB A WRECKED BRIDGE"))

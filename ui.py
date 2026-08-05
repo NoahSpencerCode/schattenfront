@@ -2293,39 +2293,67 @@ class ResourcesFax:
 
 
 class TechFax:
-    """The DIRECTORATE OF RESEARCH page: three programme columns
-    (LAND / AIR / SEA), each a chain of tiers researched in order.
-    The header shows points on hand and the fortnight tithe; a tier
-    with its price met shows a RESEARCH button. The funding row sets
-    what share of each tax fortnight the laboratories receive."""
+    """THE RESEARCH CHART: the nation's programmes as a branching
+    tree -- three columns (ARMY / AIR / NAVY), nodes wired to their
+    prerequisites, states plainly stamped: DELIVERED, a RESEARCH
+    key when the points stand, or the prerequisite that still bars
+    the way. The funding row sets the fortnight tithe."""
+
+    CARD_W = 0.20               # half-width of a node card
+    CARD_TOP = 0.042
+    CARD_BOT = 0.150
+
+    # chart placement: node -> (dx within its column, visual row)
+    POS = {
+        'artillery': (0.0, 0), 'heavy_armour': (-0.21, 1),
+        'detection': (0.21, 1),
+        'medium_bombers': (0.0, 0), 'air_logistics': (-0.21, 1),
+        'strategic_bombing': (0.21, 1), 'jet_propulsion': (0.21, 2),
+        'fleet_escorts': (0.0, 0), 'submarines': (-0.21, 1),
+        'fleet_train': (0.21, 1), 'capital_ships': (-0.21, 2),
+        'naval_aviation': (0.21, 2),
+    }
+    COL_X = {'land': -0.84, 'air': 0.0, 'sea': 0.84}
+    ROW_Y = (0.40, 0.09, -0.22)
 
     def __init__(self, base, game, on_close):
-        from tech import (TECH_TREES, RESEARCH_PCT_CHOICES,
-                          RESEARCH_DOLLARS_PER_POINT)
         self.base = base
         self.game = game
         self.on_close = on_close
-        f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
+        self.frame = DirectFrame(parent=base.aspect2d,
+                                 frameColor=(1, 1, 1, 1),
                                  frameTexture=sheet_texture('paper'),
-                                 frameSize=(-1.24, 1.24, -0.92, 0.92),
+                                 frameSize=(-1.30, 1.30, -0.95, 0.95),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-1.24, 1.24, 0.895, 0.92))
+                    frameSize=(-1.30, 1.30, 0.925, 0.95))
         self._dyn = []
         self._build()
 
     def _text(self, t, pos, scale=0.032, color=INK,
-              align=TextNode.ALeft, dyn=True):
-        tn, np_ = _make_text(self.frame, self.base.hud_font, pos, scale,
-                             color, align)
+              align=TextNode.ALeft):
+        tn, np_ = _make_text(self.frame, self.base.hud_font, pos,
+                             scale, color, align)
         tn.setText(t)
-        if dyn:
-            self._dyn.append(np_)
+        self._dyn.append(np_)
         return tn
 
+    def _rule(self, x, y, w, h, color=(0.44, 0.41, 0.33, 0.75)):
+        fr = DirectFrame(parent=self.frame, frameColor=color,
+                         frameSize=(-w / 2, w / 2, -h / 2, h / 2),
+                         pos=(x, 0, y))
+        self._dyn.append(fr)
+        return fr
+
+    def _node_pos(self, nid):
+        from tech import NODES
+        dx, row = self.POS[nid]
+        return (self.COL_X[NODES[nid]['branch']] + dx,
+                self.ROW_Y[row])
+
     def _build(self):
-        from tech import TECH_TREES, RESEARCH_PCT_CHOICES
+        from tech import (NODES, RESEARCH_PCT_CHOICES,
+                          available_nodes, node_name, normalize)
         from units import stats_for
         from icons import get_icon_path
         g = self.game
@@ -2333,91 +2361,138 @@ class TechFax:
         for w in self._dyn:
             w.destroy() if hasattr(w, 'destroy') else w.removeNode()
         self._dyn = []
+        g.researched[c] = normalize(g.researched[c])
+        have = g.researched[c]
+        frontier = set(available_nodes(have))
         rp = g.research_points[c]
         pct = g.research_pct[c]
         tithe = int(g.projected_revenue(c) * pct / 100.0)
-        self._text("*** DIRECTORATE OF RESEARCH -- PROGRAMMES ***",
-                   (0, 0.83), 0.045, INK, TextNode.ACenter)
-        self._text("POINTS ON HAND: %.0f RP      FORTNIGHT TITHE: %d%% "
-                   "OF TAXES (= $%d = %.1f RP)"
-                   % (rp, pct, tithe, tithe / 300.0),
-                   (0, 0.76), 0.032, (0.52, 0.10, 0.06, 1.0),
-                   TextNode.ACenter)
-        # funding row
-        self._text("RESEARCH FUNDING:", (-1.10, 0.69), 0.032)
-        for i, p in enumerate(RESEARCH_PCT_CHOICES):
-            active = (p == pct)
-            btn = pill_button(
-                self.frame, "%d%%" % p, self._set_pct, extraArgs=[p],
-                pos=(-0.55 + i * 0.19, 0, 0.709), hw=0.075, hh=0.038,
-                text_scale=0.032, font=self.base.hud_font,
-                latched=active)
-            self._dyn.append(btn)
-        self._text("(THE TITHE IS SKIMMED FROM EACH FORTNIGHT'S TAXES "
-                   "BEFORE THE TREASURY -- $300 BUYS 1 RP)",
-                   (-1.10, 0.63), 0.026, INK_FAINT)
 
-        cols = {'land': (-0.82, "ARMY PROGRAMMES"),
-                'air': (0.0, "AIR PROGRAMMES"),
-                'sea': (0.82, "NAVAL PROGRAMMES")}
-        for branch, (x, title) in cols.items():
-            self._text("++ %s ++" % title, (x, 0.54), 0.034,
+        self._text("*** THE RESEARCH CHART ***", (0, 0.86), 0.046,
+                   INK, TextNode.ACenter)
+        self._text("POINTS ON HAND: %.0f RP      FORTNIGHT TITHE: "
+                   "%d%% OF TAXES (= $%d = %.1f RP)      CITIES MAY "
+                   "ALSO FUND THE LABORATORIES DIRECT"
+                   % (rp, pct, tithe, tithe / 300.0),
+                   (0, 0.79), 0.028, (0.52, 0.10, 0.06, 1.0),
+                   TextNode.ACenter)
+        self._text("RESEARCH FUNDING:", (-1.16, 0.715), 0.030)
+        for i, p_ in enumerate(RESEARCH_PCT_CHOICES):
+            btn = pill_button(
+                self.frame, "%d%%" % p_, self._set_pct,
+                extraArgs=[p_],
+                pos=(-0.66 + i * 0.17, 0, 0.733), hw=0.068,
+                hh=0.036, text_scale=0.030,
+                font=self.base.hud_font, latched=(p_ == pct))
+            self._dyn.append(btn)
+        self._text("A PROGRAMME OPENS WHEN EVERY PROGRAMME WIRED "
+                   "ABOVE IT IS DELIVERED -- CHOOSE THE PATH; THE "
+                   "POINTS WILL NOT COVER EVERYTHING AT ONCE",
+                   (0, 0.660), 0.024, INK_FAINT, TextNode.ACenter)
+
+        for branch, title in (('land', "ARMY PROGRAMMES"),
+                              ('air', "AIR PROGRAMMES"),
+                              ('sea', "NAVAL PROGRAMMES")):
+            x = self.COL_X[branch]
+            self._text("++ %s ++" % title, (x, 0.565), 0.033,
                        (0.52, 0.10, 0.06, 1.0), TextNode.ACenter)
-            tiers = TECH_TREES[c][branch]
-            y = 0.44
-            unlocked_prev = True
-            for i, (name, cost, unlocks) in enumerate(tiers):
-                done = (branch, i) in g.researched[c]
-                avail = unlocked_prev and not done
-                unlocked_prev = done
-                box = DirectFrame(
-                    parent=self.frame,
-                    frameColor=((0.80, 0.77, 0.64, 1.0) if done else
-                                (0.90, 0.87, 0.74, 1.0)),
-                    frameSize=(-0.36, 0.36, -0.155, 0.045),
-                    pos=(x, 0, y))
-                self._dyn.append(box)
-                self._text(name, (x, y + 0.005), 0.028, INK,
+            self._rule(x, 0.545, 0.78, 0.0035,
+                       (0.44, 0.41, 0.33, 0.5))
+
+        # the WIRING first, so cards sit over the lines
+        for nid, node in NODES.items():
+            cx, cy = self._node_pos(nid)
+            for req in node['req']:
+                px, py = self._node_pos(req)
+                top = cy + self.CARD_TOP
+                bot = py - self.CARD_BOT
+                mid = (top + bot) / 2.0
+                lit = ((0.25, 0.42, 0.22, 0.9)
+                       if req in have else (0.44, 0.41, 0.33, 0.55))
+                self._rule(px, (bot + mid) / 2, 0.004,
+                           bot - mid, lit)
+                if abs(px - cx) > 0.001:
+                    self._rule((px + cx) / 2, mid,
+                               abs(px - cx) + 0.004, 0.004, lit)
+                self._rule(cx, (mid + top) / 2, 0.004,
+                           mid - top, lit)
+
+        for nid, node in NODES.items():
+            cx, cy = self._node_pos(nid)
+            done = nid in have
+            avail = nid in frontier
+            can = avail and rp >= node['cost']
+            box = DirectFrame(
+                parent=self.frame,
+                frameColor=((0.79, 0.76, 0.63, 1.0) if done else
+                            (0.92, 0.89, 0.76, 1.0) if avail else
+                            (0.86, 0.83, 0.71, 1.0)),
+                frameSize=(-self.CARD_W, self.CARD_W,
+                           -self.CARD_BOT, self.CARD_TOP),
+                pos=(cx, 0, cy))
+            self._dyn.append(box)
+            edge = DirectFrame(
+                parent=self.frame,
+                frameColor=((0.25, 0.42, 0.22, 0.9) if done
+                            else (0.30, 0.27, 0.22, 0.8) if avail
+                            else (0.44, 0.41, 0.33, 0.4)),
+                frameSize=(-self.CARD_W, self.CARD_W,
+                           self.CARD_TOP - 0.006, self.CARD_TOP),
+                pos=(cx, 0, cy))
+            self._dyn.append(edge)
+            name = node_name(c, nid)
+            self._text(name, (cx, cy + 0.006),
+                       0.0215 if len(name) > 22 else 0.024,
+                       INK if (done or avail) else INK_FAINT,
+                       TextNode.ACenter)
+            shown = [u for u in node['unlocks']
+                     if u != 'radar_station']
+            for k, u in enumerate(shown[:3]):
+                ic = DirectFrame(
+                    parent=self.frame, relief=None,
+                    frameColor=(0, 0, 0, 0),
+                    image=get_icon_path(u, 'dark'),
+                    image_scale=0.026,
+                    frameSize=(-0.026, 0.026, -0.026, 0.026),
+                    pos=(cx - self.CARD_W + 0.045 + k * 0.058,
+                         0, cy - 0.042))
+                ic.setTransparency(True)
+                crisp_image(ic)
+                if not (done or avail):
+                    ic.setColorScale(1, 1, 1, 0.35)
+                self._dyn.append(ic)
+            lbl = ", ".join(
+                ('Radar Station (works)' if u == 'radar_station'
+                 else stats_for(u, c)['label'])
+                for u in node['unlocks'])
+            self._text(lbl[:34], (cx, cy - 0.083), 0.020,
+                       INK_FAINT, TextNode.ACenter)
+            if done:
+                self._text("-- DELIVERED --", (cx, cy - 0.128),
+                           0.024, (0.25, 0.40, 0.22, 1.0),
                            TextNode.ACenter)
-                units_lbl = ", ".join(
-                    (stats_for(u, c)['label'] if u != 'radar_station'
-                     else 'Radar Station (works)') for u in unlocks)
-                self._text(units_lbl[:44], (x, y - 0.045), 0.023,
-                           INK_FAINT, TextNode.ACenter)
-                for k, u in enumerate([u for u in unlocks
-                                       if u != 'radar_station'][:3]):
-                    ic = DirectFrame(
-                        parent=self.frame, relief=None,
-                        frameColor=(0, 0, 0, 0),
-                        image=get_icon_path(u, 'dark'),
-                        image_scale=0.030,
-                        frameSize=(-0.03, 0.03, -0.03, 0.03),
-                        pos=(x - 0.30 + k * 0.075, 0, y - 0.095))
-                    ic.setTransparency(True)
-                    crisp_image(ic)
-                    self._dyn.append(ic)
-                if done:
-                    self._text("RESEARCHED", (x + 0.20, y - 0.100),
-                               0.026, (0.25, 0.40, 0.22, 1.0),
-                               TextNode.ACenter)
-                elif avail:
-                    can = g.research_points[c] >= cost
-                    btn = pill_button(
-                        self.frame, "RESEARCH  (%d RP)" % cost,
-                        self._research, extraArgs=[branch],
-                        pos=(x + 0.14, 0, y - 0.097),
-                        hw=0.17, hh=0.036, text_scale=0.026,
-                        text_fg=(INK if can
-                                 else (0.55, 0.5, 0.42, 1)),
-                        font=self.base.hud_font)
-                    self._dyn.append(btn)
-                else:
-                    self._text("LOCKED -- %d RP" % cost,
-                               (x + 0.17, y - 0.100), 0.024, INK_FAINT,
-                               TextNode.ACenter)
-                y -= 0.27
+            elif avail and can:
+                btn = pill_button(
+                    self.frame, "RESEARCH  %d RP" % node['cost'],
+                    self._research, extraArgs=[nid],
+                    pos=(cx, 0, cy - 0.122), hw=0.155, hh=0.031,
+                    text_scale=0.024, font=self.base.hud_font)
+                self._dyn.append(btn)
+            elif avail:
+                self._text("WANTS %d RP -- HAVE %.0f"
+                           % (node['cost'], rp),
+                           (cx, cy - 0.128), 0.022,
+                           (0.55, 0.28, 0.20, 1.0),
+                           TextNode.ACenter)
+            else:
+                bar = node_name(c, node['req'][0]) \
+                    if node['req'] else ""
+                self._text("AFTER %s" % bar[:24],
+                           (cx, cy - 0.128), 0.020, INK_FAINT,
+                           TextNode.ACenter)
+
         btn = pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
-                          self.on_close, pos=(0, 0, -0.832),
+                          self.on_close, pos=(0, 0, -0.862),
                           hw=0.42, hh=0.046, text_scale=0.040,
                           font=self.base.hud_font)
         self._dyn.append(btn)
@@ -2426,9 +2501,9 @@ class TechFax:
         self.game.research_pct[self.game.player_country] = p
         self._build()
 
-    def _research(self, branch):
+    def _research(self, nid):
         g = self.game
-        if g.research_tier(g.player_country, branch):
+        if g.research_node(g.player_country, nid):
             self._build()
 
     def destroy(self):
