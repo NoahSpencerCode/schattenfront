@@ -165,8 +165,8 @@ MAX_VISION_SOURCES = 320      # shader uniform budget (a big fleet
 # fortnight; the take depends on each city's tax rate and the health of
 # its industry (heavy taxation erodes the industrial base).
 STARTING_FUNDS = 40000
-CITY_GROSS_FORTNIGHT = 5000      # a city's gross product per fortnight
-CAPITAL_GROSS_FORTNIGHT = 11000  # the capital's gross product
+CITY_GROSS_FORTNIGHT = 2500      # a city's gross product per fortnight
+CAPITAL_GROSS_FORTNIGHT = 5500   # the capital's gross product
 TAX_DEFAULT = 30              # opening tax rate, percent
 TAX_EQUILIBRIUM = 30          # at this rate industry health holds steady
 INDUSTRY_DRIFT = 0.5          # industry %-points per tax point per

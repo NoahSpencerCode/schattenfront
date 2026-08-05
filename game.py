@@ -81,7 +81,8 @@ from ui import (TopBar, BottomBar, FaxPanel, BudgetFax, BriefingFax,
 from config import UNIT_SPEED_FACTOR
 from units import (Unit, UNIT_TYPES, BRANCH_OF, FIRE_SUPPLY_FACTOR,
                    NATION_UNIT_STATS, material_cost, stats_for)
-from utils import (angle_between, find_regular_font_path,
+from utils import (angle_between, compass_word,
+                   find_regular_font_path,
                    find_typewriter_font_path, latlon_dist_deg,
                    latlon_to_vec, north_tangent, vec_to_latlon)
 
@@ -995,6 +996,7 @@ class WW2RTSGame(ShowBase):
     BASE_LABEL = {'army': 'ARMY BASE', 'air': 'AIR BASE',
                   'naval': 'NAVAL BASE'}
 
+
     def base_of_city(self, city, kind):
         fleet = {'army': self.armyposts, 'air': self.airfields,
                  'naval': self.harbors}[kind]
@@ -1015,13 +1017,15 @@ class WW2RTSGame(ShowBase):
         rng = random.Random(zlib.crc32(
             ("%s|%s" % (city.name, kind)).encode()))
         if kind == 'naval':
-            # the yard wants the city's OWN waterfront: walk a ring
-            # of anchorages outward and take the first open water,
-            # so London's yard sits in the Thames, not off Wight
+            # the yard wants the city's OWN waterfront: walk rings
+            # of anchorages outward, tightest first, and take the
+            # first open water -- the base must stand INSIDE the
+            # view of a player looking at the town
             la = lo = None
-            for radius in (0.30, 0.45, 0.65, 0.90):
-                for k in range(12):
-                    a = (k + rng.random()) * math.pi / 6.0
+            for radius in (0.18, 0.26, 0.34, 0.45, 0.60,
+                           0.80, 1.00):
+                for k in range(16):
+                    a = (k + rng.random()) * math.pi / 8.0
                     ca = city.lat + radius * math.sin(a)
                     co = city.lon + radius * math.cos(a) / max(
                         0.2, math.cos(math.radians(city.lat)))
@@ -1034,8 +1038,9 @@ class WW2RTSGame(ShowBase):
                 la, lo = self.world.nearest_water(
                     city.lat, city.lon, max_deg=2.0)
         else:
-            la = city.lat + rng.uniform(-0.55, 0.55)
-            lo = city.lon + rng.uniform(-0.55, 0.55)
+            # a short march out of town, never a province away
+            la = city.lat + rng.uniform(-0.30, 0.30)
+            lo = city.lon + rng.uniform(-0.30, 0.30)
             la, lo = self.world.nearest_land(la, lo)
         name = "%s %s" % (city.name.upper(), self.BASE_LABEL[kind])
         if kind == 'army':
@@ -1048,7 +1053,10 @@ class WW2RTSGame(ShowBase):
             b = Harbor(self, la, lo, city.country, name, city=city)
             self.harbors.append(b)
         if announce and city.country == self.player_country:
-            self.fax_short("%s STANDS -- SUPPLIED BY THE CITY" % name)
+            self.fax_short("%s STANDS %s OF THE TOWN -- SUPPLIED "
+                           "BY THE CITY"
+                           % (name, compass_word(city.lat, city.lon,
+                                                 la, lo)))
         return b
 
     def _spawn_starting_forces(self, faction):

@@ -210,3 +210,14 @@ def smooth_polyline(pts, max_seg_deg=0.008):
                           + (3.0 * p1 - p0 - 3.0 * p2 + p3) * t3))
     out.append(P[-1][None, :])
     return np.vstack(out)
+
+
+def compass_word(lat0, lon0, lat1, lon1):
+    """The eight-wind bearing from (lat0,lon0) to (lat1,lon1), as a
+    despatch would put it: N, NE, E..."""
+    import math as _m
+    dy = lat1 - lat0
+    dx = (lon1 - lon0) * _m.cos(_m.radians((lat0 + lat1) / 2.0))
+    ang = _m.degrees(_m.atan2(dx, dy)) % 360.0
+    winds = ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW')
+    return winds[int((ang + 22.5) // 45.0) % 8]
