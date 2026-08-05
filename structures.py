@@ -91,8 +91,11 @@ class Structure:
             self.flag.setLightOff()
             set_marker_layer(self.flag, LAYER_STRUCT + 2)
 
-    def set_marker_scale(self, scale):
-        pass                    # structures keep their fixed size
+    def set_marker_scale(self, factor):
+        """Zoom LOD: the mark keeps its drawn size close in, and
+        GROWS with altitude beyond that, so a base is never a
+        sub-pixel speck on the strategic map."""
+        self.holder.setScale(self.FIXED_SCALE * max(1.0, factor))
 
     def cleanup(self):
         self.root.removeNode()

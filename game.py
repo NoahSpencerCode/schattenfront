@@ -2778,7 +2778,9 @@ class WW2RTSGame(ShowBase):
             fov_v = _m.radians(self.camLens.getFov()[1])
         except Exception:
             return CLICK_RADIUS * 1.9
-        on_screen = (fixed_scale * 1.4) / (alt * _m.tan(fov_v / 2.0))
+        drawn = fixed_scale * max(1.0, getattr(self, 'struct_factor',
+                                                1.0))
+        on_screen = (drawn * 1.4) / (alt * _m.tan(fov_v / 2.0))
         return max(CLICK_RADIUS * 1.9, on_screen)
 
     def _unit_world_pos(self, u):
@@ -6817,17 +6819,24 @@ void main() {
         alt = self.cam_dist - GLOBE_RADIUS
         self.marker_scale = max(0.008, min(0.72, alt * 0.0115))
         city_scale = self.marker_scale * 0.32
-        # units, structures and city names all keep fixed map sizes;
-        # only the city selection rings scale to stay clickable
         for c in self.cities:
             c.set_marker_scale(city_scale)
-        # LOD: at strategic altitudes the fixed-size structure markers
-        # are sub-pixel -- hide them (and their billboard math) outright
-        show = alt < 26.0
+        # STRUCTURES hold their drawn size close in and GROW with
+        # altitude beyond it: a base must read on the strategic map,
+        # not shrink into the ground it stands on
+        self.struct_factor = max(1.0, min(9.0, alt / 3.5))
+        groups = (self.airfields, self.harbors, self.depots,
+                  self.bunkers, self.armyposts,
+                  getattr(self, 'deposits', ()),
+                  getattr(self, 'radars', ()))
+        for group in groups:
+            for s in group:
+                s.set_marker_scale(self.struct_factor)
+        # only the whole-globe view drops them
+        show = alt < 70.0
         if show != getattr(self, '_structs_shown', True):
             self._structs_shown = show
-            for group in (self.airfields, self.harbors, self.depots,
-                          self.bunkers, self.armyposts):
+            for group in groups:
                 for s in group:
                     if show:
                         s.root.show()
