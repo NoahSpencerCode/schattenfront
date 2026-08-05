@@ -22,7 +22,7 @@ for nat in ('soviet', 'usa', 'britain', 'japan'):
               if a.country == nat and getattr(a, 'is_base', False))
         + sum(1 for h in g.harbors
               if h.country == nat and getattr(h, 'is_base', False)))
-    check(n_bases >= 2, "%s founded bases (%d standing)"
+    check(n_bases >= 3, "%s holds its three bases (%d standing)"
           % (nat, n_bases))
 
 # production lines exist somewhere and tick without crashing

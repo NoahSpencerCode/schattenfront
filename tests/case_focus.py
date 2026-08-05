@@ -7,29 +7,29 @@ g = boot('germany')
 berlin = next(c for c in g.cities if c.name == 'Berlin')
 essen = next(c for c in g.cities if c.name == 'Essen')
 
-# --- the opening: Germany holds ONE army base, nothing else
+# --- the opening: ONE base of each type
 mine_posts = [p for p in g.armyposts if p.country == 'germany']
 mine_air = [a for a in g.airfields
             if a.country == 'germany' and a.is_base]
 mine_yards = [h for h in g.harbors
               if h.country == 'germany' and h.is_base]
-check(len(mine_posts) == 1 and not mine_air and not mine_yards,
-      "Germany opens with one PRODUCING base only")
+check(len(mine_posts) == 1 and len(mine_air) == 1
+      and len(mine_yards) == 1,
+      "Germany opens with one base of EACH type")
 check(any(h.country == 'germany' and not h.is_base
           for h in g.harbors),
-      "...but her ports stand dressed on the coast")
+      "...and her ports stand dressed on the coast")
 
-# --- production: land builds at the base; air is REFUNDED
+# --- production: every arm builds at its own base
 g.funds['germany'] = 10000
 g.resources['germany']['steel'] = 200
-f0 = g.funds['germany']
 q0 = len(mine_posts[0].production)
+qa0 = len(mine_air[0].production)
 g._distribute_production('germany', {'tank': 1, 'fighter': 1})
 check(len(mine_posts[0].production) == q0 + 1,
       "tank on the army base line")
-check(g.funds['germany'] == f0 + 460,
-      "fighter refunded: no airforce base (%d)"
-      % (g.funds['germany'] - f0))
+check(len(mine_air[0].production) == qa0 + 1,
+      "fighter on the airforce base line")
 
 mine_posts[0].production[0][1] = 0.1
 n0 = sum(1 for u in g.units if u.alive and u.country == 'germany'
@@ -69,13 +69,13 @@ g._apply_city_focus(berlin)
 check(g.research_points['germany'] > rp0,
       "laboratories pay %.1f RP" % (g.research_points['germany'] - rp0))
 
-# --- focus: raise an airforce base (pays $ and steel, founds it)
+# --- focus: raise a SECOND airforce base at another town
 g.funds['germany'] = 2000
 g.resources['germany']['steel'] = 50
 berlin.focus = 'base_air'
 g._apply_city_focus(berlin)
 check(g.base_of_city(berlin, 'air') is not None,
-      "airforce base founded at Berlin")
+      "airforce base founded at Berlin by focus")
 check(g.funds['germany'] == 1500, "base cost drawn ($500)")
 check(berlin.focus == 'finance', "focus resets after the founding")
 
@@ -93,12 +93,14 @@ check(g.base_of_city(essen, 'air') is None
       and essen.focus == 'base_air',
       "unaffordable base WAITS instead of lapsing")
 
-# --- AI foci: a nation with no bases wants them first
+# --- AI foci: all bases stand, so the staff turns to the land
 g2_towns = [c for c in g.cities if c.country == 'soviet']
 g._ai_set_foci('soviet')
 foci = [c.focus for c in g2_towns]
-check('base_air' in foci or 'base_naval' in foci,
-      "AI reaches for its missing bases (%s)" %
-      [f for f in foci if f.startswith('base')])
+check(not any(f.startswith('base_') for f in foci),
+      "AI wants no base it already has")
+check(any(f in ('agriculture', 'steel', 'finance', 'research')
+          for f in foci),
+      "AI works its towns instead")
 
 finish()

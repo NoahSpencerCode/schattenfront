@@ -95,11 +95,8 @@ DRAG_THRESHOLD = 0.015
 HIT_FLASH_TIME = 0.35        # seconds for a combat flash to expand and die
 MAX_HIT_FLASHES = 48
 
-# the opening of the war: no inherited war machine -- one base by
-# national character in the biggest city, and a logistics seed
-START_BASE_KIND = {'britain': 'naval', 'japan': 'naval',
-                   'germany': 'army', 'soviet': 'army',
-                   'usa': 'air'}
+# the opening of the war: every power stands up ONE base of each
+# type -- army, airforce, naval -- and a logistics seed
 STARTING_PARK = (['supply_truck'] * 5 + ['transport_truck'] * 5
                  + ['engineer'] * 3)
 
@@ -1124,37 +1121,36 @@ class WW2RTSGame(ShowBase):
         return f
 
     def _spawn_starting_forces(self, faction):
-        """The opening order of battle is a SEED, not an army: ONE
-        producing base by national character in the power's biggest
-        city, plus the standing infrastructure of 1939 -- ports at
-        the great harbour towns and an airfield at the capital
-        (supply and sorties, no production) -- and five supply
-        trucks, five transport trucks, three engineers."""
+        """The opening order of battle: ONE base of each type --
+        the ARMY BASE in the biggest city, the AIRFORCE BASE at the
+        capital (or the next city), the NAVAL BASE at the biggest
+        harbour town -- plus the standing infrastructure of 1939
+        (ports and a capital field) and the logistics seed: five
+        supply trucks, five transport trucks, three engineers."""
         towns = [c for c in self.cities if c.country == faction]
         if not towns:
             return
-        kind = START_BASE_KIND.get(faction, 'army')
-        if kind == 'naval':
-            coastal = [c for c in towns if c.harbor]
-            if coastal:
-                seat = max(coastal, key=lambda c: c.population)
-            else:
-                kind = 'army'
-                seat = max(towns, key=lambda c: c.population)
-        else:
-            seat = max(towns, key=lambda c: c.population)
-        self._found_base(seat, kind, announce=False)
-        # the standing infrastructure: ports at the two biggest
-        # harbour towns, a field at the capital
+        ranked = sorted(towns, key=lambda c: -c.population)
+        army_seat = ranked[0]
+        self._found_base(army_seat, 'army', announce=False)
+        cap = next((c for c in towns if c.capital), ranked[0])
+        air_seat = cap if cap is not army_seat else (
+            ranked[1] if len(ranked) > 1 else ranked[0])
+        self._found_base(air_seat, 'air', announce=False)
         coastal = sorted((c for c in towns if c.harbor),
                          key=lambda c: -c.population)
-        for c in coastal[:2]:
+        if coastal:
+            self._found_base(coastal[0], 'naval', announce=False)
+        # the standing infrastructure: ports at the two biggest
+        # harbour towns (the naval seat already holds its yard),
+        # a field at the capital unless the air base stands there
+        for c in coastal[1:3]:
             self._found_port(c)
-        cap = next((c for c in towns if c.capital), seat)
         self._found_field(cap)
         for i, ut in enumerate(STARTING_PARK):
-            u = self.spawn_unit(ut, faction, seat.lat, seat.lon,
-                                jitter=0.25, seed=700 + i)
+            u = self.spawn_unit(ut, faction, army_seat.lat,
+                                army_seat.lon, jitter=0.25,
+                                seed=700 + i)
             u.supply = u.stats['supply_cap']
 
     def _spawn_npc_garrison(self, faction):
