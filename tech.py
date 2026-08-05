@@ -1,111 +1,196 @@
 """
-The tech trees: each power's wartime research programme.
+The tech tree: each power's wartime research programme, as a
+BRANCHING GRAPH -- prerequisites, forks, and paths a nation commits
+to, in the manner of the Civilization tech charts.
 
-Research points (RP) are bought with the tax fortnight: a nation
-allocates a share of its revenue to the laboratories, and every $300
-so tithed becomes one RP. Each branch (LAND / AIR / SEA) is a chain
-of tiers; researching a tier (instantly, if the RP are on hand)
-unlocks its units for the budget manifest and, for the third land
-tier, the RADAR STATION works for the engineers. Tiers must be taken
-in order within a branch.
+Research points (RP) are bought two ways: a share of the tax
+fortnight tithed to the laboratories ($300 the point), and the
+FUND THE LABORATORIES city focus. A node is bought instantly when
+its prerequisites stand and the points are on hand.
 
-The unlock MECHANICS are symmetric across powers -- the flavour, the
-names and the stat mods (see units.NATION_UNITS) are each nation's
-own: German wolfpacks, American fortress wings, Soviet gun-howitzer
-regiments.
+The GRAPH is symmetric across powers -- the flavour, the programme
+names and the stat mods (units.NATION_UNITS) are each nation's own.
+Units and works locked behind a node do not appear anywhere in the
+game -- budget, menus, engineer works -- until it is researched.
 """
 
 RESEARCH_DOLLARS_PER_POINT = 300
 RESEARCH_PCT_CHOICES = (0, 10, 20, 30)
 
-# branch -> ordered tiers; every power researches the same skeleton,
-# under its own programme names
 TECH_BRANCHES = ('land', 'air', 'sea')
 
-TECH_TREES = {
+# the skeleton every power researches: id -> node. 'row' is depth on
+# the chart (0 = a root the nation may start at once).
+NODES = {
+    # ---- LAND
+    'artillery': {
+        'branch': 'land', 'row': 0, 'cost': 20, 'req': (),
+        'unlocks': ('artillery',)},
+    'heavy_armour': {
+        'branch': 'land', 'row': 1, 'cost': 45,
+        'req': ('artillery',), 'unlocks': ('heavy_tank',)},
+    'detection': {
+        'branch': 'land', 'row': 1, 'cost': 35,
+        'req': ('artillery',), 'unlocks': ('radar_station',)},
+    # ---- AIR
+    'medium_bombers': {
+        'branch': 'air', 'row': 0, 'cost': 25, 'req': (),
+        'unlocks': ('bomber',)},
+    'air_logistics': {
+        'branch': 'air', 'row': 1, 'cost': 30,
+        'req': ('medium_bombers',),
+        'unlocks': ('transport_air', 'blimp')},
+    'strategic_bombing': {
+        'branch': 'air', 'row': 1, 'cost': 50,
+        'req': ('medium_bombers',), 'unlocks': ('heavy_bomber',)},
+    'jet_propulsion': {
+        'branch': 'air', 'row': 2, 'cost': 75,
+        'req': ('strategic_bombing',), 'unlocks': ('jet_fighter',)},
+    # ---- SEA
+    'fleet_escorts': {
+        'branch': 'sea', 'row': 0, 'cost': 20, 'req': (),
+        'unlocks': ('destroyer_aa', 'destroyer_sea_land')},
+    'submarines': {
+        'branch': 'sea', 'row': 1, 'cost': 30,
+        'req': ('fleet_escorts',), 'unlocks': ('submarine',)},
+    'fleet_train': {
+        'branch': 'sea', 'row': 1, 'cost': 30,
+        'req': ('fleet_escorts',), 'unlocks': ('supply_ship',)},
+    'capital_ships': {
+        'branch': 'sea', 'row': 2, 'cost': 60,
+        'req': ('fleet_escorts',), 'unlocks': ('battleship',)},
+    'naval_aviation': {
+        'branch': 'sea', 'row': 2, 'cost': 55,
+        'req': ('fleet_train',), 'unlocks': ('aircraft_carrier',)},
+}
+
+# each power's name for every programme
+NAMES = {
     'germany': {
-        'land': [("ARTILLERIE-PROGRAMM", 20, ('artillery',)),
-                 ("PANZERWAFFE VI", 45, ('heavy_tank',)),
-                 ("FUNKMESS-GERAT", 70, ('radar_station',))],
-        'air':  [("KAMPFGESCHWADER SCHWER", 30, ('heavy_bomber',)),
-                 ("PROJEKT SCHWALBE", 75, ('jet_fighter',))],
-        'sea':  [("RUDELTAKTIK", 25, ('submarine',)),
-                 ("PLAN Z", 60, ('battleship',))],
+        'artillery': "ARTILLERIE-PROGRAMM",
+        'heavy_armour': "PANZERWAFFE VI",
+        'detection': "FUNKMESS-GERAT",
+        'medium_bombers': "KAMPFGESCHWADER",
+        'air_logistics': "TRANSPORTFLIEGER",
+        'strategic_bombing': "FERNKAMPF-PROJEKT",
+        'jet_propulsion': "PROJEKT SCHWALBE",
+        'fleet_escorts': "ZERSTORER-FLOTTILLEN",
+        'submarines': "RUDELTAKTIK",
+        'fleet_train': "TROSSSCHIFF-VERBAND",
+        'capital_ships': "PLAN Z",
+        'naval_aviation': "TRAGER-PROJEKT",
     },
     'usa': {
-        'land': [("FIELD ARTILLERY BOARD", 20, ('artillery',)),
-                 ("PERSHING PROGRAM", 45, ('heavy_tank',)),
-                 ("SCR-270 RADAR", 70, ('radar_station',))],
-        'air':  [("STRATEGIC BOMBING DOCTRINE", 30, ('heavy_bomber',)),
-                 ("PROJECT SHOOTING STAR", 75, ('jet_fighter',))],
-        'sea':  [("SILENT SERVICE", 25, ('submarine',)),
-                 ("FAST BATTLESHIP PROGRAM", 60, ('battleship',))],
+        'artillery': "FIELD ARTILLERY BOARD",
+        'heavy_armour': "PERSHING PROGRAM",
+        'detection': "SCR-270 RADAR",
+        'medium_bombers': "MEDIUM BOMBARDMENT GROUPS",
+        'air_logistics': "AIR TRANSPORT COMMAND",
+        'strategic_bombing': "STRATEGIC BOMBING DOCTRINE",
+        'jet_propulsion': "PROJECT SHOOTING STAR",
+        'fleet_escorts': "TWO-OCEAN ESCORT ACT",
+        'submarines': "SILENT SERVICE",
+        'fleet_train': "SERVICE FORCE PACIFIC",
+        'capital_ships': "FAST BATTLESHIP PROGRAM",
+        'naval_aviation': "CARRIER TASK FORCE DOCTRINE",
     },
     'britain': {
-        'land': [("ROYAL ARTILLERY EXPANSION", 20, ('artillery',)),
-                 ("INFANTRY TANK MK IV", 45, ('heavy_tank',)),
-                 ("CHAIN HOME", 60, ('radar_station',))],
-        'air':  [("BOMBER COMMAND", 30, ('heavy_bomber',)),
-                 ("WHITTLE JET PROGRAMME", 75, ('jet_fighter',))],
-        'sea':  [("SUBMARINE SERVICE", 25, ('submarine',)),
-                 ("KGV FAST BATTLESHIPS", 60, ('battleship',))],
+        'artillery': "ROYAL ARTILLERY EXPANSION",
+        'heavy_armour': "INFANTRY TANK MK IV",
+        'detection': "CHAIN HOME",
+        'medium_bombers': "BOMBER COMMAND",
+        'air_logistics': "RAF TRANSPORT COMMAND",
+        'strategic_bombing': "AREA BOMBING DIRECTIVE",
+        'jet_propulsion': "WHITTLE JET PROGRAMME",
+        'fleet_escorts': "ESCORT GROUPS",
+        'submarines': "SUBMARINE SERVICE",
+        'fleet_train': "FLEET TRAIN",
+        'capital_ships': "KGV FAST BATTLESHIPS",
+        'naval_aviation': "FLEET AIR ARM",
     },
     'japan': {
-        'land': [("TYPE 91 MOBILISATION", 20, ('artillery',)),
-                 ("CHI-HA KAI CONVERSION", 40, ('heavy_tank',)),
-                 ("TYPE 11 RADAR", 75, ('radar_station',))],
-        'air':  [("RIKKO LONG-RANGE WINGS", 30, ('heavy_bomber',)),
-                 ("KIKKA PROJECT", 80, ('jet_fighter',))],
-        'sea':  [("SENSUIKAN FLEET BOATS", 25, ('submarine',)),
-                 ("YAMATO PROGRAMME", 65, ('battleship',))],
+        'artillery': "TYPE 91 MOBILISATION",
+        'heavy_armour': "CHI-HA KAI CONVERSION",
+        'detection': "TYPE 11 RADAR",
+        'medium_bombers': "RIKKO WINGS",
+        'air_logistics': "ARMY AIR TRANSPORT",
+        'strategic_bombing': "RENZAN PROJECT",
+        'jet_propulsion': "KIKKA PROJECT",
+        'fleet_escorts': "KAGERO FLOTILLAS",
+        'submarines': "SENSUIKAN FLEET BOATS",
+        'fleet_train': "MARU TRAIN",
+        'capital_ships': "YAMATO PROGRAMME",
+        'naval_aviation': "KIDO BUTAI",
     },
     'soviet': {
-        'land': [("GUN-HOWITZER REGIMENTS", 20, ('artillery',)),
-                 ("IOSIF STALIN PROGRAMME", 40, ('heavy_tank',)),
-                 ("RUS-2 RADAR", 70, ('radar_station',))],
-        'air':  [("LONG-RANGE AVIATION", 35, ('heavy_bomber',)),
-                 ("CAPTURED SCIENCE BUREAU", 75, ('jet_fighter',))],
-        'sea':  [("SHCHUKA FLOTILLAS", 25, ('submarine',)),
-                 ("BALTIC REFIT PROGRAMME", 55, ('battleship',))],
+        'artillery': "GUN-HOWITZER REGIMENTS",
+        'heavy_armour': "IOSIF STALIN PROGRAMME",
+        'detection': "RUS-2 RADAR",
+        'medium_bombers': "FRONTAL AVIATION",
+        'air_logistics': "AEROFLOT MOBILISATION",
+        'strategic_bombing': "LONG-RANGE AVIATION",
+        'jet_propulsion': "CAPTURED SCIENCE BUREAU",
+        'fleet_escorts': "GNEVNY FLOTILLAS",
+        'submarines': "SHCHUKA FLOTILLAS",
+        'fleet_train': "NORTHERN CONVOY TRAIN",
+        'capital_ships': "BALTIC REFIT PROGRAMME",
+        'naval_aviation': "NAVAL AIR ARM VMF",
     },
 }
 
-# what every power fields WITHOUT research
+# what every power fields WITHOUT research: the 1939 standing kit
 BASE_UNITS = ('infantry', 'tank', 'supply_truck', 'transport_truck',
               'aa_artillery', 'army_command', 'engineer',
               'naval_command', 'personnel_transport',
-              'destroyer_sea_sea', 'destroyer_aa', 'destroyer_sea_land',
-              'supply_ship', 'aircraft_carrier',
-              'fighter', 'bomber', 'airforce_command', 'transport_air',
-              'blimp')
+              'destroyer_sea_sea', 'fighter', 'airforce_command')
+
+# pre-1.3.1 saves recorded research as (branch, tier-index) pairs
+_LEGACY = {
+    ('land', 0): ('artillery',),
+    ('land', 1): ('artillery', 'heavy_armour'),
+    ('land', 2): ('artillery', 'detection'),
+    ('air', 0): ('medium_bombers', 'strategic_bombing'),
+    ('air', 1): ('medium_bombers', 'strategic_bombing',
+                 'jet_propulsion'),
+    ('sea', 0): ('fleet_escorts', 'submarines'),
+    ('sea', 1): ('fleet_escorts', 'capital_ships'),
+}
+
+
+def normalize(researched):
+    """A clean set of node ids from any vintage of record."""
+    out = set()
+    for r in researched:
+        if isinstance(r, str):
+            if r in NODES:
+                out.add(r)
+        else:
+            out.update(_LEGACY.get((r[0], r[1]), ()))
+    return out
+
+
+def node_name(country, node_id):
+    return NAMES.get(country, {}).get(node_id, node_id.upper())
 
 
 def unlocked_units(country, researched):
-    """The buyable roster: base chassis plus every researched unlock
-    (radar_station is a works, not a unit -- filtered by the caller)."""
+    """The buyable roster: the 1939 kit plus every researched unlock
+    (radar_station is a works, not a unit -- filtered by callers)."""
     out = set(BASE_UNITS)
-    tree = TECH_TREES.get(country, {})
-    for (branch, idx) in researched:
-        tiers = tree.get(branch, ())
-        if idx < len(tiers):
-            out.update(u for u in tiers[idx][2]
-                       if u != 'radar_station')
+    for nid in normalize(researched):
+        out.update(u for u in NODES[nid]['unlocks']
+                   if u != 'radar_station')
     return out
 
 
 def radar_unlocked(country, researched):
-    tree = TECH_TREES.get(country, {})
-    for (branch, idx) in researched:
-        tiers = tree.get(branch, ())
-        if idx < len(tiers) and 'radar_station' in tiers[idx][2]:
-            return True
-    return False
+    return any('radar_station' in NODES[nid]['unlocks']
+               for nid in normalize(researched))
 
 
-def next_tier(country, branch, researched):
-    """Index of the next unresearched tier in a branch, or None."""
-    tiers = TECH_TREES.get(country, {}).get(branch, ())
-    for i in range(len(tiers)):
-        if (branch, i) not in researched:
-            return i
-    return None
+def available_nodes(researched):
+    """Nodes whose prerequisites all stand and which are not yet
+    bought -- the frontier of the chart."""
+    have = normalize(researched)
+    return [nid for nid, n in NODES.items()
+            if nid not in have and all(r in have for r in n['req'])]

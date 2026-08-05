@@ -1,4 +1,4 @@
-# ZERO HOUR: 1939 — The Resource Economy
+# GLOBAL OPERATIONS (1939 EDITION) — The Resource Economy
 
 How oil, steel and food are **made** and **spent**. Every figure here
 is read from the code, not from memory: `config.py` holds the

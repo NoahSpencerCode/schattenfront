@@ -1,4 +1,4 @@
-# ZERO HOUR: 1939 — 1.2.0 Interaction & UI Plan
+# GLOBAL OPERATIONS (1939 EDITION) — 1.2.0 Interaction & UI Plan
 
 Companion to `design_1_2_0.md`. For every mechanic: **where it
 lives**, **what the player does**, **what they read**, and **how it

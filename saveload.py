@@ -22,7 +22,7 @@ import time
 
 from panda3d.core import Vec3
 
-SAVE_VERSION = 3
+SAVE_VERSION = 4
 
 
 # ------------------------------------------------------------ location
@@ -32,7 +32,7 @@ def save_dir():
     else under the user's documents (a translocated mac install is
     read-only)."""
     cands = [os.path.abspath('saves'),
-             os.path.expanduser('~/Documents/Zero Hour 1939/saves')]
+             os.path.expanduser('~/Documents/Global Operations 1939/saves')]
     for d in cands:
         try:
             os.makedirs(d, exist_ok=True)
@@ -53,6 +53,7 @@ def list_saves():
     # the last entry is the game's PRE-RENAME documents folder: old
     # campaigns saved under the working title still show in LOAD GAME
     for d in (os.path.abspath('saves'),
+              os.path.expanduser('~/Documents/Global Operations 1939/saves'),
               os.path.expanduser('~/Documents/Zero Hour 1939/saves'),
               os.path.expanduser('~/Documents/Schattenfront/saves')):
         if not os.path.isdir(d) or d in seen:
@@ -237,30 +238,34 @@ def snapshot(game):
             'annexing': bool(c.annexing), 'tax': c.tax_rate,
             'pending_tax': c.pending_tax, 'industry': c.industry,
             'draft': getattr(c, 'draft_pool', 0),
+            'focus': getattr(c, 'focus', 'finance'),
+            'agri': getattr(c, 'agri_level', 0),
+            'works': getattr(c, 'works_level', 0),
             'production': [[t, s] for (t, s) in c.production],
         } for c in game.cities],
         'airfields': [{
             'name': f.name, 'country': f.country,
             'lat': f.lat, 'lon': f.lon,
             'stock': getattr(f, 'stock', 0.0),
-            'shells': list(getattr(f, 'shells', ())),
-            'crews': getattr(f, 'crews', 0),
             'production': [[t, s] for (t, s) in f.production],
             'built': f.city is None,
+            'base': getattr(f, 'is_base', False),
+            'city': f.city.name if f.city is not None else None,
         } for f in game.airfields],
         'harbors': [{
             'name': h.name, 'country': h.country,
             'lat': h.lat, 'lon': h.lon,
             'stock': getattr(h, 'stock', 0.0),
-            'shells': list(getattr(h, 'shells', ())),
-            'crews': getattr(h, 'crews', 0),
             'production': [[t, s] for (t, s) in h.production],
             'built': h.city is None,
+            'base': getattr(h, 'is_base', False),
+            'city': h.city.name if h.city is not None else None,
         } for h in game.harbors],
         'armyposts': [{
             'name': p.name, 'country': p.country,
-            'stock': p.stock, 'shells': list(p.shells),
-            'crews': p.crews,
+            'lat': p.lat, 'lon': p.lon,
+            'stock': p.stock,
+            'city': p.city.name if p.city is not None else None,
             'production': [[t, s] for (t, s) in p.production],
         } for p in game.armyposts],
         'depots': [{'name': d.name, 'country': d.country,
@@ -375,7 +380,9 @@ def restore(game, data):
     """Apply a snapshot to a freshly built (but unpopulated) world.
     Called from start_game once the map, structures-from-data and UI
     exist; the game is quiet (no faxes) throughout."""
-    from structures import Airfield, Harbor, Depot, Bunker, Radar
+    from structures import (Airfield, ArmyPost, Harbor, Depot,
+                            Bunker, Radar)
+    from units import stats_for
     from game import Bridge
     from units import Unit
     from utils import latlon_to_vec
@@ -431,6 +438,9 @@ def restore(game, data):
             c.pending_tax = row['pending_tax']
             c.industry = row['industry']
             c.draft_pool = row.get('draft', c.draft_rate())
+            c.focus = row.get('focus', 'finance')
+            c.agri_level = row.get('agri', 0)
+            c.works_level = row.get('works', 0)
             c.production = [[t, s] for (t, s) in row['production']]
             c.refresh_marker()
         # deposits follow their city's flag
@@ -440,41 +450,56 @@ def restore(game, data):
                 dep.refresh_marker()
 
         # ---- structures ----
+        towns = {c.name: c for c in g.cities}
+
         def sync_yards(rows, fleet, ctor):
             have = {s.name: s for s in fleet}
             for row in rows:
                 s = have.get(row['name'])
-                if s is None and row.get('built'):
-                    s = ctor(row)
-                    fleet.append(s)
                 if s is None:
-                    continue
+                    # engineer-built works and city-founded bases
+                    # alike are reconstructed from the record
+                    s = ctor(row, towns.get(row.get('city')))
+                    fleet.append(s)
                 s.country = row['country']
                 if hasattr(s, 'stock'):
                     s.stock = row.get('stock', 0.0)
                 s.production = [[t, sec] for (t, sec)
                                 in row['production']]
-                if hasattr(s, 'shells'):
-                    s.shells = list(row.get('shells', []))
-                    s.crews = row.get('crews', 0)
-                    game._refresh_station_badge(s)
+                for ut in row.get('shells', []):
+                    # pre-1.3.0 save: warehoused shells are written
+                    # off at cost -- the crew system is gone
+                    game.funds[s.country] += \
+                        stats_for(ut, s.country)['cost']
+                game._refresh_station_badge(s)
                 s.refresh_marker()
 
+        # an early-1.3.0 save had no 'base' flag: a city link
+        # meant a producing base then
         sync_yards(data['airfields'], g.airfields,
-                   lambda r: Airfield(g, r['lat'], r['lon'],
-                                      r['country'], r['name']))
+                   lambda r, c: Airfield(
+                       g, r['lat'], r['lon'], r['country'],
+                       r['name'], city=c,
+                       is_base=r.get('base', c is not None)))
         sync_yards(data['harbors'], g.harbors,
-                   lambda r: Harbor(g, r['lat'], r['lon'],
-                                    r['country'], r['name']))
+                   lambda r, c: Harbor(
+                       g, r['lat'], r['lon'], r['country'],
+                       r['name'], city=c,
+                       is_base=r.get('base', c is not None)))
         posts = {p_.name: p_ for p_ in g.armyposts}
         for row in data.get('armyposts', []):
             p_ = posts.get(row['name'])
+            if p_ is None and 'lat' in row:
+                p_ = ArmyPost(g, row['lat'], row['lon'],
+                              row['country'], row['name'],
+                              city=towns.get(row.get('city')))
+                g.armyposts.append(p_)
             if p_ is None:
                 continue
             p_.country = row['country']
             p_.stock = row['stock']
-            p_.shells = list(row['shells'])
-            p_.crews = row['crews']
+            for ut in row.get('shells', []):
+                g.funds[p_.country] += stats_for(ut, p_.country)['cost']
             p_.production = [[t, sec] for (t, sec)
                              in row['production']]
             g._refresh_station_badge(p_)

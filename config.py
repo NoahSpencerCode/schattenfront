@@ -6,7 +6,7 @@ Game Configuration and Constants
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 FULLSCREEN = False
-WINDOW_TITLE = "Zero Hour: 1939"
+WINDOW_TITLE = "Global Operations - 1939 Edition"
 SHOW_FPS_METER = False        # set True to display the frame-rate meter
 
 # Globe Settings
@@ -66,7 +66,7 @@ FOG_BRIGHTNESS = 0.8          # 20% darker
 FOG_SATURATION = 0.5          # 50% less saturated
 TERRAIN_LOS = False           # relief-warped vision fields (heavy);
                               # False = clean circles, flag kept for later
-GAME_VERSION = '1.2.0'        # shown on the menu as ALPHA <version>
+GAME_VERSION = '1.3.0'        # shown on the menu as ALPHA <version>
 
 # ------------------------------------------------ strategic resources
 # Exactly three, and each governs a different half of the war:
@@ -92,6 +92,26 @@ OIL_PER_SORTIE = 0.6          # aviation spirit per takeoff
 FOOD_PER_ENLISTED = 4         # tons to raise and feed one section
 CIVIL_RATION = 0.55           # tons per MILLION souls per day
 OCCUPIED_RATION = 1.6         # a hostile population eats dearer
+
+# THE CIVILIAN DRAFT, immediate: the rolls (one per 400,000 souls
+# a fortnight, banked to three) muster free; every section beyond
+# them is CONSCRIPTION and mines the town's industry down to 0%.
+DRAFT_INDUSTRY_GRIND = 0.8    # industry %-points per CONSCRIPTED
+                              # section (beyond the rolls), immediate
+
+# THE FORTNIGHT FOCUS: every city works at ONE directive a
+# fortnight. Each pays a different coin -- money, food, steel,
+# science, or capability -- so no directive dominates.
+FOCUS_FINANCE_HEAL = 5.0      # industry points healed (revenue rises)
+FOCUS_AGRI_FOOD = 2           # +food/ftn per agriculture level
+FOCUS_AGRI_MAX = 5
+FOCUS_STEEL_OUT = 2           # +steel/ftn per works level
+FOCUS_STEEL_MAX = 5           # (only cities WITH a steel deposit)
+FOCUS_RESEARCH_RP_PER_M = 4.0 # research points per million souls
+FOCUS_RESEARCH_RP_MIN = 2.0
+BASE_COSTS = {'army': (400, 10),   # ($, steel) -- one fortnight
+              'air': (500, 12),
+              'naval': (600, 16)}
 
 # the open market: base $/ton for treaty trade, discounted between
 # allies the same way volunteers are
@@ -145,8 +165,8 @@ MAX_VISION_SOURCES = 320      # shader uniform budget (a big fleet
 # fortnight; the take depends on each city's tax rate and the health of
 # its industry (heavy taxation erodes the industrial base).
 STARTING_FUNDS = 40000
-CITY_GROSS_FORTNIGHT = 5000      # a city's gross product per fortnight
-CAPITAL_GROSS_FORTNIGHT = 11000  # the capital's gross product
+CITY_GROSS_FORTNIGHT = 2500      # a city's gross product per fortnight
+CAPITAL_GROSS_FORTNIGHT = 5500   # the capital's gross product
 TAX_DEFAULT = 30              # opening tax rate, percent
 TAX_EQUILIBRIUM = 30          # at this rate industry health holds steady
 INDUSTRY_DRIFT = 0.5          # industry %-points per tax point per
@@ -157,6 +177,8 @@ CAPTURE_INFANTRY_PER_MILLION = 1.0   # garrison cost to annex a city
 
 # Combat / capture
 CITY_CAPTURE_RANGE = 0.15     # world units: standing ON the town
+CAPTURE_CLEAR_RANGE = 0.35    # no annexation while enemy units
+                              # stand THIS close to the town
 CITY_CAPTURE_TIME = 8.0       # seconds
 BRIDGE_HP = 120
 BRIDGE_REPAIR_RATE = 12       # hp/sec by engineers

@@ -169,9 +169,10 @@ class MenuScreen:
     # --------------------------------------------------------------- pages
     def show_main(self):
         self._clear()
-        self._text("ZERO HOUR: 1939", (0, 0.62), 0.15, TITLE_COLOR)
-        self._text("A WORLD AT WAR  *  1939 - 1945", (0, 0.50), 0.05,
-                   SUB_COLOR)
+        self._text("GLOBAL OPERATIONS", (0, 0.62), 0.145,
+                   TITLE_COLOR)
+        self._text("* 1939 EDITION *  --  A WORLD AT WAR", (0, 0.50),
+                   0.05, SUB_COLOR)
         self._button("[N]  NEW GAME", (0, 0.24), self.show_country_select,
                      ['new'])
         self._button("[L]  LOAD GAME", (0, 0.08), self.show_load_page)

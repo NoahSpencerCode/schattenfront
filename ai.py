@@ -106,17 +106,20 @@ class NationAI:
         has_harbor = any(c.harbor and c.country == self.country
                          for c in g.cities)
         weights = {}
-        # the labs first: take any affordable tier, favourite branch
-        # first (research_pct is already tithed at the rollover)
-        from tech import next_tier, TECH_TREES
-        for branch in RESEARCH_ORDER.get(self.country,
-                                         ('land', 'air', 'sea')):
-            idx = next_tier(self.country, branch,
-                            g.researched[self.country])
-            if idx is not None and (g.research_points[self.country]
-                                    >= TECH_TREES[self.country]
-                                    [branch][idx][1]):
-                g.research_tier(self.country, branch)
+        # the labs first: buy the cheapest affordable node on the
+        # frontier, favourite branch first (research_pct is already
+        # tithed at the rollover)
+        from tech import available_nodes, NODES
+        frontier = available_nodes(g.researched[self.country])
+        order = RESEARCH_ORDER.get(self.country,
+                                   ('land', 'air', 'sea'))
+        frontier.sort(key=lambda nid: (
+            order.index(NODES[nid]['branch'])
+            if NODES[nid]['branch'] in order else 9,
+            NODES[nid]['cost']))
+        for nid in frontier:
+            if g.research_points[self.country] >= NODES[nid]['cost']:
+                g.research_node(self.country, nid)
                 break
         buyable = set(g.buyable_units(self.country))
         doctrine = DOCTRINE.get(self.country, {})
