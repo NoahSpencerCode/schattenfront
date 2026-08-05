@@ -2797,6 +2797,15 @@ class WW2RTSGame(ShowBase):
         if not own_selected:
             return
 
+        # COMMAND CHAINING: when every selected unit is aboard a
+        # transport or marching to embark, further orders QUEUE --
+        # you cannot mean "march now" for a man on a voyage; his
+        # clicks lay the plan for after the landing
+        chain_carriers = [self._chain_pending(u) for u in own_selected]
+        chaining = all(c is not None for c in chain_carriers)
+        if chaining:
+            shift = True
+
         # an unload/paradrop order is armed: this click sites the drop
         if self.unload_mode:
             self.unload_mode = False
@@ -2907,6 +2916,17 @@ class WW2RTSGame(ShowBase):
                     u.give_order({'kind': 'move', 'goal': Vec3(target.pos)},
                                  queue=shift)
             return
+
+        if chaining:
+            carrier = next(c for c in chain_carriers if c is not None)
+            pend = ([carrier.current_order]
+                    if carrier.current_order else []) \
+                + list(carrier.order_queue)
+            if not any(o.get('kind') == 'unload' for o in pend):
+                # no landing on the carrier's sheet yet: this click
+                # is the landing, not a passenger waypoint
+                self._order_landing(carrier, ground)
+                return
 
         # plain ground order: move only — transports never disembark on
         # their own; arm UNLOAD from the selection panel instead
@@ -3457,6 +3477,11 @@ class WW2RTSGame(ShowBase):
         if (queue and order['kind'] in ('move', 'unload')
                 and order.get('goal') is not None
                 and unit.stats['domain'] != 'air'):
+            if order['kind'] == 'move' and \
+                    self._chain_pending(unit) is not None:
+                # the leg starts at a shore only the voyage knows:
+                # route it when the unit actually steps off
+                return
             start = self._queue_leg_start(unit, order)
             goal = self._legal_goal(unit, order['goal'])
             self._enqueue_preplan(unit, start, goal, order)
@@ -3706,6 +3731,40 @@ class WW2RTSGame(ShowBase):
                 inbound += 1
         return transport.stats['capacity'] - len(transport.cargo) - inbound
 
+    def _chain_pending(self, unit):
+        """The carrier this unit is aboard, or is marching to board
+        -- None when it stands free. A unit on (or bound for) a
+        voyage PLANS: its further orders queue behind the landing
+        instead of replacing the passage."""
+        cb = getattr(unit, 'carried_by', None)
+        if cb is not None and isinstance(cb, Unit):
+            return cb
+        orders = list(unit.order_queue)
+        if unit.current_order:
+            orders.append(unit.current_order)
+        for o in orders:
+            if o.get('kind') == 'board':
+                t = o.get('target')
+                if t is not None and getattr(t, 'alive', False):
+                    return t
+        return None
+
+    def _order_landing(self, carrier, ground):
+        """The first ground click after an embarkation sites the
+        LANDING: the carrier makes for that shore and puts the party
+        off, and every further click queues on the passengers."""
+        goal = Vec3(ground)
+        if carrier.stats['domain'] == 'sea':
+            la, lo = vec_to_latlon(goal)
+            if self.world.is_land(la, lo):
+                la, lo = self.world.nearest_water(la, lo, max_deg=1.5)
+            goal = latlon_to_vec(la, lo)
+        carrier.give_order({'kind': 'unload', 'goal': goal},
+                           queue=True)
+        if carrier.stats['domain'] != 'air':
+            self.fax_short("LANDING SET -- FURTHER ORDERS QUEUE "
+                           "FOR THE SHORE PARTY")
+
     def _order_board(self, transport, boarders, shift):
         """Order up to the free berths onto the transport; the rest are
         refused so a full transport can't be over-committed."""
@@ -3724,7 +3783,8 @@ class WW2RTSGame(ShowBase):
         elif rejected:
             self.fax_short("TRANSPORT FULL -- ORDER REFUSED")
         elif accepted:
-            self.fax_short("EMBARKATION ORDER DISPATCHED (%d)" %
+            self.fax_short("EMBARKATION ORDERED (%d) -- RIGHT-CLICK "
+                           "GROUND TO SET THE LANDING" %
                            len(accepted))
 
     FIELD_GARRISON_CAP = 12
@@ -3873,7 +3933,12 @@ class WW2RTSGame(ShowBase):
 
     def _load_unit(self, transport, unit):
         unit.carried_by = transport
-        unit.clear_orders()
+        # the VOYAGE PLAN survives embarkation: only the march to
+        # the quay is done -- queued orders resume at the far shore
+        unit.current_order = None
+        unit.path = []
+        unit.plan_pending = None
+        unit.attack_target = None
         unit.set_selected(False)
         if unit in self.selected:
             self.selected.remove(unit)
@@ -4362,7 +4427,8 @@ class WW2RTSGame(ShowBase):
             chained = any(o.get('kind') == 'build'
                           for o in ([eng.current_order]
                                     if eng.current_order else [])
-                          + eng.order_queue)
+                          + eng.order_queue) \
+                or self._chain_pending(eng) is not None
             eng.give_order({'kind': 'build', 'what': kind,
                             'site': Vec3(a), 'points': [Vec3(b)],
                             'from': Vec3(a), 't': build_time,
@@ -4397,7 +4463,8 @@ class WW2RTSGame(ShowBase):
         chained = any(o.get('kind') == 'build'
                       for o in ([eng.current_order]
                                 if eng.current_order else [])
-                      + eng.order_queue)
+                      + eng.order_queue) \
+            or self._chain_pending(eng) is not None
         order = {'kind': 'build', 'what': kind,
                  'site': Vec3(ground), 'from': Vec3(eng.pos),
                  't': build_time, 'cost': cost}
