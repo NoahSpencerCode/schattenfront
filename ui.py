@@ -12,7 +12,8 @@ import textwrap
 
 from direct.gui.OnscreenImage import OnscreenImage
 from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
-from panda3d.core import SamplerState, TextNode
+from panda3d.core import (SamplerState, TextNode, Plane,
+                          PlaneNode, Point3, Vec3)
 
 from icons import get_icon_path, sheet_texture
 
@@ -293,10 +294,13 @@ class BottomBar:
 
     def __init__(self, base):
         self.base = base
-        self.frame = DirectFrame(parent=base.a2dBottomCenter,
+        # flush with the RIGHT edge of the screen: the far left
+        # corner belongs to the facsimile machine
+        self.frame = DirectFrame(parent=base.a2dBottomRight,
                                  frameColor=(1, 1, 1, 0.92),
                                  frameTexture=sheet_texture('bar'),
                                  frameSize=(-1.35, 1.35, 0.0, 0.35),
+                                 pos=(-1.35, 0, 0),
                                  state=DGG.NORMAL)
         self.frame.setTransparency(True)
         self.title_tn, _ = _make_text(self.frame, base.hud_font,
@@ -1309,121 +1313,312 @@ class DiplomacyLedger:
 
 
 class _Toast:
-    """One field signal: a small sheet of paper that slides up, holds,
-    and files itself away."""
+    """One incoming signal: a sheet of paper that RISES OUT OF THE
+    FACSIMILE MACHINE'S SLIT (clipped below the slit line while it
+    prints), stands in the delivery rack, holds, and files itself
+    away to the left."""
 
-    SLIDE_TIME = 0.22
+    EMERGE_TIME = 0.85          # the machine prints the sheet
     HOLD_TIME = 11.0
-    # letter-paper proportions (8.5 x 11), trimmed so two stacked
-    # sheets still clear both bars now the bottom bar sits taller
-    WIDTH = 0.54
-    HEIGHT = 0.54 * 11.0 / 8.5
+    SLIDE_TIME = 0.22
+    WIDTH = 0.46
+    HEIGHT = 0.46 * 11.0 / 8.5  # letter proportions
 
     def __init__(self, panel, subject, body_lines, sender, stamp):
         self.panel = panel
-        panel.toasts.append(self)       # register before first placement
+        panel.toasts.append(self)
         base = panel.base
         self.width = self.WIDTH
         self.height = self.HEIGHT
         self.age = 0.0
         self.leaving = False
         self.leave_age = 0.0
+        self.y = panel.SLIT_Y - self.height
 
         self.frame = DirectFrame(parent=base.a2dBottomLeft,
                                  frameColor=(1, 1, 1, 1),
                                  frameTexture=sheet_texture('paper'),
-                                 frameSize=(0, self.width, 0, self.height),
+                                 frameSize=(0, self.width, 0,
+                                            self.height),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
                     frameSize=(0, self.width, self.height - 0.012,
                                self.height))
-        head, _ = _make_text(self.frame, base.hud_font,
-                             (0.04, self.height - 0.075), 0.032, INK)
+        head, head_np = _make_text(self.frame, base.hud_font,
+                                   (0.035, self.height - 0.070),
+                                   0.030, INK)
         head.setText(subject)
+        # a long subject shrinks to the sheet instead of spilling
+        w = head.getWidth() * 0.030
+        if w > self.width - 0.07:
+            head_np.setScale(0.030 * (self.width - 0.07) / w)
         rule, _ = _make_text(self.frame, base.hud_font,
-                             (0.04, self.height - 0.115), 0.028, INK_FAINT)
+                             (0.035, self.height - 0.108), 0.026,
+                             INK_FAINT)
         rule.setText("-" * 24)
         body, _ = _make_text(self.frame, base.hud_font,
-                             (0.04, self.height - 0.165), 0.0345,
+                             (0.035, self.height - 0.155), 0.0325,
                              (0.05, 0.04, 0.03, 1.0))
         body.setText('\n'.join(body_lines))
         foot, _ = _make_text(self.frame, base.hud_font,
-                             (self.width / 2, 0.030), 0.022, INK_FAINT,
-                             TextNode.ACenter)
+                             (self.width / 2, 0.028), 0.021,
+                             INK_FAINT, TextNode.ACenter)
         foot.setText("%s\n%s" % (sender, stamp))
         self.frame.setTransparency(True)
         self.frame.bind(DGG.B1PRESS, self._click)
-        self._place(0.0)
+        # while printing, nothing of the sheet shows below the slit
+        self.frame.setClipPlane(panel.clip_np)
+        self._clipped = True
+        self.frame.setPos(panel.PAPER_X, 0, self.y)
 
     def _slot_y(self):
-        # stacked above the bottom bar, lowest slot first
-        return 0.40 + sum(t.height + 0.012 for t in
-                          self.panel.toasts[:self.panel.toasts.index(self)])
-
-    def _place(self, rise):
-        y = self._slot_y()
-        self.frame.setPos(0.06, 0, y - (1.0 - rise) * (self.height + 0.12))
-
-    def _click(self, event=None):
-        self.leaving = True
+        """The delivery rack: the NEWEST sheet stands on the slit,
+        older sheets are pushed up above it."""
+        idx = self.panel.toasts.index(self)
+        above = self.panel.toasts[idx + 1:]
+        return self.panel.SLIT_Y + sum(t.height + 0.014
+                                       for t in above)
 
     def update(self, dt):
         """Returns False when the toast is finished."""
         self.age += dt
-        if not self.leaving:
-            rise = min(1.0, self.age / self.SLIDE_TIME)
-            self._place(rise)
-            self.frame.setAlphaScale(min(1.0, rise * 1.5))
-            if self.age > self.SLIDE_TIME + self.HOLD_TIME:
-                self.leaving = True
+        if self.leaving:
+            self.leave_age += dt
+            k = self.leave_age / self.SLIDE_TIME
+            if k >= 1.0:
+                self.frame.destroy()
+                return False
+            self.frame.setX(self.panel.PAPER_X
+                            - k * (self.width + 0.1))
+            self.frame.setAlphaScale(1.0 - k)
             return True
-        self.leave_age += dt
-        k = self.leave_age / self.SLIDE_TIME
-        if k >= 1.0:
-            self.frame.destroy()
-            return False
-        self._place(1.0)
-        self.frame.setX(0.06 - k * (self.width + 0.1))
-        self.frame.setAlphaScale(1.0 - k)
+        if self.age <= self.EMERGE_TIME:
+            # printing: the sheet climbs out of the slit
+            k = self.age / self.EMERGE_TIME
+            self.y = self.panel.SLIT_Y - self.height * (1.0 - k)
+            self.frame.setZ(self.y)
+        else:
+            if self._clipped:
+                self.frame.clearClipPlane()
+                self._clipped = False
+            # torn off: the sheet eases to its rack slot (older
+            # sheets are pushed up as new ones print beneath them)
+            target = self._slot_y()
+            self.y += (target - self.y) * min(1.0, dt * 9.0)
+            self.frame.setZ(self.y)
+        if self.age > self.EMERGE_TIME + self.HOLD_TIME:
+            self.leaving = True
         return True
+
+    def _click(self, event=None):
+        self.leaving = True
+
+    def destroy(self):
+        self.frame.destroy()
+
+
+class FacsimileArchive:
+    """THE MESSAGE FILE: every signal the machine has ever printed,
+    newest first, paged like a clip of flimsies on a spike."""
+
+    PER_PAGE = 4
+
+    def __init__(self, base, records, on_close):
+        self.base = base
+        self.records = list(reversed(records))   # newest first
+        self.on_close = on_close
+        self.page = 0
+        f = base.hud_font
+        self.frame = DirectFrame(parent=base.aspect2d,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
+                                 frameSize=(-1.05, 1.05, -0.88, 0.88),
+                                 state=DGG.NORMAL)
+        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                    frameSize=(-1.05, 1.05, 0.855, 0.88))
+        self._dyn = []
+        self._build()
+
+    def _text(self, t, pos, scale=0.03, color=INK,
+              align=TextNode.ALeft):
+        tn, np_ = _make_text(self.frame, self.base.hud_font, pos,
+                             scale, color, align)
+        tn.setText(t)
+        self._dyn.append(np_)
+        return tn
+
+    def _build(self):
+        f = self.base.hud_font
+        for w in self._dyn:
+            w.destroy() if hasattr(w, 'destroy') else w.removeNode()
+        self._dyn = []
+        self._text("*** FACSIMILE FILE -- EVERY SIGNAL RECEIVED ***",
+                   (0, 0.78), 0.044, INK, TextNode.ACenter)
+        pages = max(1, (len(self.records) + self.PER_PAGE - 1)
+                    // self.PER_PAGE)
+        self.page = max(0, min(self.page, pages - 1))
+        self._text("%d SIGNAL(S) ON FILE -- SHEET %d OF %d"
+                   % (len(self.records), self.page + 1, pages),
+                   (0, 0.71), 0.027, INK_FAINT, TextNode.ACenter)
+        y = 0.62
+        rows = self.records[self.page * self.PER_PAGE:
+                            (self.page + 1) * self.PER_PAGE]
+        if not rows:
+            self._text("NOTHING ON FILE -- THE WIRE IS QUIET",
+                       (0, 0.2), 0.034, INK_FAINT, TextNode.ACenter)
+        for subject, lines, sender, stamp in rows:
+            self._text("-" * 78, (0, y + 0.020), 0.024, INK_FAINT,
+                       TextNode.ACenter)
+            self._text(subject, (-0.97, y - 0.030), 0.030, INK)
+            self._text("%s   %s" % (sender, stamp),
+                       (0.97, y - 0.030), 0.023, INK_FAINT,
+                       TextNode.ARight)
+            body = "  ".join(lines)[:150]
+            self._text(body, (-0.97, y - 0.078), 0.024,
+                       (0.22, 0.19, 0.15, 1.0))
+            y -= 0.315
+        if self.page > 0:
+            b = pill_button(self.frame, "< NEWER", self._flip,
+                            extraArgs=[-1], pos=(-0.62, 0, -0.79),
+                            hw=0.14, hh=0.040, text_scale=0.030,
+                            font=f)
+            self._dyn.append(b)
+        if self.page < pages - 1:
+            b = pill_button(self.frame, "OLDER >", self._flip,
+                            extraArgs=[+1], pos=(0.62, 0, -0.79),
+                            hw=0.14, hh=0.040, text_scale=0.030,
+                            font=f)
+            self._dyn.append(b)
+        b = pill_button(self.frame, "++ CLOSE THE FILE ++",
+                        self.on_close, pos=(0, 0, -0.79),
+                        hw=0.26, hh=0.044, text_scale=0.036, font=f)
+        self._dyn.append(b)
+
+    def _flip(self, d):
+        self.page += d
+        self._build()
 
     def destroy(self):
         self.frame.destroy()
 
 
 class FaxPanel:
-    """Field signals: brief FAX slips that slide up from the bottom-left
-    corner, hold a few seconds, and file themselves away.  Use ui.B()
-    to bold the words that matter."""
+    """THE FACSIMILE MACHINE: a console in the bottom-left corner.
+    Incoming signals print UP OUT OF ITS SLIT, stand in the rack,
+    and file themselves away; a counter shows the traffic still in
+    queue and the MESSAGE FILE key opens the complete archive."""
 
     MAX_VISIBLE = 2
-    WRAP = 26
+    WRAP = 22
+    ARCHIVE_CAP = 300
+
+    # machine geometry, in a2dBottomLeft space
+    MACH_X0, MACH_X1 = 0.02, 0.53
+    MACH_TOP = 0.295
+    SLIT_Y = 0.283
+    PAPER_X = 0.045
 
     def __init__(self, base):
         self.base = base
         self.queue = []
         self.toasts = []
+        self.archive = []
+        self.archive_fax = None
+        self._shown_count = None
+        # the slit line: nothing of a printing sheet shows below it
+        pn = PlaneNode('facsimile_slit')
+        pn.setPlane(Plane(Vec3(0, 0, 1), Point3(0, 0, self.SLIT_Y)))
+        self.clip_np = base.a2dBottomLeft.attachNewNode(pn)
+        self._build_console()
+
+    def _build_console(self):
+        base = self.base
+        f = base.hud_font
+        x0, x1, top = self.MACH_X0, self.MACH_X1, self.MACH_TOP
+        self.console = DirectFrame(
+            parent=base.a2dBottomLeft,
+            frameColor=(1, 1, 1, 0.96),
+            frameTexture=sheet_texture('bar'),
+            frameSize=(x0, x1, 0.0, top),
+            state=DGG.NORMAL)
+        self.console.setTransparency(True)
+        # the slit housing and the slit itself
+        DirectFrame(parent=self.console,
+                    frameColor=(0.16, 0.14, 0.11, 1.0),
+                    frameSize=(x0, x1, top - 0.034, top))
+        DirectFrame(parent=self.console,
+                    frameColor=(0.04, 0.035, 0.03, 1.0),
+                    frameSize=(x0 + 0.030, x1 - 0.030,
+                               top - 0.026, top - 0.012))
+        tn, _ = _make_text(self.console, f, (x0 + 0.035, 0.205),
+                           0.036, (0.95, 0.82, 0.48, 1.0))
+        tn.setText("FACSIMILE")
+        tn, _ = _make_text(self.console, f, (x0 + 0.035, 0.168),
+                           0.020, (0.62, 0.60, 0.52, 1.0))
+        tn.setText("SIGNALS DESK -- INCOMING TRAFFIC")
+        # the traffic counter: a dark window with amber digits
+        DirectFrame(parent=self.console,
+                    frameColor=(0.07, 0.06, 0.05, 1.0),
+                    frameSize=(x0 + 0.035, x0 + 0.135,
+                               0.058, 0.135))
+        self.count_tn, _ = _make_text(
+            self.console, f, (x0 + 0.085, 0.076), 0.048,
+            (0.95, 0.72, 0.28, 1.0), TextNode.ACenter)
+        self.count_tn.setText("--")
+        tn, _ = _make_text(self.console, f, (x0 + 0.085, 0.028),
+                           0.018, (0.62, 0.60, 0.52, 1.0),
+                           TextNode.ACenter)
+        tn.setText("IN QUEUE")
+        self.file_btn = pill_button(
+            self.console, "MESSAGE FILE", self._open_archive,
+            pos=((x0 + 0.155 + x1 - 0.035) / 2, 0, 0.096),
+            hw=(x1 - 0.035 - x0 - 0.155) / 2, hh=0.040,
+            text_scale=0.027, font=f)
+        add_tooltip(self.file_btn,
+                    "EVERY SIGNAL RECEIVED -- THE COMPLETE FILE",
+                    font=f)
 
     def post(self, subject, body, sender="SUPREME HQ"):
         snd = getattr(self.base, 'fax_snd', None)
         if snd is not None:
             snd.play()
-        stamp = self.base.campaign_clock_text() \
-            if hasattr(self.base, 'campaign_clock_text') else ''
+        stamp = self.base.campaign_clock_text()             if hasattr(self.base, 'campaign_clock_text') else ''
         lines = []
         for para in body.split('\n'):
-            # wrap on the visible length (markup chars are zero-width)
             lines.extend(_wrap_markup(para.upper(), self.WRAP))
-        self.queue.append(("++ %s ++" % subject.upper(), lines[:7],
-                           sender.upper(), stamp))
+        rec = ("++ %s ++" % subject.upper(), lines[:7],
+               sender.upper(), stamp)
+        self.queue.append(rec)
+        self.archive.append(rec)
+        if len(self.archive) > self.ARCHIVE_CAP:
+            self.archive.pop(0)
 
     def update(self, dt):
         for t in list(self.toasts):
             if not t.update(dt):
                 self.toasts.remove(t)
-        while self.queue and len(self.toasts) < self.MAX_VISIBLE:
+        # one sheet prints at a time; the rack holds two
+        printing = any(t.age <= t.EMERGE_TIME and not t.leaving
+                       for t in self.toasts)
+        if (self.queue and not printing
+                and len(self.toasts) < self.MAX_VISIBLE):
             subject, lines, sender, stamp = self.queue.pop(0)
             _Toast(self, subject, lines, sender, stamp)
+        n = len(self.queue)
+        if n != self._shown_count:
+            self._shown_count = n
+            self.count_tn.setText("%02d" % n if n else "--")
+
+    def _open_archive(self):
+        if self.archive_fax is not None:
+            return
+        self.archive_fax = FacsimileArchive(
+            self.base, self.archive, self._close_archive)
+
+    def _close_archive(self):
+        if self.archive_fax is not None:
+            self.archive_fax.destroy()
+            self.archive_fax = None
 
     def dismiss(self):
         for t in self.toasts:
@@ -1434,6 +1629,9 @@ class FaxPanel:
             t.destroy()
         self.toasts = []
         self.queue = []
+        self._close_archive()
+        self.console.destroy()
+        self.clip_np.removeNode()
 
 
 def _wrap_markup(text, width):
@@ -1494,7 +1692,7 @@ class BudgetFax:
         text("*** BUDGET MANIFEST -- FORTNIGHT APPROPRIATION ***",
              (0, 0.83), 0.045, INK, TextNode.ACenter)
         text("FROM : THE EXCHEQUER, WAR APPROPRIATIONS", (-1.10, 0.76))
-        text("RE   : ALLOCATION OF FUNDS -- COMMIT BY RETURN FAX",
+        text("RE   : ALLOCATION OF FUNDS -- COMMIT BY RETURN FACSIMILE",
              (-1.10, 0.71))
         text(subtitle if subtitle else
              "APPROPRIATION AVAILABLE: $%d   ONCE TRANSMITTED THE BUDGET "

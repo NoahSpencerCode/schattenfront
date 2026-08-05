@@ -4548,7 +4548,7 @@ class WW2RTSGame(ShowBase):
                 self.player_country,
                 self.researched[self.player_country]):
             self.fax_short("RADAR AWAITS THE LABORATORIES -- "
-                           "SEE THE RESEARCH FAX [R]")
+                           "SEE THE RESEARCH CHART [R]")
             return
         eng = self._build_engineer()
         if eng is None:
