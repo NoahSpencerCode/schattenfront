@@ -1,4 +1,4 @@
-# ZERO HOUR: 1939 — 1.3.0 Design
+# GLOBAL OPERATIONS (1939 EDITION) — 1.3.0 Design
 
 Five reforms, one theme: **less ceremony between the player's
 intention and the map**. Crews are gone, orders chain, the draft is

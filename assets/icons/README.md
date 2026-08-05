@@ -1,4 +1,4 @@
-# Zero Hour: 1939 — Icon & UI Art Folder
+# Global Operations (1939 Edition) — Icon & UI Art Folder
 
 This folder is the game's entire 2-D art inventory. Every file here
 can be replaced with hand-made art: keep the **same filename** and

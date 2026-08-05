@@ -1,5 +1,5 @@
 """
-Zero Hour: 1939 — game application.
+Global Operations (1939 Edition) — game application.
 
 State machine: main menu -> nation selection -> campaign on the globe.
 Controls follow Supreme Commander conventions: left-click / drag-box to
@@ -332,7 +332,8 @@ class WW2RTSGame(ShowBase):
         breaks every relative asset path. main.py records the true
         root; re-assert it whenever the window machinery had a chance
         to wander."""
-        root = os.environ.get('ZERO_HOUR_ROOT')
+        root = os.environ.get('GLOBAL_OPS_ROOT') \
+            or os.environ.get('ZERO_HOUR_ROOT')
         if root and os.getcwd() != root and os.path.isdir(
                 os.path.join(root, 'assets')):
             os.chdir(root)
@@ -796,7 +797,10 @@ class WW2RTSGame(ShowBase):
             np_.setBin('gui-popup', 91)
             return tn
 
-        text("ZERO HOUR: 1939", 0.30, 0.14, (0.92, 0.87, 0.70, 1.0))
+        text("GLOBAL OPERATIONS", 0.30, 0.14,
+             (0.92, 0.87, 0.70, 1.0))
+        text("* 1939 EDITION *", 0.21, 0.055,
+             (0.80, 0.74, 0.58, 1.0))
         text("++ MOBILIZATION IN PROGRESS ++", 0.14, 0.05,
              (0.70, 0.66, 0.55, 1.0))
         status_tn = text("DRAWING UP MAPS...", -0.10, 0.045,
@@ -1005,12 +1009,33 @@ class WW2RTSGame(ShowBase):
         supplied BY the town for as long as it holds."""
         if self.base_of_city(city, kind) is not None:
             return None
-        rng = random.Random(hash((city.name, kind)) & 0xffffffff)
-        la = city.lat + rng.uniform(-0.55, 0.55)
-        lo = city.lon + rng.uniform(-0.55, 0.55)
+        # a STABLE seed: str hash() is salted per process, and a
+        # base must stand in the same place on every launch
+        import zlib
+        rng = random.Random(zlib.crc32(
+            ("%s|%s" % (city.name, kind)).encode()))
         if kind == 'naval':
-            la, lo = self.world.nearest_water(la, lo, max_deg=2.0)
+            # the yard wants the city's OWN waterfront: walk a ring
+            # of anchorages outward and take the first open water,
+            # so London's yard sits in the Thames, not off Wight
+            la = lo = None
+            for radius in (0.30, 0.45, 0.65, 0.90):
+                for k in range(12):
+                    a = (k + rng.random()) * math.pi / 6.0
+                    ca = city.lat + radius * math.sin(a)
+                    co = city.lon + radius * math.cos(a) / max(
+                        0.2, math.cos(math.radians(city.lat)))
+                    if self.world.is_water(ca, co):
+                        la, lo = ca, co
+                        break
+                if la is not None:
+                    break
+            if la is None:
+                la, lo = self.world.nearest_water(
+                    city.lat, city.lon, max_deg=2.0)
         else:
+            la = city.lat + rng.uniform(-0.55, 0.55)
+            lo = city.lon + rng.uniform(-0.55, 0.55)
             la, lo = self.world.nearest_land(la, lo)
         name = "%s %s" % (city.name.upper(), self.BASE_LABEL[kind])
         if kind == 'army':

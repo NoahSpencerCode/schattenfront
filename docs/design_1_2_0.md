@@ -1,4 +1,4 @@
-# ZERO HOUR: 1939 — 1.2.0 Design Research
+# GLOBAL OPERATIONS (1939 EDITION) — 1.2.0 Design Research
 
 **Subject:** Deeper diplomacy, resources, city management and research.
 **Positioning:** halfway between *Supreme Commander* and *Sid Meier's
@@ -14,7 +14,7 @@ logistics, factories on the map, everything real-time and spatial.
 what a city builds, which tech next, what a treaty says — resolved on
 a cadence, with consequences that compound over decades.
 
-Zero Hour is already three-quarters SupCom: real-time, physical
+The game is already three-quarters SupCom: real-time, physical
 supply as the core law, factories-as-cities, interdictable roads,
 rails and sea lanes. Its Civ half is thin:
 
