@@ -16,9 +16,11 @@ mine_yards = [h for h in g.harbors
 check(len(mine_posts) == 1 and len(mine_air) == 1
       and len(mine_yards) == 1,
       "Germany opens with one base of EACH type")
-check(any(h.country == 'germany' and not h.is_base
-          for h in g.harbors),
-      "...and her ports stand dressed on the coast")
+check(not any(not getattr(h, 'is_base', False)
+              for h in g.harbors)
+      and not any(not getattr(a, 'is_base', False)
+                  for a in g.airfields),
+      "NO ports and NO airfields at the bell -- engineers' trade")
 
 # --- production: every arm builds at its own base
 g.funds['germany'] = 10000

@@ -993,7 +993,7 @@ class WW2RTSGame(ShowBase):
                 return c
         return self.cities[0]
 
-    BASE_LABEL = {'army': 'ARMY BASE', 'air': 'AIR BASE',
+    BASE_LABEL = {'army': 'ARMY BASE', 'air': 'AIRFORCE BASE',
                   'naval': 'NAVAL BASE'}
 
 
@@ -1004,6 +1004,26 @@ class WW2RTSGame(ShowBase):
             if b.city is city and getattr(b, 'is_base', False):
                 return b
         return None
+
+    def _lay_spur(self, city, to_lat, to_lon):
+        """A spur road from the town to its new works, drawn onto
+        the map and into the routing graph -- a base is never left
+        off the network."""
+        la2, lo2 = to_lat, to_lon
+        if self.world.is_water(la2, lo2):
+            la2, lo2 = self.world.nearest_land(la2, lo2)
+        if latlon_dist_deg((city.lon, city.lat), (lo2, la2)) < 0.06:
+            return
+        seed = zlib.crc32(("spur:%s:%.3f,%.3f"
+                           % (city.name, la2, lo2)).encode())
+        curve = self.world._curved_road_points(
+            city.lat, city.lon, la2, lo2, seed, passes=5, amp=0.04)
+        self._auto_bridge_curve(curve, quiet=True)
+        poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
+        self.planner.add_custom_road(poly, rail=False)
+        if not hasattr(self.world, 'custom_road_paths'):
+            self.world.custom_road_paths = []
+        self.world.custom_road_paths.append(list(curve))
 
     def _found_base(self, city, kind, announce=True):
         """A city raises its own base: sited on open ground (or on
@@ -1055,6 +1075,11 @@ class WW2RTSGame(ShowBase):
             b = Harbor(self, la, lo, city.country, name, city=city,
                        is_base=True)
             self.harbors.append(b)
+        self._lay_spur(city, la, lo)
+        if announce:
+            # a base founded in play redraws the map's roads at once;
+            # the opening lays all its spurs before the overlay bakes
+            self._build_road_overlay()
         if announce and city.country == self.player_country:
             self.fax_short("%s STANDS %s OF THE TOWN -- SUPPLIED "
                            "BY THE CITY"
@@ -1074,59 +1099,15 @@ class WW2RTSGame(ShowBase):
                     return True
         return False
 
-    def _found_port(self, city):
-        """A NAVAL PORT on the town's waterfront: fleet supply,
-        no yard. The 1939 world is full of them."""
-        for h in self.harbors:
-            if h.city is city:
-                return None
-        import zlib
-        rng = random.Random(zlib.crc32(
-            ("%s|port" % city.name).encode()))
-        la = lo = None
-        for radius in (0.18, 0.26, 0.34, 0.45, 0.60, 0.80, 1.00):
-            for k in range(16):
-                a = (k + rng.random()) * math.pi / 8.0
-                ca = city.lat + radius * math.sin(a)
-                co = city.lon + radius * math.cos(a) / max(
-                    0.2, math.cos(math.radians(city.lat)))
-                if self.world.is_water(ca, co):
-                    la, lo = ca, co
-                    break
-            if la is not None:
-                break
-        if la is None:
-            return None
-        h = Harbor(self, la, lo, city.country,
-                   "%s PORT" % city.name.upper(), city=city)
-        self.harbors.append(h)
-        city.harbor = True
-        return h
-
-    def _found_field(self, city):
-        """An AIRFIELD outside the town: sorties and stores, no
-        production line."""
-        for a in self.airfields:
-            if a.city is city:
-                return None
-        import zlib
-        rng = random.Random(zlib.crc32(
-            ("%s|field" % city.name).encode()))
-        la = city.lat + rng.uniform(-0.30, 0.30)
-        lo = city.lon + rng.uniform(-0.30, 0.30)
-        la, lo = self.world.nearest_land(la, lo)
-        f = Airfield(self, la, lo, city.country,
-                     "%s FIELD" % city.name.upper(), city=city)
-        self.airfields.append(f)
-        return f
-
     def _spawn_starting_forces(self, faction):
-        """The opening order of battle: ONE base of each type --
-        the ARMY BASE in the biggest city, the AIRFORCE BASE at the
-        capital (or the next city), the NAVAL BASE at the biggest
-        harbour town -- plus the standing infrastructure of 1939
-        (ports and a capital field) and the logistics seed: five
-        supply trucks, five transport trucks, three engineers."""
+        """The opening order of battle, playable and AI powers
+        alike: ONE base of each type -- the ARMY BASE in the
+        biggest city, the AIRFORCE BASE at the capital (or the next
+        city), the NAVAL BASE at the biggest harbour town -- each
+        wired to its town by a spur road, and the logistics seed:
+        five supply trucks, five transport trucks, three engineers.
+        NO ports and NO airfields stand at the bell: those are the
+        engineers' trade."""
         towns = [c for c in self.cities if c.country == faction]
         if not towns:
             return
@@ -1141,12 +1122,6 @@ class WW2RTSGame(ShowBase):
                          key=lambda c: -c.population)
         if coastal:
             self._found_base(coastal[0], 'naval', announce=False)
-        # the standing infrastructure: ports at the two biggest
-        # harbour towns (the naval seat already holds its yard),
-        # a field at the capital unless the air base stands there
-        for c in coastal[1:3]:
-            self._found_port(c)
-        self._found_field(cap)
         for i, ut in enumerate(STARTING_PARK):
             u = self.spawn_unit(ut, faction, army_seat.lat,
                                 army_seat.lon, jitter=0.25,
@@ -1157,13 +1132,8 @@ class WW2RTSGame(ShowBase):
         """An NPC nation's standing army: a home-defense garrison
         posted AT its cities, sized by the town. It never marches and
         never grows -- the auto-acquire law makes it fight anyone who
-        brings a war to its soil. Its great harbour towns keep
-        their PORTS: the world's quays did not vanish in 1939."""
+        brings a war to its soil."""
         from geodata import CITY_POPULATION
-        for c in self.cities:
-            if (c.home_country == faction and c.harbor
-                    and CITY_POPULATION.get(c.name, 0) >= 450):
-                self._found_port(c)
         for c in self.cities:
             if c.home_country != faction:
                 continue
@@ -4616,7 +4586,7 @@ class WW2RTSGame(ShowBase):
         'depot':    ('SUPPLY DEPOT', 60, 25.0),
         'bunker':   ('BUNKER', 50, 18.0),
         'airfield': ('AIRFIELD', 100, 45.0),
-        'harbor':   ('NAVAL PORT', 100, 45.0),
+        'harbor':   ('PORT', 100, 45.0),
         'radar':    ('RADAR STATION', 90, 35.0),   # research-gated
     }
 
@@ -4920,7 +4890,8 @@ class WW2RTSGame(ShowBase):
                                        "BUNKER %d" % (len(self.bunkers) + 1)))
         elif kind == 'airfield':
             field = Airfield(self, lat, lon, country,
-                             "FIELD %d" % (len(self.airfields) + 1))
+                             "AIRFIELD %d" % (len(self.airfields)
+                                              + 1))
             field.stock = 0.0           # bring supplies by truck
             self.airfields.append(field)
         elif kind == 'harbor':
@@ -7647,7 +7618,7 @@ void main() {
                 "THE MOMENT THEY ARE FINISHED")
         else:
             self._refresh_station_ui(
-                harbor, "NAVAL PORT", "HULL",
+                harbor, "PORT", "HULL",
                 "A SUPPLY POINT FOR THE FLEET -- STOCKED BY TRUCK; "
                 "NO YARD HERE")
 
