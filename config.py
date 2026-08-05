@@ -66,7 +66,7 @@ FOG_BRIGHTNESS = 0.8          # 20% darker
 FOG_SATURATION = 0.5          # 50% less saturated
 TERRAIN_LOS = False           # relief-warped vision fields (heavy);
                               # False = clean circles, flag kept for later
-GAME_VERSION = '1.2.0'        # shown on the menu as ALPHA <version>
+GAME_VERSION = '1.3.0'        # shown on the menu as ALPHA <version>
 
 # ------------------------------------------------ strategic resources
 # Exactly three, and each governs a different half of the war:
