@@ -10,8 +10,13 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+# THE GAME ALWAYS RUNS FROM ITS OWN ROOT -- main.py chdirs there and
+# the window machinery re-asserts it -- and some assets (the menu
+# reel, the score) are found by RELATIVE path. A case run from
+# tests/ would not see them, so stand where the game stands.
+os.chdir(ROOT)
 
 _checks = {'pass': 0, 'fail': 0}
 

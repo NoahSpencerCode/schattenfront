@@ -529,6 +529,14 @@ class WW2RTSGame(ShowBase):
                 _DGG.setDefaultClickSound(self.click_snd)
         except Exception as exc:
             print("WARNING: interface audio failed to start: %r" % exc)
+        # THE SCORE: the music under the war, and the recorded
+        # voices that cut across it
+        try:
+            from score import Score
+            self.score = Score(self)
+        except Exception as exc:
+            print("WARNING: the score failed to start: %r" % exc)
+            self.score = None
         self._build_cursor()
         self.hover_glow = None          # built lazily (needs no loader)
         self._vision_units = []
@@ -652,6 +660,8 @@ class WW2RTSGame(ShowBase):
     # ========================================================== states
     def show_menu(self):
         self.game_state = 'menu'
+        if getattr(self, 'score', None):
+            self.score.enter_menu()
         self._teardown_campaign()
         if self.menu:
             self.menu.destroy()
@@ -985,6 +995,8 @@ class WW2RTSGame(ShowBase):
         prewarm_button_assets()         # no first-use PIL hitch in play
         self._loading_np = loading      # held up through the warm-up
         self._warmup_t0 = globalClock.getFrameTime()
+        if getattr(self, 'score', None):
+            self.score.enter_campaign()     # the map keeps its quiet
         self._bind_game_controls()
         self._tick_vision_comm()        # fog + contact valid on frame one
 
@@ -8454,6 +8466,8 @@ void main() {
                 self._spread_timer = 0.4
                 self._tick_separation()
 
+        if getattr(self, 'score', None):
+            self.score.update(dt)
         self._tick_path_viz(dt)
         self._top_bar_timer -= dt
         if self._top_bar_timer <= 0:

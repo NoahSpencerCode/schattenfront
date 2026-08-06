@@ -31,6 +31,13 @@ setup(
             'include_patterns': [
                 'assets/**',
                 'media/reel.mp4',
+                # THE SCORE: the pack's marches (ogg only -- the wav
+                # and mp3 copies would treble the bundle), the one
+                # looping march the menu stands on, and the recorded
+                # addresses
+                'media/WW2 Military Music Pack/Tracks/ogg/*.ogg',
+                'media/WW2 Military Music Pack/Loops/ogg/*.ogg',
+                'media/speeches/*.mp3',
                 'data/*.geojson',
                 'data/cache/vectors_v5.npz',
                 'data/cache/globe_map_v36.png',
