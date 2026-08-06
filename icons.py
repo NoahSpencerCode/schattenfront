@@ -775,6 +775,24 @@ def _draw_resource_button(d, ink):
     d.polygon([(60, 52), (66, 44), (90, 44), (84, 52)], fill=ink)
 
 
+def _draw_research_button(d, ink):
+    """The directorate's mark: a laboratory flask over the branching
+    chart the programmes are drawn on."""
+    # the flask: neck, shoulders, body
+    d.line([(40, 14), (40, 40)], fill=ink, width=5)
+    d.line([(56, 14), (56, 40)], fill=ink, width=5)
+    d.line([(34, 14), (62, 14)], fill=ink, width=5)
+    d.polygon([(40, 40), (56, 40), (74, 78), (22, 78)], outline=ink,
+              width=5)
+    d.line([(30, 64), (66, 64)], fill=ink, width=4)     # the fill line
+    d.ellipse([42, 50, 50, 58], fill=ink)               # a bubble
+    # the chart beneath: one root branching to two
+    d.line([(48, 78), (48, 86)], fill=ink, width=4)
+    d.line([(26, 86), (70, 86)], fill=ink, width=4)
+    d.line([(26, 86), (26, 92)], fill=ink, width=4)
+    d.line([(70, 86), (70, 92)], fill=ink, width=4)
+
+
 def _draw_derrick(d, ink):
     """Oil field: the lattice derrick over its wellhead."""
     d.line([(30, 84), (48, 16)], fill=ink, width=5)
@@ -831,6 +849,7 @@ _DRAWERS = {
     'granary': _draw_granary,
     'crossed_swords': _draw_crossed_swords,
     'resource_button': _draw_resource_button,
+    'research_button': _draw_research_button,
     'derrick': _draw_derrick,
     'foundry': _draw_foundry,
     'plantation': _draw_plantation,

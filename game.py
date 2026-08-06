@@ -943,7 +943,8 @@ class WW2RTSGame(ShowBase):
 
         self.top_bar = TopBar(self, self.open_budget,
                               self.open_factory_report,
-                              on_resources=self.open_resources_report)
+                              on_resources=self.open_resources_report,
+                              on_tech=self.open_tech_tree)
         self.bottom_bar = BottomBar(self)
         self.bottom_bar.set_title("ALL QUIET")
         self.bottom_bar.set_hint(CONTROLS_HINT)
@@ -1503,9 +1504,13 @@ class WW2RTSGame(ShowBase):
         equally across every unit type on the books."""
         has_harbor = any(c.harbor and c.country == country
                          for c in self.cities)
-        # manpower is enlisted from the towns, never bought
+        # manpower is enlisted from the towns, never bought -- and
+        # no money is committed to an arm the laboratories have not
+        # delivered (a locked line would sit on the manifest and
+        # build nothing at all)
+        allowed = unlocked_units(country, self.researched[country])
         types = [ut for ut in NATION_UNIT_STATS[country]
-                 if ut != 'infantry'
+                 if ut != 'infantry' and ut in allowed
                  and (UNIT_TYPES[ut]['domain'] != 'sea' or has_harbor)]
         # a balanced opening slate: no line deeper than SIX pieces
         # (an even dollar split buys walls of the cheap types), and
@@ -3987,7 +3992,11 @@ class WW2RTSGame(ShowBase):
             transport = order['target']
             if not transport.alive:
                 return True
-            if unit.dist_to(transport.pos) < 0.25:
+            # a lorry must pull ALONGSIDE to load; a ship cannot
+            # come ashore, so her party boards across the water
+            reach = (0.10 if transport.stats['domain'] == 'land'
+                     else 0.25)
+            if unit.dist_to(transport.pos) < reach:
                 if len(transport.cargo) < transport.stats['capacity']:
                     self._load_unit(transport, unit)
                 return True
@@ -4285,9 +4294,12 @@ class WW2RTSGame(ShowBase):
         unit.path = []
         unit.plan_pending = None
         unit.attack_target = None
-        unit.set_selected(False)
-        if unit in self.selected:
-            self.selected.remove(unit)
+        # A PASSENGER STAYS SELECTED. Dropping him from the
+        # selection as he stepped aboard emptied the player's hand
+        # mid-chain: the next right-click found nothing selected and
+        # did nothing at all. His ring is hidden with his counter.
+        if unit not in self.selected:
+            unit.set_selected(False)
         unit.root.hide()
         transport.cargo.append(unit)
         if transport.country == self.player_country:
@@ -4304,16 +4316,23 @@ class WW2RTSGame(ShowBase):
                          and transport.based_at is None)
         kept = 0
         n_out = 0
+        # a LORRY sets its riders down at the kerb; a landing craft
+        # must put its party onto whatever beach it can reach
+        tight = transport.stats['domain'] == 'land'
+        jitter = 0.04 if tight else 0.1
+        reach = 0.35 if tight else 1.0
         for unit in list(transport.cargo):
             if airborne_jump and unit.unit_type != 'infantry':
                 kept += 1           # no parachute fits a lorry
                 continue
             # a tight scatter: the party forms up BESIDE the transport,
             # not half a province away
-            la, lo = self.world.nearest_land(lat + random.uniform(-.1, .1),
-                                             lon + random.uniform(-.1, .1))
+            la, lo = self.world.nearest_land(
+                lat + random.uniform(-jitter, jitter),
+                lon + random.uniform(-jitter, jitter))
             d = latlon_to_vec(la, lo)
-            if not para and angle_between(d, transport.pos) * GLOBE_RADIUS > 1.0:
+            if not para and angle_between(d, transport.pos) \
+                    * GLOBE_RADIUS > reach:
                 continue
             transport.cargo.remove(unit)
             unit.carried_by = None
@@ -4518,8 +4537,13 @@ class WW2RTSGame(ShowBase):
     def unit_destroyed(self, unit, attacker):
         was_embarked_on = unit.based_at if self.is_parked(unit) else None
         unit.destroy()
-        if unit in self.selected:
-            self.selected.remove(unit)
+        # a transport takes her passengers down with her: sweep every
+        # unit this loss killed out of the selection before the UI
+        # reaches for a node that no longer exists
+        lost = [u for u in self.selected if not u.alive]
+        if lost:
+            for u in lost:
+                self.selected.remove(u)
             self._refresh_selection_ui()
         if was_embarked_on is not None:
             self._refresh_air_base(was_embarked_on)
@@ -5596,6 +5620,8 @@ void main() {
 
     FERRY_MIN_MARCH = 0.25      # a march worth motorizing (world units)
     FERRY_PICKUP_MAX = 2.5      # how far a truck will drive to collect
+    FERRY_SCOOP = 0.10          # the cab pulls ALONGSIDE to load
+    FERRY_CHASE_DRIFT = 0.16    # re-aim once the marcher has moved on
 
     def _tick_ferry(self):
         """Idle personnel trucks run a taxi service: infantry slogging
@@ -5767,14 +5793,15 @@ void main() {
                                  queue=True)
                 return
             u, _g = min(walkers, key=lambda p: truck.dist_to(p[0].pos))
-            if truck.dist_to(u.pos) < 0.45:
+            if truck.dist_to(u.pos) < self.FERRY_SCOOP:
                 self._load_unit(truck, u)   # scooped mid-march
                 return
             # chase the moving marcher; re-aim only when the last aim
             # has drifted stale so the planner isn't churned
             aim = job.get('chase')
             if aim is None or \
-                    angle_between(aim, u.pos) * GLOBE_RADIUS > 0.3:
+                    angle_between(aim, u.pos) * GLOBE_RADIUS \
+                    > self.FERRY_CHASE_DRIFT:
                 job['chase'] = Vec3(u.pos)
                 truck.give_order({'kind': 'move', 'goal': Vec3(u.pos),
                                   'auto': True})

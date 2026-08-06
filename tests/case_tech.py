@@ -65,4 +65,12 @@ g._execute_budget('germany', {'bomber': 2}, False)
 check(g.funds['germany'] == 5000,
       "stale locked order buys nothing")
 
+# --- the opening slate never commits to a locked arm
+g2_locked = [ut for ut in g.budget_counts
+             if ut not in g.buyable_units('germany')]
+check(not g2_locked,
+      "no locked line on the opening manifest (%s)" % g2_locked[:3])
+check('supply_ship' not in g.budget_counts,
+      "no supply ships bought before the fleet train is delivered")
+
 finish()

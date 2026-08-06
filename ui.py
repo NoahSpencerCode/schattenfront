@@ -170,7 +170,7 @@ class TopBar:
     RESOURCE_COLS = ('OIL', 'STEEL', 'FOOD')
 
     def __init__(self, base, on_budget, on_factory=None,
-                 on_resources=None):
+                 on_resources=None, on_tech=None):
         self.base = base
         self.frame = DirectFrame(parent=base.a2dTopCenter,
                                  frameColor=(1, 1, 1, 0.92),
@@ -178,24 +178,29 @@ class TopBar:
                                  frameSize=(-2.0, 2.0, -0.155, 0.0),
                                  state=DGG.NORMAL)
         self.frame.setTransparency(True)
+        # EVERY MARK ON THE STRIP hangs from this node, so a window
+        # narrower than the layout was drawn for squeezes the whole
+        # rank down together instead of walking its right-hand end
+        # off the screen (the report keys were doing exactly that)
+        self.content = self.frame.attachNewNode('bar_content')
         self.values = {}
         for (title, x, align) in self.COLUMNS:
-            head, _ = _make_text(self.frame, base.hud_font,
+            head, _ = _make_text(self.content, base.hud_font,
                                  (x, -0.048), 0.024,
                                  (0.55, 0.53, 0.45, 1.0), align)
             head.setText(title)
             color = (ALERT if title == '[OUT OF CONTACT]'
                      else (ACCENT if title == 'TIME' else BAR_TEXT))
-            val, _ = _make_text(self.frame, base.hud_font,
+            val, _ = _make_text(self.content, base.hud_font,
                                 (x, -0.118), 0.040, color, align)
             self.values[title] = val
         self.budget_btn = pill_button(
-            self.frame, "BUDGET", on_budget, pos=(1.44, 0, -0.068),
+            self.content, "BUDGET", on_budget, pos=(1.44, 0, -0.068),
             hw=0.155, hh=0.037, text_scale=0.034, font=base.hud_font)
         # war-industries report, beside the budget: a proper console
         # key, not a bare pictogram floating on the panel
         self.factory_btn = pill_button(
-            self.frame, '', on_factory, pos=(1.645, 0, -0.062),
+            self.content, '', on_factory, pos=(1.645, 0, -0.062),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('factory_button',
                                                 'dark'),
@@ -207,7 +212,7 @@ class TopBar:
                     "REPORT", font=base.hud_font, dy=-0.105)
         # the quartermaster's ledger, beside the factory key
         self.resource_btn = pill_button(
-            self.frame, '', on_resources, pos=(1.755, 0, -0.062),
+            self.content, '', on_resources, pos=(1.755, 0, -0.062),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('resource_button',
                                                 'dark'),
@@ -218,23 +223,41 @@ class TopBar:
         add_tooltip(self.resource_btn, "STRATEGIC RESOURCES -- "
                     "STOCKS AND SUPPLY", font=base.hud_font,
                     dy=-0.105)
+        # the research chart, beside the ledger
+        self.tech_btn = pill_button(
+            self.content, '', on_tech, pos=(1.865, 0, -0.062),
+            hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
+        pic = OnscreenImage(image=get_icon_path('research_button',
+                                                'dark'),
+                            parent=self.tech_btn, scale=0.034,
+                            pos=(0, 0, 0))
+        pic.setTransparency(True)
+        crisp_image(pic)
+        add_tooltip(self.tech_btn, "THE RESEARCH CHART -- "
+                    "PROGRAMMES [R]", font=base.hud_font, dy=-0.105)
         # fourteen dots: the days of the running fortnight
         self.day_dots = []
         for i in range(14):
-            x = 1.44 - 0.169 + i * 0.026
-            dot = DirectFrame(parent=self.frame,
+            dot = DirectFrame(parent=self.content,
                               frameColor=(0.32, 0.30, 0.26, 1.0),
                               frameSize=(-0.008, 0.008, -0.008, 0.008),
-                              pos=(x, 0, -0.132))
+                              pos=(1.44 - 0.169 + i * 0.026,
+                                   0, -0.132))
             self.day_dots.append(dot)
         self._fortnight_day = 0
+        # THE RIGHT-HAND CLUSTER RIDES THE SCREEN EDGE. Placed at
+        # fixed coordinates it walked off the side of any window
+        # narrower than 16:9 -- at 16:10 the factory, resource and
+        # research keys all stood past the edge, invisible.
+        self._fit_to_screen()
+        base.accept('aspect-ratio-changed', self._fit_to_screen)
         # the RESOURCE STRIP explains itself on hover: each column
         # carries an invisible plate whose tooltip itemizes the flow
         self.res_tips = {}
         for res, x, _a in self.COLUMNS:
             if res not in self.RESOURCE_COLS:
                 continue
-            hov = DirectButton(parent=self.frame, relief=None,
+            hov = DirectButton(parent=self.content, relief=None,
                               frameColor=(0, 0, 0, 0),
                               frameSize=(-0.02, 0.18, -0.150, -0.02),
                               pos=(x, 0, 0), state=DGG.NORMAL)
@@ -264,6 +287,20 @@ class TopBar:
             self.factory_pip.show()
         elif not on and not self.factory_pip.isHidden():
             self.factory_pip.hide()
+
+    LAYOUT_HALF = 1.93          # the half-width the rank is drawn at
+
+    def _fit_to_screen(self):
+        """The strip is drawn for a wide window; a narrower one
+        squeezes the whole rank to fit rather than losing its
+        right-hand end off the edge."""
+        if not self.frame or self.frame.isEmpty():
+            return
+        try:
+            right = self.base.getAspectRatio()
+        except Exception:
+            right = 4.0 / 3.0
+        self.content.setScale(min(1.0, right / self.LAYOUT_HALF))
 
     def set_stats(self, stats):
         """stats: dict keyed by column title."""
