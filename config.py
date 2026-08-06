@@ -177,8 +177,12 @@ CAPTURE_INFANTRY_PER_MILLION = 1.0   # garrison cost to annex a city
 
 # Combat / capture
 CITY_CAPTURE_RANGE = 0.15     # world units: standing ON the town
-CAPTURE_CLEAR_RANGE = 0.35    # no annexation while enemy units
-                              # stand THIS close to the town
+CAPTURE_CLEAR_RANGE = 0.07    # no annexation while enemy units
+                              # stand THIS close to the town -- an
+                              # INFANTRY SECTION'S EYES (vision 0.7
+                              # x VISION_SCALE): if the garrison
+                              # standing on the town cannot see him,
+                              # he does not contest it
 CITY_CAPTURE_TIME = 8.0       # seconds
 BRIDGE_HP = 120
 BRIDGE_REPAIR_RATE = 12       # hp/sec by engineers
