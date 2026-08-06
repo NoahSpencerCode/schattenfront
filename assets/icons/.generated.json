@@ -527,12 +527,20 @@
 "h": "95ba9eef3324fc94c34d5b42ca95e26d",
 "v": 17
 },
+"ui/fast_battleship.png": {
+"h": "dfd0f6bf2542a932d8dfd3c34941d41f",
+"v": 17
+},
 "ui/foundry.png": {
 "h": "e4b1d3f2f15c79857e39538cd58e5e2d",
 "v": 17
 },
 "ui/granary.png": {
 "h": "f8e7df7520e322539c6d26b9a7a29c82",
+"v": 17
+},
+"ui/heavy_cruiser.png": {
+"h": "59495f648f81a08d15c46e704aacce18",
 "v": 17
 },
 "ui/nosupply_red.png": {
@@ -589,6 +597,14 @@
 },
 "units/blimp_up.png": {
 "h": "c489f7fda7594362c17ff69e04e04fc8",
+"v": 17
+},
+"units/fast_battleship.png": {
+"h": "73fde0cf70aaddf00564e000c2684256",
+"v": 17
+},
+"units/heavy_cruiser.png": {
+"h": "24ece4578d8151ff81383d30e698462d",
 "v": 17
 }
 }

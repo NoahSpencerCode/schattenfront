@@ -7901,6 +7901,17 @@ void main() {
             "aircraft by half again -- over every ridge, day after",
             "day. Fixed while aloft: winch it down to displace.",
             "Unarmed and slow to replace; keep it behind the line."],
+        'heavy_cruiser': [
+            "The researched cruiser: half again the armour of a",
+            "destroyer, heavier guns and a longer reach, at a price",
+            "well short of the battle line. The workhorse for",
+            "commerce protection and shore bombardment once the",
+            "laboratories deliver her."],
+        'fast_battleship': [
+            "The battle line perfected -- thicker armour, heavier",
+            "guns and the longest reach afloat, and fast enough to",
+            "run with the carriers. Everything a battleship is, and",
+            "more of it. She costs accordingly, in money and steel."],
         'submarine': [
             "The commerce raider. Submerged she is all but invisible",
             "-- spotted only nearly overhead -- but creeps on her",

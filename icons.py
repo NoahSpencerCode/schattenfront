@@ -735,6 +735,31 @@ def _draw_battleship(d, ink):
     d.line([(76, 52), (62, 46)], fill=ink, width=5)
 
 
+def _draw_heavy_cruiser(d, ink):
+    """A cruiser in profile: long low hull, two turrets, raked
+    funnels -- lighter than the battle line, longer than a boat."""
+    d.polygon([(8, 60), (88, 60), (78, 72), (18, 72)], fill=ink)
+    d.rectangle([38, 48, 58, 60], fill=ink)                # bridge block
+    d.rectangle([45, 38, 51, 50], fill=ink)                # foremast
+    d.polygon([(60, 48), (68, 48), (66, 60), (58, 60)], fill=ink)
+    d.polygon([(70, 50), (77, 50), (75, 60), (68, 60)], fill=ink)
+    d.line([(22, 56), (34, 52)], fill=ink, width=5)        # fore turret
+    d.line([(82, 56), (74, 54)], fill=ink, width=4)
+
+
+def _draw_fast_battleship(d, ink):
+    """The perfected capital ship: a longer hull, four turrets and
+    a tower mast -- the battle line at speed."""
+    d.polygon([(4, 58), (92, 58), (82, 74), (14, 74)], fill=ink)
+    d.rectangle([36, 40, 60, 58], fill=ink)                # citadel
+    d.rectangle([44, 26, 52, 42], fill=ink)                # tower mast
+    d.polygon([(46, 18), (50, 18), (48, 26)], fill=ink)    # topmast
+    for x0 in (14, 26):                                    # fore guns
+        d.line([(x0, 54), (x0 + 12, 48)], fill=ink, width=5)
+    for x0 in (62, 74):                                    # after guns
+        d.line([(x0, 48), (x0 + 12, 54)], fill=ink, width=5)
+
+
 def _draw_army_post(d, ink):
     """A garrison camp from above: tent rows round a parade square,
     the colours flying at the gate."""
@@ -849,6 +874,8 @@ _DRAWERS = {
     'granary': _draw_granary,
     'crossed_swords': _draw_crossed_swords,
     'resource_button': _draw_resource_button,
+    'heavy_cruiser': _draw_heavy_cruiser,
+    'fast_battleship': _draw_fast_battleship,
     'research_button': _draw_research_button,
     'derrick': _draw_derrick,
     'foundry': _draw_foundry,
@@ -1346,6 +1373,31 @@ def _tu_battleship(d, ink, nat=None):
         _orect(d, 44, 42, 52, 50, 2)
 
 
+def _tu_heavy_cruiser(d, ink, nat=None):
+    """A cruiser from above: fine hull, two turrets forward and one
+    aft, twin funnels amidships."""
+    _hull_top(d, bow=6, stern=90, half=12)
+    _turret(d, 48, 24, 7, 10, bw=3)
+    _turret(d, 48, 36, 7, 10, bw=3)
+    _orect(d, 43, 44, 53, 62, 3)                               # citadel
+    _funnel(d, 48, 50, r=3)
+    _funnel(d, 48, 58, r=3)
+    _turret(d, 48, 76, 7, 10, bw=3)
+
+
+def _tu_fast_battleship(d, ink, nat=None):
+    """The heavy line perfected: four turrets, a long citadel and a
+    tower mast, on a hull longer than the old battleships."""
+    _hull_top(d, bow=2, stern=94, half=16)
+    _turret(d, 48, 18, 9, 12, bw=4)
+    _turret(d, 48, 32, 9, 12, bw=4)
+    _orect(d, 40, 40, 56, 64, 3)                               # citadel
+    _orect(d, 44, 44, 52, 52, 2)                               # tower
+    _funnel(d, 48, 56, r=4)
+    _turret(d, 48, 74, 9, 12, bw=4)
+    _turret(d, 48, 86, 9, 10, bw=4)
+
+
 def _tu_blimp_truck(d, ink, nat=None):
     """The blimp station on the road: a lorry with the folded
     envelope humped on its bed -- clearly NOT yet aloft."""
@@ -1400,6 +1452,8 @@ _TOP_DOWN = {
     'jet_fighter': _tu_jet,
     'submarine': _tu_submarine,
     'battleship': _tu_battleship,
+    'heavy_cruiser': _tu_heavy_cruiser,
+    'fast_battleship': _tu_fast_battleship,
     'blimp': _tu_blimp_truck,
     'blimp_up': _tu_blimp,
 }

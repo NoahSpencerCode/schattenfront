@@ -2568,9 +2568,8 @@ class TechFax:
         'detection': (0.21, 1),
         'medium_bombers': (0.0, 0), 'air_logistics': (-0.21, 1),
         'strategic_bombing': (0.21, 1), 'jet_propulsion': (0.21, 2),
-        'fleet_escorts': (0.0, 0), 'submarines': (-0.21, 1),
-        'fleet_train': (0.21, 1), 'capital_ships': (-0.21, 2),
-        'naval_aviation': (0.21, 2),
+        'naval_gunnery': (0.0, 0), 'submarines': (-0.21, 1),
+        'capital_gunnery': (0.21, 1), 'naval_aviation': (0.21, 2),
     }
     COL_X = {'land': -0.84, 'air': 0.0, 'sea': 0.84}
     ROW_Y = (0.40, 0.09, -0.22)
@@ -2605,10 +2604,14 @@ class TechFax:
         return fr
 
     def _node_pos(self, nid):
+        """Where a node's card stands. A node added to the graph
+        without a place on the chart falls to the middle of its row
+        rather than taking the whole page down with it."""
         from tech import NODES
-        dx, row = self.POS[nid]
-        return (self.COL_X[NODES[nid]['branch']] + dx,
-                self.ROW_Y[row])
+        node = NODES[nid]
+        dx, row = self.POS.get(nid, (0.0, node['row']))
+        return (self.COL_X[node['branch']] + dx,
+                self.ROW_Y[min(row, len(self.ROW_Y) - 1)])
 
     def _build(self):
         from tech import (NODES, RESEARCH_PCT_CHOICES,

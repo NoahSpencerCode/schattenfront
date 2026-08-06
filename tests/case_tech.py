@@ -15,21 +15,42 @@ for nat in ('germany', 'usa', 'britain', 'japan', 'soviet'):
 
 # --- the frontier: only roots open at the start
 front = set(available_nodes(set()))
-check(front == {'artillery', 'medium_bombers', 'fleet_escorts'},
+check(front == {'artillery', 'medium_bombers', 'naval_gunnery'},
       "three roots open the chart (%s)" % sorted(front))
-front2 = set(available_nodes({'fleet_escorts'}))
-check({'submarines', 'fleet_train', 'capital_ships'} <= front2,
-      "escorts open three sea paths")
+front2 = set(available_nodes({'naval_gunnery'}))
+check({'submarines', 'capital_gunnery'} <= front2,
+      "gunnery opens the boats and the capital ships")
 check('naval_aviation' not in front2,
-      "carriers wait on the fleet train")
+      "carriers wait on the capital gunnery")
 
 # --- locked arms are locked
 kit = unlocked_units('germany', set())
-check('bomber' not in kit and 'destroyer_aa' not in kit
-      and 'aircraft_carrier' not in kit,
-      "bombers, escorts, carriers locked at the start")
+check('bomber' not in kit and 'aircraft_carrier' not in kit
+      and 'heavy_cruiser' not in kit
+      and 'fast_battleship' not in kit,
+      "bombers and the ADVANCED hulls are locked at the start")
 check('fighter' in kit and 'tank' in kit,
       "the 1939 kit stands free")
+# THE 1939 FLEET sails from the first day
+for ship in ('supply_ship', 'battleship', 'destroyer_aa',
+             'destroyer_sea_land', 'destroyer_sea_sea',
+             'personnel_transport', 'naval_command'):
+    check(ship in kit, "%s sails at the bell" % ship)
+# and what research buys is a BETTER hull, in every measure
+from units import stats_for
+free_bb = stats_for('battleship', 'germany')
+adv_bb = stats_for('fast_battleship', 'germany')
+check(adv_bb['hp'] > free_bb['hp']
+      and adv_bb['damage'] > free_bb['damage']
+      and adv_bb['range'] > free_bb['range']
+      and adv_bb['speed'] > free_bb['speed'],
+      "the researched capital ship beats the free one everywhere")
+free_dd = stats_for('destroyer_sea_sea', 'germany')
+adv_ca = stats_for('heavy_cruiser', 'germany')
+check(adv_ca['hp'] > free_dd['hp']
+      and adv_ca['damage'] > free_dd['damage']
+      and adv_ca['range'] > free_dd['range'],
+      "the researched cruiser out-armours and out-guns a destroyer")
 kit2 = unlocked_units('germany', {'medium_bombers'})
 check('bomber' in kit2, "research unlocks the bomber")
 check(not radar_unlocked('germany', set()), "radar locked")
@@ -38,7 +59,7 @@ check(radar_unlocked('germany', {'artillery', 'detection'}),
 
 # --- legacy saves map onto the graph
 old = normalize({('land', 1), ('sea', 0)})
-check({'artillery', 'heavy_armour', 'fleet_escorts',
+check({'artillery', 'heavy_armour', 'naval_gunnery',
        'submarines'} == old,
       "legacy pairs expand with their implied prerequisites")
 
@@ -70,7 +91,9 @@ g2_locked = [ut for ut in g.budget_counts
              if ut not in g.buyable_units('germany')]
 check(not g2_locked,
       "no locked line on the opening manifest (%s)" % g2_locked[:3])
-check('supply_ship' not in g.budget_counts,
-      "no supply ships bought before the fleet train is delivered")
+check('supply_ship' in g.budget_counts,
+      "supply ships ARE on the opening manifest -- they need no lab")
+check('heavy_cruiser' not in g.budget_counts,
+      "the researched cruiser is not")
 
 finish()

@@ -165,6 +165,17 @@ UNIT_TYPES = {
         'vision': 1.3, 'hp': 420, 'cost': 2000, 'build_time': 30,
         'damage': 40, 'range': 1.6,
         'targets': ('sea', 'land', 'bridge'), 'icon': 'BB'},
+    # ---- the researched fleet: better hulls, not new roles
+    'heavy_cruiser': {
+        'label': 'Heavy Cruiser', 'domain': 'sea', 'speed': 0.510,
+        'vision': 1.25, 'hp': 265, 'cost': 1250, 'build_time': 20,
+        'damage': 33, 'range': 1.40,
+        'targets': ('sea', 'land', 'bridge'), 'icon': 'CA'},
+    'fast_battleship': {
+        'label': 'Fast Battleship', 'domain': 'sea', 'speed': 0.560,
+        'vision': 1.45, 'hp': 530, 'cost': 2650, 'build_time': 34,
+        'damage': 53, 'range': 1.95,
+        'targets': ('sea', 'land', 'bridge'), 'icon': 'BBF'},
 }
 
 BRANCH_OF = {'land': 'ARMY', 'sea': 'NAVY', 'air': 'AIR FORCE'}
@@ -304,6 +315,14 @@ NATION_UNITS = {
                         "The first operational jet fighter."),
         'submarine': ('Type VII U-boat', {'cost': 0.8, 'damage': 1.15},
                       "The wolfpack tonnage war, perfected."),
+        'heavy_cruiser': ('Admiral Hipper-class',
+                          {'damage': 1.05},
+                          "Heavy cruisers of the Kriegsmarine: a "
+                          "long reach for commerce war."),
+        'fast_battleship': ('Scharnhorst-class',
+                            {'speed': 1.05},
+                            "Fast capital ships built to outrun what "
+                            "they cannot outgun."),
         'battleship': ('Bismarck-class', {'hp': 1.1},
                        "The Atlantic's most hunted ship."),
     },
@@ -367,6 +386,14 @@ NATION_UNITS = {
                         "America's jet age opens."),
         'submarine': ('Gato-class', {'hp': 1.1},
                       "The Pacific commerce war in steel."),
+        'heavy_cruiser': ('Baltimore-class',
+                          {'hp': 1.05},
+                          "The war-built heavy cruiser: radar, "
+                          "armour and eight-inch guns."),
+        'fast_battleship': ('Iowa-class Fast BB',
+                            {'speed': 1.08, 'damage': 1.05},
+                            "Thirty-three knots and sixteen inches -- "
+                            "the fast battleship perfected."),
         'battleship': ('Iowa-class', {'speed': 1.1},
                        "Fast battleships riding with the carriers."),
     },
@@ -425,6 +452,14 @@ NATION_UNITS = {
                         "Britain answers the jet question."),
         'submarine': ('T-class', {},
                       "Quiet boats for narrow seas."),
+        'heavy_cruiser': ('County-class',
+                          {'vision': 1.08},
+                          "Long-legged cruisers built to police an "
+                          "empire's sea lanes."),
+        'fast_battleship': ('Vanguard-class',
+                            {'hp': 1.06},
+                            "The last and best of the line: armoured "
+                            "for the North Atlantic."),
         'battleship': ('King George V-class', {},
                        "The Royal Navy's modern line."),
     },
@@ -487,6 +522,14 @@ NATION_UNITS = {
                         "A desperate leap for the jet age."),
         'submarine': ('I-class', {'vision': 1.1},
                       "Long-ranged fleet boats with seaplanes."),
+        'heavy_cruiser': ('Takao-class',
+                          {'damage': 1.1},
+                          "Torpedo-heavy cruisers drilled for the "
+                          "night action."),
+        'fast_battleship': ('Kongo-class Refit',
+                            {'speed': 1.1},
+                            "Rebuilt battlecruisers: fast enough to "
+                            "run with the carriers."),
         'battleship': ('Yamato-class', {'hp': 1.25, 'cost': 1.2},
                        "The largest guns ever sent to sea."),
     },
@@ -547,6 +590,14 @@ NATION_UNITS = {
                         "Captured science, Soviet steel."),
         'submarine': ('Shchuka-class', {'cost': 0.85},
                       "Coastal boats in every sea."),
+        'heavy_cruiser': ('Kirov-class',
+                          {'cost': 0.92},
+                          "Cruisers of the coastal fleets, built "
+                          "quickly and cheaply."),
+        'fast_battleship': ('Sovetsky Soyuz-class',
+                            {'hp': 1.08},
+                            "The great programme laid down at last: "
+                            "armour above all."),
         'battleship': ('Gangut-class (mod.)', {'hp': 0.9, 'cost': 0.8},
                        "The old guard, re-gunned."),
     },

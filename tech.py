@@ -46,22 +46,23 @@ NODES = {
     'jet_propulsion': {
         'branch': 'air', 'row': 2, 'cost': 75,
         'req': ('strategic_bombing',), 'unlocks': ('jet_fighter',)},
-    # ---- SEA
-    'fleet_escorts': {
-        'branch': 'sea', 'row': 0, 'cost': 20, 'req': (),
-        'unlocks': ('destroyer_aa', 'destroyer_sea_land')},
+    # ---- SEA. The 1939 fleet -- escorts, AA ships, the fleet
+    # train and the battle line -- sails from the first day. What
+    # the laboratories buy is BETTER HULLS: thicker armour, heavier
+    # guns and a longer reach than anything already afloat.
+    'naval_gunnery': {
+        'branch': 'sea', 'row': 0, 'cost': 25, 'req': (),
+        'unlocks': ('heavy_cruiser',)},
     'submarines': {
         'branch': 'sea', 'row': 1, 'cost': 30,
-        'req': ('fleet_escorts',), 'unlocks': ('submarine',)},
-    'fleet_train': {
-        'branch': 'sea', 'row': 1, 'cost': 30,
-        'req': ('fleet_escorts',), 'unlocks': ('supply_ship',)},
-    'capital_ships': {
-        'branch': 'sea', 'row': 2, 'cost': 60,
-        'req': ('fleet_escorts',), 'unlocks': ('battleship',)},
+        'req': ('naval_gunnery',), 'unlocks': ('submarine',)},
+    'capital_gunnery': {
+        'branch': 'sea', 'row': 1, 'cost': 60,
+        'req': ('naval_gunnery',), 'unlocks': ('fast_battleship',)},
     'naval_aviation': {
-        'branch': 'sea', 'row': 2, 'cost': 55,
-        'req': ('fleet_train',), 'unlocks': ('aircraft_carrier',)},
+        'branch': 'sea', 'row': 2, 'cost': 70,
+        'req': ('capital_gunnery',),
+        'unlocks': ('aircraft_carrier',)},
 }
 
 # each power's name for every programme
@@ -74,10 +75,9 @@ NAMES = {
         'air_logistics': "TRANSPORTFLIEGER",
         'strategic_bombing': "FERNKAMPF-PROJEKT",
         'jet_propulsion': "PROJEKT SCHWALBE",
-        'fleet_escorts': "ZERSTORER-FLOTTILLEN",
+        'naval_gunnery': "KREUZER-PROGRAMM",
         'submarines': "RUDELTAKTIK",
-        'fleet_train': "TROSSSCHIFF-VERBAND",
-        'capital_ships': "PLAN Z",
+        'capital_gunnery': "PLAN Z",
         'naval_aviation': "TRAGER-PROJEKT",
     },
     'usa': {
@@ -88,10 +88,9 @@ NAMES = {
         'air_logistics': "AIR TRANSPORT COMMAND",
         'strategic_bombing': "STRATEGIC BOMBING DOCTRINE",
         'jet_propulsion': "PROJECT SHOOTING STAR",
-        'fleet_escorts': "TWO-OCEAN ESCORT ACT",
+        'naval_gunnery': "CRUISER CONSTRUCTION ACT",
         'submarines': "SILENT SERVICE",
-        'fleet_train': "SERVICE FORCE PACIFIC",
-        'capital_ships': "FAST BATTLESHIP PROGRAM",
+        'capital_gunnery': "FAST BATTLESHIP PROGRAM",
         'naval_aviation': "CARRIER TASK FORCE DOCTRINE",
     },
     'britain': {
@@ -102,10 +101,9 @@ NAMES = {
         'air_logistics': "RAF TRANSPORT COMMAND",
         'strategic_bombing': "AREA BOMBING DIRECTIVE",
         'jet_propulsion': "WHITTLE JET PROGRAMME",
-        'fleet_escorts': "ESCORT GROUPS",
+        'naval_gunnery': "CRUISER SQUADRONS",
         'submarines': "SUBMARINE SERVICE",
-        'fleet_train': "FLEET TRAIN",
-        'capital_ships': "KGV FAST BATTLESHIPS",
+        'capital_gunnery': "KGV FAST BATTLESHIPS",
         'naval_aviation': "FLEET AIR ARM",
     },
     'japan': {
@@ -116,10 +114,9 @@ NAMES = {
         'air_logistics': "ARMY AIR TRANSPORT",
         'strategic_bombing': "RENZAN PROJECT",
         'jet_propulsion': "KIKKA PROJECT",
-        'fleet_escorts': "KAGERO FLOTILLAS",
+        'naval_gunnery': "JUNYOKAN PROGRAMME",
         'submarines': "SENSUIKAN FLEET BOATS",
-        'fleet_train': "MARU TRAIN",
-        'capital_ships': "YAMATO PROGRAMME",
+        'capital_gunnery': "YAMATO PROGRAMME",
         'naval_aviation': "KIDO BUTAI",
     },
     'soviet': {
@@ -130,10 +127,9 @@ NAMES = {
         'air_logistics': "AEROFLOT MOBILISATION",
         'strategic_bombing': "LONG-RANGE AVIATION",
         'jet_propulsion': "CAPTURED SCIENCE BUREAU",
-        'fleet_escorts': "GNEVNY FLOTILLAS",
+        'naval_gunnery': "KIROV PROGRAMME",
         'submarines': "SHCHUKA FLOTILLAS",
-        'fleet_train': "NORTHERN CONVOY TRAIN",
-        'capital_ships': "BALTIC REFIT PROGRAMME",
+        'capital_gunnery': "BALTIC REFIT PROGRAMME",
         'naval_aviation': "NAVAL AIR ARM VMF",
     },
 }
@@ -141,8 +137,12 @@ NAMES = {
 # what every power fields WITHOUT research: the 1939 standing kit
 BASE_UNITS = ('infantry', 'tank', 'supply_truck', 'transport_truck',
               'aa_artillery', 'army_command', 'engineer',
+              # THE 1939 FLEET sails from the first day: escorts of
+              # every kind, the fleet train and the battle line
               'naval_command', 'personnel_transport',
-              'destroyer_sea_sea', 'fighter', 'airforce_command')
+              'destroyer_sea_sea', 'destroyer_aa',
+              'destroyer_sea_land', 'supply_ship', 'battleship',
+              'fighter', 'airforce_command')
 
 # pre-1.3.1 saves recorded research as (branch, tier-index) pairs
 _LEGACY = {
@@ -152,8 +152,8 @@ _LEGACY = {
     ('air', 0): ('medium_bombers', 'strategic_bombing'),
     ('air', 1): ('medium_bombers', 'strategic_bombing',
                  'jet_propulsion'),
-    ('sea', 0): ('fleet_escorts', 'submarines'),
-    ('sea', 1): ('fleet_escorts', 'capital_ships'),
+    ('sea', 0): ('naval_gunnery', 'submarines'),
+    ('sea', 1): ('naval_gunnery', 'capital_gunnery'),
 }
 
 
