@@ -56,9 +56,11 @@ check(cost < 40000,
       % cost)
 
 # --- NO TWO COUNTERS STAND ON THE SAME GROUND
+# on GERMAN soil: a column ordered across a closed frontier is
+# turned back now, which would leave the mover below orderless
 pile = []
 for i in range(6):
-    u = g.spawn_unit('infantry', 'germany', 46.0, 9.0, seed=500 + i)
+    u = g.spawn_unit('infantry', 'germany', 52.0, 13.0, seed=500 + i)
     pile.append(u)
 anchor = pile[0].pos
 for u in pile:
@@ -73,10 +75,12 @@ check(worst >= FORMATION_SPACING * 0.9,
       "the pile unpicks itself to formation spacing (%.4fwu)" % worst)
 
 # a column UNDER ORDERS is left alone by the sweep
-mover = g.spawn_unit('infantry', 'germany', 46.0, 9.0, seed=600)
+mover = g.spawn_unit('infantry', 'germany', 52.0, 13.0, seed=600)
 mover.pos = anchor
-mover.give_order({'kind': 'move', 'goal': latlon_to_vec(46.5, 9.5),
+mover.give_order({'kind': 'move', 'goal': latlon_to_vec(52.3, 13.3),
                   'auto': True})
+check(mover.current_order is not None or mover.order_queue,
+      "the mover holds an order on home ground")
 held = mover.pos
 g._tick_separation()
 check(mover.pos == held, "a unit under orders is not shoved about")

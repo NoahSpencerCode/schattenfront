@@ -65,9 +65,12 @@ FORCE_CAP = 48                  # a nation fields at most this many units:
 class NationAI:
     STAGES = 4
 
-    # the diplomatic tempo, in game days
-    WAR_GRACE_DAYS = 8          # the world stays quiet at the start
-    WAR_EVERY_DAYS = (16, 30)   # one declaration per nation per spell
+    # THE DIPLOMATIC TEMPO, in game days. A staff that waited a
+    # fortnight to open its first war and a month between the next
+    # ones left the map quiet for most of a campaign; these staffs
+    # go to war readily and keep going.
+    WAR_GRACE_DAYS = 3          # the world stays quiet at the start
+    WAR_EVERY_DAYS = (6, 13)    # one declaration per nation per spell
 
     def __init__(self, game, country):
         self.g = game
@@ -76,7 +79,7 @@ class NationAI:
         self.stage = 0
         # each staff opens its first war on its own clock
         self.war_ok_minutes = (self.WAR_GRACE_DAYS
-                               + random.uniform(2.0, 14.0)) * 1440.0
+                               + random.uniform(0.0, 5.0)) * 1440.0
         self.budget_counts = {}
         self.objective = None       # the city the staff means to take
         self.staging = None         # own city the strike group masses at
@@ -273,12 +276,14 @@ class NationAI:
                 if g.alliance_answer(other, me):
                     g.make_alliance(me, other)
                     break
-        # declarations: only when the current wars offer no objective
+        # declarations: a staff already prosecuting a war usually
+        # finishes it first, but a confident one opens a second front
         if my_enemies and any(
                 g.at_war(me, c.country) for c in g.cities
                 if c.name not in self.unreachable
                 and c.country != me):
-            return
+            if random.random() > 0.2:
+                return
         if g.clock_minutes < self.war_ok_minutes:
             return
         own = [c for c in g.cities if c.country == me]
@@ -297,16 +302,18 @@ class NationAI:
                     or g.at_war(me, nat) or g.allied(me, nat)):
                 continue
             d = angle_between(centroid, c.pos)
-            if d > 0.5:
-                continue            # wars begin next door
+            if d > 0.85:
+                continue            # wars begin next door -- but the
+                                    # neighbourhood is a wide one
             pop = min(1500.0, CITY_POPULATION.get(c.name, 120))
             s = (150.0 + pop) / (0.02 + d) ** 1.7
             if nat not in PLAYABLE:
                 s *= 1.6            # the weak are eaten first
             their = sum(1 for u in g.units
                         if u.alive and u.country in g._bloc(nat))
-            if their > my_forces * 1.5:
-                continue            # nobody duels a stronger bloc
+            if their > my_forces * 2.2:
+                continue            # only an overwhelming bloc is
+                                    # left alone
             if s > best_s:
                 best, best_s = nat, s
         if best is not None:

@@ -10,7 +10,7 @@ from setuptools import setup
 
 setup(
     name='global-operations-1939',
-    version='1.3.0',
+    version='1.3.1',
     options={
         'build_apps': {
             'gui_apps': {'Global Operations 1939': 'main.py'},
