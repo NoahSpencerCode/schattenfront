@@ -37,8 +37,12 @@ SPEECHES = os.path.join(MEDIA_PATH, 'speeches')
 # the march the main menu stands on
 MENU_LOOP = '2. Engines of War (Loop).ogg'
 
-# the recorded addresses, and how loud a wireless set carries
-SPEECH_FILES = ('FDR_pearlharborspeech_64kb.mp3',)
+# THE RECORDED ADDRESSES, IN ORDER OF PRECEDENCE. The first is
+# always the first heard on a fresh menu -- Roosevelt opens the
+# programme; the rest follow at random afterwards.
+SPEECH_FILES = ('FDR_pearlharborspeech_64kb.mp3',
+                'Gen._Dwight_D._Eisenhower_s_D-Day_order_of_the_day'
+                '.mp3')
 
 MUSIC_VOLUME = 0.55
 MENU_VOLUME = 0.60
@@ -46,8 +50,10 @@ SPEECH_VOLUME = 0.95
 
 # how long the map stays quiet between marches, in seconds
 CAMPAIGN_GAP = (150.0, 420.0)
-# and how long the menu waits before a broadcast, and between them
-SPEECH_GAP = (35.0, 110.0)
+# the FIRST broadcast comes early -- a listener should not have to
+# wait to hear one -- and later ones are spaced out
+FIRST_SPEECH_GAP = (15.0, 45.0)
+SPEECH_GAP = (90.0, 210.0)
 
 
 def _listing(folder, suffix='.ogg'):
@@ -131,7 +137,11 @@ class Score:
                                 volume=MENU_VOLUME)
         if self.music is not None:
             self.music.play()
-        self._next_speech = self._rng.uniform(*SPEECH_GAP)
+        # ROOSEVELT OPENS THE PROGRAMME, and soon: the first
+        # broadcast is heard inside the first three-quarters of a
+        # minute, and every one after it is chosen at random
+        self._next_speech = self._rng.uniform(*FIRST_SPEECH_GAP)
+        self._speech_idx = 0
 
     def enter_campaign(self):
         """The map: quiet, until a march comes up of its own accord."""
@@ -167,8 +177,19 @@ class Score:
         if self._next_speech > 0:
             return
         self._next_speech = self._rng.uniform(*SPEECH_GAP)
-        self.speech = self._load(self._rng.choice(self.speeches),
-                                 loop=False, volume=SPEECH_VOLUME)
+        idx = getattr(self, '_speech_idx', 0)
+        if idx == 0:
+            path = self.speeches[0]         # Roosevelt, always first
+        else:
+            # afterwards any of them, but not the one just heard
+            pool = [s for s in self.speeches
+                    if s != getattr(self, '_last_speech', None)] \
+                or self.speeches
+            path = self._rng.choice(pool)
+        self._speech_idx = idx + 1
+        self._last_speech = path
+        self.speech = self._load(path, loop=False,
+                                 volume=SPEECH_VOLUME)
         if self.speech is not None:
             self.speech.play()
 
