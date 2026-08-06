@@ -2,7 +2,7 @@
 it, and the campaign's occasional marches. Runs under the null
 audio device, so it proves the PROGRAMME -- which piece is chosen
 when -- rather than that a speaker made a noise."""
-from harness import boot, check, finish
+from harness import boot, step, check, finish
 import os
 
 g = boot('germany')
@@ -84,6 +84,22 @@ for _ in range(6):
     sc.update(0.1)
     picks.add(sc._last_track)
 check(len(picks) > 1, "the marches vary (%d distinct)" % len(picks))
+
+# --- THE GAME ACTUALLY DRIVES IT. The score was once ticked below
+# the "is the game playing?" guard, so on the MENU -- where the
+# broadcast belongs -- its timer never ran and no speech was ever
+# heard. Drive the real frame task in the real menu state.
+g.show_menu()
+check(g.game_state == 'menu', "the menu is up")
+check(g.score.mode == 'menu', "and the score knows it")
+check(g.score.music is not None, "the march is playing on the menu")
+g.score._next_speech = 0.02
+step(g, 20)
+check(g.score.speech is not None,
+      "the FRAME TASK brings the broadcast on while on the menu")
+check('FDR' in (g.score._last_speech or ''),
+      "and it is Roosevelt")
+check(g.score.music is not None, "with the march still under it")
 
 # --- a missing shelf is silence, never a crash
 sc.tracks = []

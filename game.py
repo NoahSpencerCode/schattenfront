@@ -8337,6 +8337,12 @@ void main() {
     def update(self, task):
         dt = globalClock.getDt()
         self._position_cursor()         # follows the mouse in menu too
+        # THE SCORE IS CONDUCTED IN EVERY STATE. It used to be ticked
+        # below the guard, so on the MENU -- where the broadcast over
+        # the march belongs -- its timer never ran and no speech was
+        # ever heard.
+        if getattr(self, 'score', None):
+            self.score.update(dt)
         if self.game_state != 'playing':
             return Task.cont
 
@@ -8466,8 +8472,6 @@ void main() {
                 self._spread_timer = 0.4
                 self._tick_separation()
 
-        if getattr(self, 'score', None):
-            self.score.update(dt)
         self._tick_path_viz(dt)
         self._top_bar_timer -= dt
         if self._top_bar_timer <= 0:
