@@ -1544,11 +1544,16 @@ class WW2RTSGame(ShowBase):
     # together, a few fighting pieces, and the rest of the treasury
     # left in hand for the player to spend as the war demands.
     OPENING_SLATE = (
+        # the staff
         ('army_command', 1), ('naval_command', 1),
         ('airforce_command', 1),
-        ('tank', 2), ('aa_artillery', 1),
+        # the fleet as the admiralty asked for it
+        ('supply_ship', 3), ('destroyer_sea_sea', 2),
+        ('personnel_transport', 2),
+        # and a handful ashore and aloft
+        ('aa_artillery', 1), ('tank', 2),
         ('supply_truck', 2), ('transport_truck', 2),
-        ('fighter', 2), ('destroyer_sea_sea', 1),
+        ('fighter', 2),
     )
 
     def _default_budget_counts(self, country, funds):
@@ -4930,6 +4935,13 @@ class WW2RTSGame(ShowBase):
         self.fax_short("%s UNDER CONSTRUCTION -- CLICK CHAINS THE NEXT, "
                        "ESC STANDS DOWN" % label)
 
+    # EVERY WAYPOINT RING ON THE MAP IS THIS SIZE, and it is a
+    # FIXED size like the buildings: the survey ring used to be
+    # drawn against the camera (alt * 0.028), so it swelled to cover
+    # a province when the player pulled back, while the order rings
+    # were pinned so small (0.0072wu) that they never showed at all.
+    WAYPOINT_RING = UNIT_SPRITE_SCALE * 0.7
+
     def _draw_road_plan(self, eng):
         """Survey line: the TRAVEL leg (engineer to the start) in
         movement blue, the road itself between survey points in
@@ -4959,13 +4971,10 @@ class WW2RTSGame(ShowBase):
                                / 0.3))
                 for k in range(1, n + 1):
                     segs.drawTo(slerp(a, b, k / n) * lift)
-        # every survey point wears its yellow waypoint ring. It is
-        # sized against the CAMERA: a fixed 0.007wu ring is
-        # sub-pixel at the altitude a Berlin-Warsaw line is planned
-        # from, which is why the survey looked like it did nothing
+        # every survey point wears its yellow waypoint ring, at
+        # the one fixed size every other waypoint ring uses
         segs.setColor(1.0, 0.85, 0.2, 0.9)
-        alt = max(0.05, self.cam_dist - GLOBE_RADIUS)
-        r = max(UNIT_SPRITE_SCALE * 0.30, alt * 0.028)
+        r = self.WAYPOINT_RING
         for jp in self.road_plan:
             east = north_tangent(jp).cross(jp)
             for i in range(17):
@@ -7383,13 +7392,18 @@ void main() {
                     draw_leg(prev, Vec3(home.pos))
                     joins.append((Vec3(home.pos), BLUE))
                 continue
-            if not u.path and not u.order_queue:
+            cur_kind = (u.current_order.get('kind')
+                        if u.current_order else None)
+            # A WORKS PARTY STANDING ON ITS SITE still has a road to
+            # show: it has arrived, so its path is spent, and the leg
+            # it is digging would vanish from the map just as the
+            # shovels went in.
+            if (not u.path and not u.order_queue
+                    and cur_kind != 'build'):
                 continue
             drew = True
             # follow the great circle of each leg so long paths hug the
             # planet instead of chording through it
-            cur_kind = (u.current_order.get('kind')
-                        if u.current_order else None)
             cur_col = RED if cur_kind == 'attack' else BLUE
             prev = Vec3(u.pos)
             segs.setColor(*cur_col)
@@ -7452,8 +7466,8 @@ void main() {
                         pv = Vec3(wp)
                     joins.append((pv, YELLOW))
                     prev = pv
-        # join rings: small fixed size (1/5 of the old ring)
-        r = UNIT_SPRITE_SCALE * 0.16
+        # join rings, the same size as a survey ring
+        r = self.WAYPOINT_RING
         for jp, col in joins:
             segs.setColor(*col)
             for i in range(17):

@@ -250,7 +250,11 @@ class TopBar:
         # narrower than 16:9 -- at 16:10 the factory, resource and
         # research keys all stood past the edge, invisible.
         self._fit_to_screen()
-        base.accept('aspect-ratio-changed', self._fit_to_screen)
+        # Panda names this event aspectRatioChanged -- the
+        # hyphenated spelling never fired, so neither bar
+        # refitted and the bar drifted off the facsimile
+        base.accept('aspectRatioChanged',
+                    self._fit_to_screen)
         # the RESOURCE STRIP explains itself on hover: each column
         # carries an invisible plate whose tooltip itemizes the flow
         self.res_tips = {}
@@ -395,7 +399,11 @@ class BottomBar:
             kind='red')
         self.scramble_btn.hide()
         self._fit_to_screen()
-        base.accept('aspect-ratio-changed', self._fit_to_screen)
+        # Panda names this event aspectRatioChanged -- the
+        # hyphenated spelling never fired, so neither bar
+        # refitted and the bar drifted off the facsimile
+        base.accept('aspectRatioChanged',
+                    self._fit_to_screen)
 
     def _fit_to_screen(self):
         """The bar's LEFT edge lands exactly on the facsimile
