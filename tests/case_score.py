@@ -101,6 +101,34 @@ check('FDR' in (g.score._last_speech or ''),
       "and it is Roosevelt")
 check(g.score.music is not None, "with the march still under it")
 
+# --- THE MARCH AND THE VOICE SOUND TOGETHER. ShowBase builds the
+# music manager with a CONCURRENT SOUND LIMIT OF ONE, so starting a
+# speech made the engine stop the march to make room. The null audio
+# device used in these cases ignores the limit entirely -- which is
+# why this was invisible here -- so drive a stand-in manager that
+# behaves as the real one does.
+class OneAtATime:
+    """A music manager as ShowBase leaves it: one sound only."""
+
+    def __init__(self):
+        self.limit = 1
+
+    def getConcurrentSoundLimit(self):
+        return self.limit
+
+    def setConcurrentSoundLimit(self, n):
+        self.limit = n
+
+
+real_mm = g.musicManager
+fake = OneAtATime()
+g.musicManager = fake
+check(fake.limit == 1, "ShowBase leaves the manager at ONE sound")
+g.score._open_the_manager()
+check(fake.limit == 0,
+      "the score LIFTS the limit so two streams may sound at once")
+g.musicManager = real_mm
+
 # --- a missing shelf is silence, never a crash
 sc.tracks = []
 sc.speeches = []

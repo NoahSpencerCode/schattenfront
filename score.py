@@ -86,6 +86,24 @@ class Score:
                          for f in SPEECH_FILES
                          if os.path.exists(os.path.join(SPEECHES, f))]
         self._rng = random.Random()
+        self._open_the_manager()
+
+    def _open_the_manager(self):
+        """THE MARCH AND THE VOICE MUST SOUND TOGETHER.
+
+        ShowBase builds the music manager with a CONCURRENT SOUND
+        LIMIT OF ONE -- 'ensure only 1 midi song is playing at a
+        time' -- so the moment a speech began, the engine stopped
+        the march to make room for it. Lift the limit: this score
+        deliberately wants two streams at once, and nothing else
+        goes through this manager."""
+        try:
+            mm = getattr(self.base, 'musicManager', None)
+            if mm is not None and mm.getConcurrentSoundLimit() != 0:
+                mm.setConcurrentSoundLimit(0)       # 0 = no limit
+        except Exception as exc:
+            print("WARNING: could not free the music manager: %r"
+                  % exc)
 
     # ---------------------------------------------------------- plumbing
     def _load(self, path, loop=False, volume=MUSIC_VOLUME):
