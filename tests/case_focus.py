@@ -33,6 +33,12 @@ check(len(mine_posts[0].production) == q0 + 1,
 check(len(mine_air[0].production) == qa0 + 1,
       "fighter on the airforce base line")
 
+# bring the TANK to the head of the line and to the moment of
+# delivery -- the works tick only ever advances its FIRST item, and
+# the opening slate may hold other work ahead of it
+line = mine_posts[0].production
+mine_posts[0].production = ([it for it in line if it[0] == 'tank']
+                            + [it for it in line if it[0] != 'tank'])
 mine_posts[0].production[0][1] = 0.1
 n0 = sum(1 for u in g.units if u.alive and u.country == 'germany'
          and u.unit_type == 'tank')

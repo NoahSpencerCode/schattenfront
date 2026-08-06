@@ -171,50 +171,79 @@ class NationAI:
         else:
             self._stage_support()
 
+    DEFEND_REACH = 0.05         # radians: enemy this close is AT the town
+    DEFEND_MUSTER = 4           # sections a threatened town calls up
+
     def _defend(self):
-        """Enemy ground forces near ANY of our towns are met: the
-        nearest soldiers drop what they are doing and intercept.  Runs
-        every think tick so a marching column cannot stroll through the
-        country unopposed."""
+        """THE HOMELAND FIRST. Enemy ground forces near ANY of our
+        towns are met: the town calls its own men to the colours at
+        once, and the nearest soldiers in the field drop what they
+        are doing and march to the sound of the guns. Runs every
+        think tick, and answers EVERY threatened town -- a staff
+        that defended only the first one it noticed let the rest of
+        the country be walked through."""
         g = self.g
-        threat_city = None
-        for c in g.cities:
-            if c.country != self.country:
-                continue
-            for u in g.units:
-                if (u.alive and not u.carried_by
-                        and u.country not in (self.country, 'neutral')
-                        and u.country not in g.eliminated
-                        and u.stats['domain'] == 'land'
-                        and u.stats['damage'] > 0
-                        and angle_between(u.pos, c.pos) < 0.05):
-                    threat_city = c
-                    break
-            if threat_city is not None:
-                break
-        if threat_city is None:
+        mine = [c for c in g.cities
+                if c.country == self.country and not c.annexing]
+        if not mine:
             return
-        defenders = sorted(
-            (u for u in g.units
-             if u.alive and u.country == self.country
-             and not u.carried_by and u.stats['domain'] == 'land'
-             and u.stats['damage'] > 0),
-            key=lambda u: angle_between(u.pos, threat_city.pos))
-        sent = 0
-        for u in defenders[:10]:
-            if angle_between(u.pos, threat_city.pos) < 0.02:
-                continue            # already on the spot
-            cur = u.current_order or {}
-            goal = cur.get('goal')
-            if goal is not None and \
-                    angle_between(goal, threat_city.pos) < 0.01:
-                continue            # already marching there
-            u.clear_orders()
-            g._pending_ai_orders.append(
-                (u, {'kind': 'move', 'goal': Vec3(threat_city.pos)}))
-            sent += 1
-            if sent >= 6:
-                break
+        foes = [u for u in g.units
+                if (u.alive and not u.carried_by
+                    and u.country not in (self.country, 'neutral')
+                    and u.country not in g.eliminated
+                    and u.stats['domain'] == 'land'
+                    and u.stats['damage'] > 0
+                    and g.at_war(self.country, u.country))]
+        if not foes:
+            return
+        threatened = []
+        for c in mine:
+            near = sum(1 for u in foes
+                       if angle_between(u.pos, c.pos)
+                       < self.DEFEND_REACH)
+            if near:
+                threatened.append((near, c))
+        if not threatened:
+            return
+        # the hardest-pressed town is answered first
+        threatened.sort(key=lambda t: -t[0])
+        free = [u for u in g.units
+                if u.alive and u.country == self.country
+                and not u.carried_by and u.stats['domain'] == 'land'
+                and u.stats['damage'] > 0]
+        spoken_for = set()
+        for near, city in threatened:
+            # 1) THE TOWN RAISES ITS OWN: men who muster inside the
+            #    perimeter are already where they are needed
+            g.ai_emergency_draft(
+                city, min(self.DEFEND_MUSTER, near + 1))
+            # 2) AND THE FIELD ARMY COMES IN: the nearest columns,
+            #    enough of them to face what stands there
+            want = min(6, near + 2)
+            near_first = sorted(
+                (u for u in free if id(u) not in spoken_for),
+                key=lambda u: angle_between(u.pos, city.pos))
+            sent = 0
+            for u in near_first:
+                if sent >= want:
+                    break
+                d = angle_between(u.pos, city.pos)
+                if d < 0.02:
+                    spoken_for.add(id(u))
+                    continue        # already standing on the place
+                if d > 0.55:
+                    break           # too far to matter to this town
+                cur = u.current_order or {}
+                goal = cur.get('goal')
+                if goal is not None and \
+                        angle_between(goal, city.pos) < 0.01:
+                    spoken_for.add(id(u))
+                    continue        # already marching there
+                u.clear_orders()
+                g._pending_ai_orders.append(
+                    (u, {'kind': 'move', 'goal': Vec3(city.pos)}))
+                spoken_for.add(id(u))
+                sent += 1
 
     # ---- stage 0: the war council picks THE objective ---------------
     def _war_council(self):

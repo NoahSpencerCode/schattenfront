@@ -91,9 +91,10 @@ g2_locked = [ut for ut in g.budget_counts
              if ut not in g.buyable_units('germany')]
 check(not g2_locked,
       "no locked line on the opening manifest (%s)" % g2_locked[:3])
-check('supply_ship' in g.budget_counts,
-      "supply ships ARE on the opening manifest -- they need no lab")
-check('heavy_cruiser' not in g.budget_counts,
+buyable = g.buyable_units('germany')
+check('supply_ship' in buyable,
+      "supply ships are BUYABLE at the bell -- they need no lab")
+check('heavy_cruiser' not in buyable,
       "the researched cruiser is not")
 
 finish()

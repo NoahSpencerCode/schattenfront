@@ -2614,8 +2614,10 @@ class TechFax:
                 self.ROW_Y[min(row, len(self.ROW_Y) - 1)])
 
     def _build(self):
-        from tech import (NODES, RESEARCH_PCT_CHOICES,
-                          available_nodes, node_name, normalize)
+        from tech import (NODES, available_nodes, node_name,
+                          normalize)
+        from config import (FOCUS_RESEARCH_RP_PER_M,
+                            FOCUS_RESEARCH_RP_MIN)
         from units import stats_for
         from icons import get_icon_path
         g = self.game
@@ -2627,30 +2629,40 @@ class TechFax:
         have = g.researched[c]
         frontier = set(available_nodes(have))
         rp = g.research_points[c]
-        pct = g.research_pct[c]
-        tithe = int(g.projected_revenue(c) * pct / 100.0)
+        labs = [x for x in g.cities
+                if x.country == c and x.focus == 'research'
+                and not x.annexing]
+        yield_rp = sum(max(FOCUS_RESEARCH_RP_MIN,
+                           x.population / 1e6 * FOCUS_RESEARCH_RP_PER_M)
+                       for x in labs)
 
         self._text("*** THE RESEARCH CHART ***", (0, 0.86), 0.046,
                    INK, TextNode.ACenter)
-        self._text("POINTS ON HAND: %.0f RP      FORTNIGHT TITHE: "
-                   "%d%% OF TAXES (= $%d = %.1f RP)      CITIES MAY "
-                   "ALSO FUND THE LABORATORIES DIRECT"
-                   % (rp, pct, tithe, tithe / 300.0),
-                   (0, 0.79), 0.028, (0.52, 0.10, 0.06, 1.0),
-                   TextNode.ACenter)
-        self._text("RESEARCH FUNDING:", (-1.16, 0.715), 0.030)
-        for i, p_ in enumerate(RESEARCH_PCT_CHOICES):
-            btn = pill_button(
-                self.frame, "%d%%" % p_, self._set_pct,
-                extraArgs=[p_],
-                pos=(-0.66 + i * 0.17, 0, 0.733), hw=0.068,
-                hh=0.036, text_scale=0.030,
-                font=self.base.hud_font, latched=(p_ == pct))
-            self._dyn.append(btn)
+        self._text("POINTS ON HAND: %.0f RP" % rp, (0, 0.79), 0.030,
+                   (0.52, 0.10, 0.06, 1.0), TextNode.ACenter)
+        # THE POINTS COME FROM THE TOWNS, and only from the towns:
+        # a city set on the laboratories works its fortnight for
+        # the chart instead of the treasury
+        self._text("THE LABORATORIES ARE FUNDED BY THE CITIES: SET A "
+                   "TOWN'S FORTNIGHT FOCUS ON \"FUND THE "
+                   "LABORATORIES\" TO WORK IT FOR THE CHART",
+                   (0, 0.735), 0.026, INK_FAINT, TextNode.ACenter)
+        if labs:
+            names = ", ".join(x.name.upper() for x in labs[:4])
+            if len(labs) > 4:
+                names += " AND %d MORE" % (len(labs) - 4)
+            line = ("AT WORK FOR THE CHART: %s  --  %.0f RP A "
+                    "FORTNIGHT" % (names, yield_rp))
+            colour = (0.16, 0.38, 0.14, 1.0)
+        else:
+            line = ("NO TOWN IS WORKING FOR THE CHART -- THE "
+                    "PROGRAMMES STAND STILL")
+            colour = (0.62, 0.14, 0.10, 1.0)
+        self._text(line, (0, 0.695), 0.027, colour, TextNode.ACenter)
         self._text("A PROGRAMME OPENS WHEN EVERY PROGRAMME WIRED "
                    "ABOVE IT IS DELIVERED -- CHOOSE THE PATH; THE "
                    "POINTS WILL NOT COVER EVERYTHING AT ONCE",
-                   (0, 0.660), 0.024, INK_FAINT, TextNode.ACenter)
+                   (0, 0.655), 0.024, INK_FAINT, TextNode.ACenter)
 
         for branch, title in (('land', "ARMY PROGRAMMES"),
                               ('air', "AIR PROGRAMMES"),
@@ -2758,10 +2770,6 @@ class TechFax:
                           hw=0.42, hh=0.046, text_scale=0.040,
                           font=self.base.hud_font)
         self._dyn.append(btn)
-
-    def _set_pct(self, p):
-        self.game.research_pct[self.game.player_country] = p
-        self._build()
 
     def _research(self, nid):
         g = self.game

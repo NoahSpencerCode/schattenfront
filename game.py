@@ -64,8 +64,7 @@ from globe import (Globe, NAT_ORDER, make_surface_ring,
                    orient_to_surface)
 from menu import MenuScreen
 from settings import load_settings, save_settings
-from tech import (TECH_BRANCHES, RESEARCH_DOLLARS_PER_POINT,
-                  RESEARCH_PCT_CHOICES, unlocked_units, radar_unlocked,
+from tech import (TECH_BRANCHES, unlocked_units, radar_unlocked,
                   NODES, available_nodes, node_name, normalize)
 from icons import get_icon_path
 from models import (make_bridge_marker, make_flag_quad,
@@ -543,6 +542,7 @@ class WW2RTSGame(ShowBase):
         self._vision_timer = 0.0
         self._capture_timer = 0.0
         self._supply_timer = 0.0
+        self._spread_timer = 0.0
         self._chase_timer = 0.0
         # background route planning: long plans never freeze a frame
         import queue as _queue
@@ -887,8 +887,7 @@ class WW2RTSGame(ShowBase):
             if dep is None:
                 continue
             res, out = dep
-            dla, dlo = self.world.nearest_land(c.lat - 0.45,
-                                               c.lon - 0.45)
+            dla, dlo = self._deposit_site(c)
             self.deposits.append(
                 Deposit(self, dla, dlo, c.country,
                         "%s %s" % (c.name.upper(), res.upper()),
@@ -901,8 +900,9 @@ class WW2RTSGame(ShowBase):
         # share of each tax fortnight tithed to research
         self.research_points = {c: 0.0 for c in COUNTRIES}
         self.researched = {c: set() for c in COUNTRIES}
-        self.research_pct = {c: (0 if c == country else 15)
-                             for c in COUNTRIES}
+        # kept for the save format's sake; the laboratories are
+        # funded by the cities alone now
+        self.research_pct = {c: 0 for c in COUNTRIES}
         self.tech_fax = None
         # the strategic stockpiles: OIL runs the engines, STEEL the
         # yards, RUBBER the wheels; only the majors keep accounts
@@ -987,6 +987,34 @@ class WW2RTSGame(ShowBase):
         self._warmup_t0 = globalClock.getFrameTime()
         self._bind_game_controls()
         self._tick_vision_comm()        # fog + contact valid on frame one
+
+    def _deposit_site(self, city):
+        """Ground for a city's field or works. The old fixed
+        south-west offset could plant a works closer to the NEXT
+        town than to its own -- Essen's steel stood on Cologne's
+        doorstep. Walk the bearings and keep the site whose OWNER is
+        unmistakably the nearest town."""
+        best = None
+        for radius in (0.45, 0.32, 0.22):
+            for k in range(12):
+                a = k * math.pi / 6.0
+                la, lo = self.world.nearest_land(
+                    city.lat + radius * math.sin(a),
+                    city.lon + radius * math.cos(a) / max(
+                        0.2, math.cos(math.radians(city.lat))))
+                pos = latlon_to_vec(la, lo)
+                d_own = angle_between(pos, city.pos)
+                d_other = min(
+                    (angle_between(pos, c.pos) for c in self.cities
+                     if c is not city), default=9.9)
+                # the margin is what keeps the mark legible: the
+                # owner must be nearer by a clear hand's breadth
+                score = d_other - d_own
+                if best is None or score > best[0]:
+                    best = (score, la, lo)
+            if best is not None and best[0] > 0.004:
+                break
+        return best[1], best[2]
 
     def capital_of(self, country):
         for c in self.cities:
@@ -1499,41 +1527,38 @@ class WW2RTSGame(ShowBase):
         d = int((self.clock_minutes - self.fortnight_start) / 1440.0) + 1
         return max(1, min(BUDGET_PERIOD_DAYS, d))
 
+    # The opening appropriation: A STAFF AND A HANDFUL OF TROOPS,
+    # not an army. One command of each arm to hold the wireless net
+    # together, a few fighting pieces, and the rest of the treasury
+    # left in hand for the player to spend as the war demands.
+    OPENING_SLATE = (
+        ('army_command', 1), ('naval_command', 1),
+        ('airforce_command', 1),
+        ('tank', 2), ('aa_artillery', 1),
+        ('supply_truck', 2), ('transport_truck', 2),
+        ('fighter', 2), ('destroyer_sea_sea', 1),
+    )
+
     def _default_budget_counts(self, country, funds):
-        """The opening appropriation: the treasury maxed out, divided
-        equally across every unit type on the books."""
+        """The opening appropriation, deliberately modest: a command
+        of each arm and a handful of pieces behind it. Anything the
+        treasury cannot cover is simply left off."""
         has_harbor = any(c.harbor and c.country == country
                          for c in self.cities)
-        # manpower is enlisted from the towns, never bought -- and
-        # no money is committed to an arm the laboratories have not
-        # delivered (a locked line would sit on the manifest and
-        # build nothing at all)
         allowed = unlocked_units(country, self.researched[country])
-        types = [ut for ut in NATION_UNIT_STATS[country]
-                 if ut != 'infantry' and ut in allowed
-                 and (UNIT_TYPES[ut]['domain'] != 'sea' or has_harbor)]
-        # a balanced opening slate: no line deeper than SIX pieces
-        # (an even dollar split buys walls of the cheap types), and
-        # whatever the ceiling leaves unspent carries forward
-        CAP = 6
-        counts = {ut: 0 for ut in types}
-        share = funds / max(1, len(types))
+        counts = {}
         spent = 0
-        for ut in types:
+        for ut, n in self.OPENING_SLATE:
+            if ut not in allowed or ut not in NATION_UNIT_STATS[country]:
+                continue
+            if UNIT_TYPES[ut]['domain'] == 'sea' and not has_harbor:
+                continue
             cost = stats_for(ut, country)['cost']
-            counts[ut] = min(CAP, int(share // cost))
-            spent += counts[ut] * cost
-        rest = funds - spent
-        order = sorted(types, key=lambda t: stats_for(t, country)['cost'])
-        progress_made = True
-        while rest > 0 and progress_made:
-            progress_made = False
-            for ut in order:
-                cost = stats_for(ut, country)['cost']
-                if rest >= cost and counts[ut] < CAP:
-                    counts[ut] += 1
-                    rest -= cost
-                    progress_made = True
+            for _ in range(n):
+                if spent + cost > funds:
+                    break
+                counts[ut] = counts.get(ut, 0) + 1
+                spent += cost
         return counts
 
     def _apply_fortnight_budget(self):
@@ -2263,10 +2288,10 @@ class WW2RTSGame(ShowBase):
         for country, amount in take.items():
             if country in self.eliminated:
                 continue
-            tithe = amount * self.research_pct.get(country, 0) / 100.0
-            self.funds[country] += amount - tithe
-            self.research_points[country] += \
-                tithe / RESEARCH_DOLLARS_PER_POINT
+            # THE WHOLE REMITTANCE reaches the treasury: research
+            # points are earned by the CITIES that work for the
+            # chart, never skimmed off the taxes
+            self.funds[country] += amount
         self._update_borders()      # annexations completed above
         if take.get(self.player_country):
             self.fax.post(
@@ -2318,9 +2343,7 @@ class WW2RTSGame(ShowBase):
         # it executes: the treasury plus the taxes the decreed rates will
         # bring in at the fortnight
         treasury = int(self.funds[self.player_country])
-        revenue = int(self.projected_revenue(self.player_country)
-                      * (1.0 - self.research_pct[self.player_country]
-                         / 100.0))
+        revenue = int(self.projected_revenue(self.player_country))
         self.budget_fax = BudgetFax(
             self, self, treasury + revenue,
             self.buyable_units(self.player_country),
@@ -2410,20 +2433,56 @@ class WW2RTSGame(ShowBase):
         self.fax_short(line)
         self._refresh_selection_ui()
 
+    def ai_emergency_draft(self, city, want):
+        """A town under threat calls its own men to the colours AT
+        ONCE -- the same law the player's recruiting office answers
+        to: the rolls muster free, conscripts beyond them are paid
+        for in industry, and nobody is raised without rations."""
+        country = city.country
+        if city.annexing or country not in self._nation_ais:
+            return 0
+        ceiling = self.draft_ceiling(city)
+        n = max(0, min(int(want), ceiling))
+        if n <= 0:
+            return 0
+        n = self._ration_out(country, n)
+        if n <= 0:
+            return 0
+        free = min(n, city.draft_pool)
+        conscripts = n - free
+        city.draft_pool -= free
+        if conscripts > 0:
+            city.industry = max(0.0, city.industry - conscripts
+                                * DRAFT_INDUSTRY_GRIND)
+        for _ in range(n):
+            u = self.spawn_unit('infantry', country, city.lat,
+                                city.lon, jitter=0.15,
+                                seed=random.randrange(99999))
+            u.supply = u.stats['supply_cap']
+        return n
+
+    AI_FOOD_RESERVE = 60        # tons held back for the defence
+
     def _ai_enlist(self):
         """The computer powers work their recruiting offices at each
-        rollover; a staff already at its force ceiling lets the rolls
-        wait."""
+        rollover -- but a staff KEEPS A RATION RESERVE against the
+        day a town is attacked. Mustering every roll in the country
+        emptied the granaries, and a nation with no food cannot call
+        anybody to the colours when the enemy is at the gate."""
         from ai import FORCE_CAP
         for country in self._nation_ais:
             forces = sum(1 for u in self.units
                          if u.alive and u.country == country)
             if forces >= FORCE_CAP * 1.5:
                 continue
+            stock = self.resources.get(country)
             for c in self.cities:
                 if (c.country != country or c.annexing
                         or c.draft_pool <= 0):
                     continue
+                if stock is not None and \
+                        stock['food'] <= self.AI_FOOD_RESERVE:
+                    break       # the reserve is not for the parade
                 # every staff answers to its own commissariat
                 n = self._ration_out(country, c.draft_pool)
                 for _ in range(n):
@@ -3296,6 +3355,14 @@ class WW2RTSGame(ShowBase):
         n = len(units)
         if n <= 1:
             return [Vec3(ground)] * n
+        # A FLEET ORDERED ONTO LAND spreads across WATER: centre the
+        # ring in the medium the column actually travels, or every
+        # hull snaps back to the one nearest anchorage and they all
+        # stack on the same waypoint
+        single = None
+        if len({u.stats['domain'] for u in units}) == 1:
+            single = units[0]
+            ground = self._legal_goal(single, Vec3(ground))
         north = north_tangent(ground)
         east = north.cross(ground)
         # fixed spacing: deterministic regardless of the viewer's zoom
@@ -3323,6 +3390,8 @@ class WW2RTSGame(ShowBase):
                 p = Vec3(ground) + (north * math.cos(a) +
                                     east * math.sin(a)) * r
                 p.normalize()
+                if single is not None:
+                    p = self._legal_goal(single, p)
                 goals.append(p)
             ring += 1
         return goals
@@ -4956,6 +5025,10 @@ class WW2RTSGame(ShowBase):
                                    % (la1, lo1, la2, lo2)).encode())
                 curve = self.world._curved_road_points(
                     la1, lo1, la2, lo2, seed, passes=5, amp=0.04)
+                if is_rail:
+                    # a surveyed line bends around the water, it
+                    # never runs across it
+                    curve = self.world._dry_the_line(curve)
                 healed = [c for c in self.road_cuts
                           if any(angle_between(
                               latlon_to_vec(cla, clo), c)
@@ -5157,6 +5230,93 @@ void main() {
         return root
 
     # ====================================================== logistics
+    def _tick_separation(self):
+        """NO TWO COUNTERS STAND ON THE SAME GROUND. A unit that has
+        come to rest under another eases a counter's width aside,
+        so a pile-up unpicks itself into a line without anybody
+        having to be ordered off. Only units at REST are moved --
+        a column under orders keeps its own business -- and the
+        sweep is bucketed by ground square, so it costs a walk of
+        the roster rather than a comparison of every pair."""
+        buckets = {}
+        for u in self.units:
+            if (not u.alive or u.carried_by
+                    or getattr(u, 'deployed', False)
+                    or self.is_parked(u)
+                    or u.current_order or u.order_queue or u.path
+                    or getattr(u, 'plan_pending', None)):
+                continue        # under way, stowed, or on station
+            la, lo = vec_to_latlon(u.pos)
+            key = (int(la / self.SEPARATION_CELL),
+                   int(lo / self.SEPARATION_CELL))
+            buckets.setdefault(key, []).append(u)
+        for key, group in buckets.items():
+            # THE NEIGHBOURING SQUARES COUNT TOO: a pile that
+            # straddles a cell boundary would otherwise be blind to
+            # its own other half and never come apart
+            group2 = []
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    group2.extend(buckets.get((key[0] + dy,
+                                               key[1] + dx), ()))
+            if len(group2) < 2:
+                continue
+            for i, u in enumerate(group):
+                # the SAME room a formation leaves between its
+                # counters -- the game's own measure of not
+                # standing on top of one another
+                want = max(FORMATION_SPACING,
+                           UNIT_SPRITE_SCALE * 1.3
+                           * u.stats['sprite_size'])
+                # STEP OFF THE MAN NEAREST YOU. Summing the shove of
+                # every neighbour cancels for a unit squeezed from
+                # both sides -- the middle of a line would never
+                # move -- so each unit answers its WORST overlap and
+                # the pile unpicks itself a man at a time.
+                near, gap = None, want
+                crowd = Vec3(0, 0, 0)
+                for v in group2:
+                    if v is u or v.stats['domain'] != u.stats['domain']:
+                        continue
+                    d = angle_between(u.pos, v.pos) * GLOBE_RADIUS
+                    if d >= want:
+                        continue
+                    off = Vec3(u.pos) - Vec3(v.pos)
+                    if off.lengthSquared() > 1e-12:
+                        off.normalize()
+                        crowd += off * (want - d)
+                    if d < gap:
+                        near, gap = v, d
+                if near is None:
+                    continue
+                # OUT OF THE CROWD when the shove is coherent -- a man
+                # in a pile walks straight out of it -- and off the
+                # NEAREST man when it cancels, which is what happens
+                # to the middle of a line
+                if crowd.length() > (want - gap) * 0.5:
+                    push = crowd
+                else:
+                    push = Vec3(u.pos) - Vec3(near.pos)
+                if push.lengthSquared() < 1e-12:
+                    # DEAD-CENTRE OVERLAP: each man takes his own
+                    # bearing off the pile. Alternating between two
+                    # headings only turns one stack into two.
+                    ang = 2 * math.pi * i / max(1, len(group2))
+                    nrt = north_tangent(u.pos)
+                    push = (nrt * math.cos(ang)
+                            + nrt.cross(Vec3(u.pos)) * math.sin(ang))
+                push.normalize()
+                nxt = Vec3(u.pos) + push * ((want - gap) * 0.8
+                                            / GLOBE_RADIUS)
+                nxt.normalize()
+                la, lo = vec_to_latlon(nxt)
+                if u.stats['domain'] == 'land':
+                    la, lo = self.world.nearest_land(la, lo)
+                elif u.stats['domain'] == 'sea':
+                    la, lo = self.world.nearest_water(la, lo)
+                u.pos = latlon_to_vec(la, lo)
+                u.update_visual()
+
     def _tick_supply(self):
         """Once per second: sources fill, carriers distribute, the
         starving get flagged.  Logistics wins wars."""
@@ -5618,6 +5778,7 @@ void main() {
                                       'goal': Vec3(d.pos),
                                       'auto': True})
 
+    SEPARATION_CELL = 0.25      # degrees: the sweep's ground square
     FERRY_MIN_MARCH = 0.25      # a march worth motorizing (world units)
     FERRY_PICKUP_MAX = 2.5      # how far a truck will drive to collect
     FERRY_SCOOP = 0.10          # the cab pulls ALONGSIDE to load
@@ -8287,6 +8448,11 @@ void main() {
                 self._check_victory()
 
             self._tick_tracers(dt)
+
+            self._spread_timer -= dt
+            if self._spread_timer <= 0:
+                self._spread_timer = 0.4
+                self._tick_separation()
 
         self._tick_path_viz(dt)
         self._top_bar_timer -= dt
