@@ -837,6 +837,7 @@ class DiplomacyLedger:
         'funds_once': "A SINGLE PAYMENT FROM THE TREASURY",
         'funds_ftn': "A STANDING SUBSIDY, PAID EVERY FORTNIGHT",
         'res_ftn': "CARGO SHIPPED EVERY FORTNIGHT UNTIL CANCELLED",
+        'res_once': "A SINGLE CARGO, LANDED THE MOMENT IT IS SIGNED",
     }
 
     def _table_toggle(self, side, key):
@@ -916,6 +917,12 @@ class DiplomacyLedger:
 
         rows = [('funds_once', 'FUNDS (ONE PAYMENT)', 100),
                 ('funds_ftn', 'FUNDS EACH FORTNIGHT', 50)]
+        # ONE SHIPMENT, landed at once, and the standing treaty
+        # that ships every fortnight -- a nation short of steel this
+        # week wants the cargo now, not a fortnight hence
+        for res in RESOURCES:
+            rows.append(('res_once:%s' % res,
+                         '%s (ONE SHIPMENT)' % res.upper(), 20))
         for res in RESOURCES:
             rows.append(('res_ftn:%s' % res,
                          '%s EACH FORTNIGHT' % res.upper(), 10))
@@ -2288,6 +2295,85 @@ class CityFocusFax:
 
     def _discard(self):
         self.on_discard()
+
+    def destroy(self):
+        self.frame.destroy()
+
+
+class EnvoyFax:
+    """A FOREIGN ENVOY IN THE ANTEROOM. He has laid a sheet on the
+    table: what his nation offers, what it asks in return. Nothing
+    binds us until the pen moves -- ACCEPT or SEND HIM AWAY."""
+
+    def __init__(self, base, nat, gives, wants, on_accept, on_decline):
+        import deals as _d
+        from config import short_name, COUNTRIES
+        from models import make_flag_quad
+        self.base = base
+        self.on_accept = on_accept
+        self.on_decline = on_decline
+        f = base.hud_font
+        self.frame = DirectFrame(parent=base.aspect2d,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
+                                 frameSize=(-0.86, 0.86, -0.60, 0.60),
+                                 state=DGG.NORMAL)
+        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                    frameSize=(-0.86, 0.86, 0.575, 0.60))
+
+        def text(t, pos, scale=0.032, color=INK,
+                 align=TextNode.ALeft):
+            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
+            tn.setText(t)
+            return tn
+
+        flag = make_flag_quad(base.loader, nat, half=0.055, flat=True)
+        flag.reparentTo(self.frame)
+        flag.setPos(-0.70, 0, 0.455)
+        flag.setP(-90)
+        flag.setLightOff()
+        text("*** AN ENVOY OF %s CALLS ***"
+             % short_name(nat).upper(), (0.04, 0.44), 0.044, INK,
+             TextNode.ACenter)
+        text("FROM : THE FOREIGN OFFICE OF %s"
+             % COUNTRIES[nat]['name'].upper(), (-0.78, 0.355))
+        text("RE   : TERMS LAID BEFORE US", (-0.78, 0.310))
+        text("-" * 58, (0, 0.265), 0.032, INK, TextNode.ACenter)
+
+        def side(title, tokens, y):
+            text(title, (-0.78, y), 0.030, (0.52, 0.10, 0.06, 1.0))
+            if not tokens:
+                text("NOTHING", (-0.40, y), 0.028, INK_FAINT)
+                return y - 0.048
+            for tok in tokens:
+                text("-- %s" % _d.token_text(tok).upper(),
+                     (-0.40, y), 0.028, INK)
+                y -= 0.042
+            return y - 0.014
+
+        y = side("THEY OFFER", gives, 0.200)
+        y = side("THEY ASK", wants, y - 0.02)
+
+        worth = _d.basket_value(gives) - _d.basket_value(wants)
+        if worth >= 0:
+            note = ("OUR OWN VALUERS MAKE THIS SHEET FAVOURABLE "
+                    "TO US.")
+            col = (0.16, 0.38, 0.14, 1.0)
+        else:
+            note = ("OUR OWN VALUERS MAKE THIS SHEET COSTLY TO US.")
+            col = (0.62, 0.14, 0.10, 1.0)
+        text(note, (0, -0.36), 0.027, col, TextNode.ACenter)
+        text("NOTHING IS BOUND UNTIL YOU SIGN.", (0, -0.405), 0.026,
+             INK_FAINT, TextNode.ACenter)
+
+        pill_button(self.frame, "++ ACCEPT THE TERMS ++", on_accept,
+                    pos=(-0.34, 0, -0.505), hw=0.29, hh=0.045,
+                    text_scale=0.038,
+                    text_fg=(0.1, 0.25, 0.1, 1), font=f)
+        pill_button(self.frame, "-- SEND HIM AWAY --", on_decline,
+                    pos=(0.34, 0, -0.505), hw=0.29, hh=0.045,
+                    text_scale=0.038,
+                    text_fg=(0.45, 0.12, 0.08, 1), font=f)
 
     def destroy(self):
         self.frame.destroy()

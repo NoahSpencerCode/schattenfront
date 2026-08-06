@@ -459,6 +459,8 @@ class WW2RTSGame(ShowBase):
         self.tax_fax = None
         self.draft_fax = None
         self.focus_fax = None
+        self.envoy_fax = None
+        self.envoy_offer = None
         self.diplo_fax = None
         self.newspaper = None
         self._news_cooldown = 0.0
@@ -723,6 +725,8 @@ class WW2RTSGame(ShowBase):
         self.tax_fax = None
         self.draft_fax = None
         self.focus_fax = None
+        self.envoy_fax = None
+        self.envoy_offer = None
         self.diplo_fax = None
         self.newspaper = None
         self._news_cooldown = 0.0
@@ -1792,6 +1796,77 @@ class WW2RTSGame(ShowBase):
         if self.diplo_fax:
             self.diplo_fax.rebuild()
         return verdict
+
+    def envoy_arrives(self, nat, gives, wants):
+        """A FOREIGN ENVOY CALLS ON US with a sheet of his own:
+        `gives` is what his nation lays down, `wants` is what it
+        asks of us. Nothing is signed until the player says so --
+        no power binds us to a pact while our back is turned.
+
+        Only one envoy waits in the anteroom at a time; a second
+        arrival while the first is unanswered is turned away at the
+        door and will call again another day."""
+        if self.game_state != 'playing' or self.envoy_fax is not None:
+            return False
+        if nat == self.player_country or nat in self.eliminated:
+            return False
+        from ui import EnvoyFax
+        self.envoy_offer = (nat, list(gives), list(wants))
+        self.envoy_fax = EnvoyFax(self, nat, gives, wants,
+                                  self._envoy_accept,
+                                  self._envoy_decline)
+        return True
+
+    def _close_envoy(self):
+        if self.envoy_fax is not None:
+            self.envoy_fax.destroy()
+            self.envoy_fax = None
+        self.envoy_offer = None
+
+    def _envoy_accept(self):
+        import deals as _d
+        from config import short_name
+        if not self.envoy_offer:
+            self._close_envoy()
+            return
+        nat, gives, wants = self.envoy_offer
+        me = self.player_country
+        # we must be able to honour our half before the pen touches
+        for tok in wants:
+            if tok['kind'] == 'funds_once' and \
+                    self.funds[me] < tok['amount']:
+                self.fax.post("THE SHEET IS DECLINED",
+                              "The Exchequer cannot cover %s."
+                              % B(_d.token_text(tok)),
+                              sender="FOREIGN OFFICE")
+                self._close_envoy()
+                return
+            if tok['kind'] == 'res_once' and \
+                    self.resources[me][tok['res']] < tok['amount']:
+                self.fax.post("THE SHEET IS DECLINED",
+                              "We have no %s to ship."
+                              % B(tok['res'].upper()),
+                              sender="FOREIGN OFFICE")
+                self._close_envoy()
+                return
+        # HIS sheet read from our side: what he asks, we give
+        self._execute_deal(nat, wants, gives)
+        self.fax.post(
+            "THE INSTRUMENT IS SIGNED",
+            "Terms agreed with %s. The instrument is lodged with "
+            "both foreign offices." % B(short_name(nat).upper()),
+            sender="ENVOY OF %s" % short_name(nat).upper())
+        self._close_envoy()
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+
+    def _envoy_decline(self):
+        from config import short_name
+        nat = self.envoy_offer[0] if self.envoy_offer else None
+        self._close_envoy()
+        if nat:
+            self.fax_short("THE ENVOY OF %s IS SENT AWAY"
+                           % short_name(nat).upper())
 
     def _execute_deal(self, nat, offer, ask):
         """Both sides honour the sheet at once: cargo and money
@@ -3892,6 +3967,26 @@ class WW2RTSGame(ShowBase):
         from the player's hand for the [PLANNING ROUTE] indicator, and
         pre-plans queued waypoint legs so every leg gets real routing
         (not just the first)."""
+        # THE FRONTIER BINDS EVERY COLUMN, including the lorries
+        # driving their own errands: a supply or transport truck was
+        # crossing closed borders freely because its orders are
+        # issued automatically and the gate only read orders given
+        # by hand.
+        if (unit.country == self.player_country
+                and order.get('kind') == 'move'
+                and order.get('goal') is not None
+                and order.get('auto')):
+            if self.passage_refused(unit, order['goal']) is not None:
+                try:
+                    unit.order_queue.remove(order)
+                except ValueError:
+                    pass
+                if unit.current_order is order:
+                    unit.current_order = None
+                # the errand is off: let the carrier be re-tasked
+                unit._supply_tgt = None
+                unit._depot_haul = False
+                return
         if unit.country == self.player_country and not order.get('auto'):
             order['indicate'] = True
             # THE FRONTIER: a column ordered across a foreign border
@@ -4877,6 +4972,25 @@ class WW2RTSGame(ShowBase):
         eng = engineers[0]
         lat, lon = vec_to_latlon(ground)
         label, cost, build_time = self.BUILD_WORKS[kind]
+        # NO WORKS ON ANOTHER MAN'S GROUND: a frontier closed to our
+        # columns is closed to our shovels. War, an alliance or a
+        # right of passage opens it.
+        owner = self.territory_of(Vec3(ground))
+        if (owner not in (None, 'neutral', self.player_country)
+                and not self.at_war(self.player_country, owner)
+                and not self.allied(self.player_country, owner)
+                and not self.has_right(self.player_country, owner,
+                                       'passage')):
+            self.fax.post(
+                "WORKS REFUSED",
+                "That ground is %s. We may not dig on it without a "
+                "%s -- treat for one at the table, or declare war." %
+                (B("%s SOIL" % short_name(owner).upper()),
+                 B("RIGHT OF PASSAGE")),
+                sender="ENGINEER CORPS")
+            self.build_mode = None
+            self._clear_road_plan()
+            return
         if kind == 'harbor':
             # the quay goes ON the water, just off the shore
             if self.world.is_land(lat, lon):
@@ -6001,11 +6115,14 @@ void main() {
             if not walkers:
                 dest = Vec3(keep[0][1])
                 job['state'] = 'deliver'
+                # ONE order, not two. A queued unload plans its
+                # OWN route to the same spot, so the lorry drove up,
+                # set off again for the same yard of ground, and only
+                # then dropped its riders -- the back-and-forth the
+                # player sees. The deliver stage below puts them down
+                # the moment the drive is done.
                 truck.give_order({'kind': 'move',
                                   'goal': Vec3(dest), 'auto': True})
-                truck.give_order({'kind': 'unload',
-                                  'goal': Vec3(dest), 'auto': True},
-                                 queue=True)
                 return
             u, _g = min(walkers, key=lambda p: truck.dist_to(p[0].pos))
             if truck.dist_to(u.pos) < self.FERRY_SCOOP:

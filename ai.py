@@ -256,13 +256,21 @@ class NationAI:
         from config import PLAYABLE
         me = self.country
         my_enemies = g.nation_enemies(me)
-        # courtship: bind a nation fighting the same enemy
+        # courtship: bind a nation fighting the same enemy. THE
+        # PLAYER IS NEVER BOUND BEHIND HIS BACK -- an envoy calls on
+        # him with the terms and he answers them himself.
         if my_enemies and random.random() < 0.25:
             for other in list(g.nation_enemies(next(iter(my_enemies)))):
-                if (other != me and not g.at_war(me, other)
-                        and not g.allied(me, other)
-                        and other not in g.eliminated
-                        and g.alliance_answer(other, me)):
+                if (other == me or g.at_war(me, other)
+                        or g.allied(me, other)
+                        or other in g.eliminated):
+                    continue
+                if other == g.player_country:
+                    if g.envoy_arrives(me, [{'kind': 'alliance'}],
+                                       [{'kind': 'alliance'}]):
+                        break
+                    continue
+                if g.alliance_answer(other, me):
                     g.make_alliance(me, other)
                     break
         # declarations: only when the current wars offer no objective
