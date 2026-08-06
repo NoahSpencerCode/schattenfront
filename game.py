@@ -2910,8 +2910,38 @@ class WW2RTSGame(ShowBase):
         else:
             self._click_select(mpos, shift)
 
+    def _pick_city(self, mpos):
+        """A town is picked by its MARK or by its NAME. The label is
+        drawn flat on the map at a fixed size, so the letters are as
+        much a part of the town as the dot under them -- and a town
+        with troops standing in it was all but unclickable while the
+        counters were tested first."""
+        best, best_d = None, None
+        for c in self.cities:
+            if (c.country != self.player_country
+                    or not self._facing_camera(c.pos)):
+                continue
+            sp = self.screen_pos(c.label_pos * GLOBE_RADIUS)
+            if sp is None:
+                continue
+            # the drawn half-width of the name, in world units
+            half = max(0.10, c.label_tn.getWidth() * 0.5 * 0.05)
+            r = max(CLICK_RADIUS * 1.9,
+                    self._struct_pick_radius(half))
+            d = (mpos - sp).length()
+            if d <= r and (best_d is None or d < best_d):
+                best, best_d = c, d
+        return best
+
     def _click_select(self, mpos, shift):
         if shift and self._strike_waypoint(mpos):
+            return
+        # THE TOWN COMES FIRST: its mark and its name outrank the
+        # counters standing on it
+        city = self._pick_city(mpos)
+        if city is not None:
+            self.clear_selection()
+            self._select_city(city)
             return
         own = [(u, self._unit_world_pos(u)) for u in self.units
                if self._commandable(u) and self._facing_camera(u.pos)]
@@ -3001,15 +3031,6 @@ class WW2RTSGame(ShowBase):
         if dep:
             self.clear_selection()
             self._select_deposit(dep)
-            return
-        own_cities = [(c, c.label_pos * GLOBE_RADIUS)
-                      for c in self.cities
-                      if c.country == self.player_country
-                      and self._facing_camera(c.pos)]
-        city = self._pick_object(mpos, own_cities, radius=CLICK_RADIUS * 1.9)
-        if city:
-            self.clear_selection()
-            self._select_city(city)
             return
         # visible enemy: selectable for an intelligence view (no orders)
         foes = [(u, self._unit_world_pos(u)) for u in self.units
@@ -4209,6 +4230,18 @@ class WW2RTSGame(ShowBase):
     def _order_board(self, transport, boarders, shift):
         """Order up to the free berths onto the transport; the rest are
         refused so a full transport can't be over-committed."""
+        # A LORRY CARRIES MEN. Ships and aircraft lift whatever will
+        # fit in a hold, but a motor column has room for infantry and
+        # nothing else -- you cannot stack a lorry on a lorry.
+        if transport.stats['domain'] == 'land':
+            riders = [u for u in boarders if u.unit_type == 'infantry']
+            if len(riders) < len(boarders):
+                self.fax_short("A LORRY CARRIES INFANTRY ONLY -- "
+                               "%d VEHICLE(S) REFUSED"
+                               % (len(boarders) - len(riders)))
+            boarders = riders
+            if not boarders:
+                return
         slots = max(0, self._board_capacity_left(transport))
         # the NEAREST units get the berths; the far ones are refused
         boarders = sorted(boarders,

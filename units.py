@@ -913,8 +913,13 @@ class Unit:
                 self.current_order = self.order_queue.pop(0)
                 self.game.begin_order(self, self.current_order)
 
-        # a route is still being planned in the background
+        # a route is still being planned in the background. THE GUNS
+        # DO NOT WAIT ON THE MAP ROOM: a unit standing with an enemy
+        # in range fires while its next route is being worked out --
+        # returning here outright was why troops so often sat and
+        # watched a column go past.
         if getattr(self, 'plan_pending', None):
+            self._combat(dt)
             return
 
         # no supplies: the column halts and the guns fall silent
