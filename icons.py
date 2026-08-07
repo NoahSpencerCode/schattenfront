@@ -2,14 +2,19 @@
 Procedurally drawn unit icons — pictogram images generated with PIL
 on first run into assets/icons/, laid out for an ARTIST to take over:
 
-    assets/icons/units/   top-down map sprites, one per piece of
-                          equipment, named for the real thing
-                          (tiger.png, spitfire.png, fubuki.png ...)
-    assets/icons/ui/      menu/bar pictograms, <name>_dark.png for
-                          light keys and <name>_light.png for dark
-                          plates (cursors and structures included)
-    assets/icons/keys/    the painted console-key textures
-    assets/icons/sheets/  painted surfaces (bars, fax paper, ...)
+    assets/icons/units/       top-down map sprites, one per piece
+                              of equipment, named for the real thing
+                              (tiger.png, spitfire.png, fubuki.png)
+    assets/icons/pictograms/  menu/bar unit-type pictograms, one
+                              file per unit type
+    assets/icons/buildings/   structure marks (airfield, harbor,
+                              bunker, city ...)
+    assets/icons/buttons/     button icons and console-key chrome
+    assets/icons/cursors/     the mouse cursors
+    assets/icons/badges/      field badges (no-supply, crossed
+                              swords)
+    assets/icons/keys/        the painted console-key textures
+    assets/icons/sheets/      painted surfaces (bars, fax paper ...)
 
 Replace any PNG with your own art (same filename, same canvas) and
 the game uses it forever: a sidecar manifest (.generated.json)
@@ -2228,6 +2233,30 @@ def _ensure(rel, version, paint):
     return path
 
 
+# ------------------------------------- one folder per kind of art
+# The map sprites live in units/; everything else sorts by what it
+# IS, so the artist opens one folder per job.
+_UI_BUILDINGS = frozenset((
+    'airfield', 'army_post', 'bridge_map', 'bunker', 'capital',
+    'city', 'depot', 'derrick', 'foundry', 'granary', 'harbor',
+    'plantation', 'radar'))
+_UI_BADGES = frozenset(('nosupply', 'crossed_swords'))
+
+
+def ui_folder(name):
+    """The folder a non-sprite pictogram files under."""
+    if name.startswith('cursor_'):
+        return 'cursors'
+    if name in _UI_BUILDINGS:
+        return 'buildings'
+    if name in _UI_BADGES:
+        return 'badges'
+    if ('_button' in name or name.startswith('panel_key')
+            or name in ('road_build', 'rail_build')):
+        return 'buttons'
+    return 'pictograms'
+
+
 def get_icon_path(unit_type, variant='dark', nation=None):
     """Path to the icon PNG, generating it on first request. Top-down
     unit sprites resolve through the ART REGISTER: nations fielding
@@ -2252,7 +2281,8 @@ def get_icon_path(unit_type, variant='dark', nation=None):
         # folded into a single file (same colour and shade on every
         # surface). Only the red alert ink keeps its own file.
         suffix = '_red' if variant == 'red' else ''
-        rel = os.path.join('ui', unit_type + suffix + '.png')
+        rel = os.path.join(ui_folder(unit_type),
+                           unit_type + suffix + '.png')
 
         def paint(unit_type=unit_type, variant=variant):
             img = Image.new('RGBA', (SIZE * _SS, SIZE * _SS),

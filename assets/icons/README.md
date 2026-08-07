@@ -13,30 +13,33 @@ just replace PNGs.
 
 ## Layout
 
-| Folder    | Contents | Canvas |
-|-----------|----------|--------|
-| `units/`  | Top-down map sprites, one per piece of equipment | 384×384 RGBA, transparent background |
-| `ui/`     | Menu/bar pictograms, cursors, structure marks — ONE file per name | 384×384 RGBA, transparent background |
+| Folder        | Contents | Canvas |
+|---------------|----------|--------|
+| `units/`      | Top-down map sprites (the unit counters), one per piece of equipment | 384×384 RGBA, transparent background |
+| `pictograms/` | Menu/bar unit-type pictograms, one per unit type | 384×384 RGBA, transparent background |
+| `buildings/`  | Structure marks: airfield, harbor, army_post, depot, bunker, radar, derrick, foundry, granary, plantation, bridge_map, city, capital | 384×384 RGBA, transparent background |
+| `buttons/`    | Button icons and the console-key chrome (`panel_*`, `red_button*`) | 384×384 RGBA, transparent background |
+| `cursors/`    | The mouse cursors (`cursor_*`) | 384×384 RGBA, transparent background |
+| `badges/`     | Field badges: `nosupply`, `nosupply_red`, `crossed_swords` | 384×384 RGBA, transparent background |
 | `flags/`  | Nation standards flown above foreign units and works | 180×120 RGBA (3:2) |
 | `keys/`   | Console-key face textures (ready/press/hover, per aspect) | height 160 px × aspect, RGBA |
 | `sheets/` | Painted surfaces: console bar, fax paper, newsprint, tooltip plate | as found |
 
 ## Color rules
 
-- **One file per name** (no dark/light pairs, no nation tinting):
-  one `ui/<name>.png` and one `units/<name>.png`. Exception:
-  `ui/nosupply_red.png` for the red out-of-supply alert.
+- **One file per name** (no dark/light pairs, no nation tinting).
+  Exception: `badges/nosupply_red.png` for the red out-of-supply
+  alert.
 - **Three art styles by folder/role:**
-  - **`ui/` button/cursor icons** — monochrome SF Symbols style
-    with **dimensional shading** (dark greys + depth), refined
-    proportions and internal detail so icons read clearly and stay
-    distinct at small sizes.
+  - **`pictograms/`, `buttons/`, `cursors/`, `badges/`** —
+    monochrome SF Symbols style with **dimensional shading** (dark
+    greys + depth), refined proportions and internal detail so
+    icons read clearly and stay distinct at small sizes.
   - **`units/` map sprites** — simple top-down vehicle diagrams
     with **slight** realistic colour (muted olive/grey), vehicle
     only (no outer border, pad, or floating symbols).
-  - **Structure marks** (`airfield`, `army_post`, `depot`, `harbor`,
-    `bunker`, `bridge_map`, `capital`, `city`, `radar`) — lightly
-    coloured, more detailed top-down cartographic diagrams. Draw
+  - **`buildings/` structure marks** — lightly coloured, more
+    detailed top-down cartographic diagrams. Draw
     buildings/runways/docks; do **not** fill grass, water, dirt, or
     asphalt slabs under them. Empty space stays transparent.
 - **Ownership is shown by the flag,** not the paint: units and
@@ -53,17 +56,18 @@ not listed for a type shares the generic file named for the type.
 
 | File | Is |
 |------|----|
-| `tiger.png` | German tank |
+| `tiger.png` | German heavy tank (Tiger I) |
+| `churchill.png` | British heavy tank (Churchill VII) |
+| `heavy_tank.png` | everyone else's heavy tank |
 | `t34.png` | Soviet tank |
-| `churchill.png` | British tank |
 | `chi_ha.png` | Japanese tank |
-| `tank.png` | everyone else's tank |
+| `tank.png` | everyone else's tank (Panzer IV, Matilda II, Sherman) |
 | `halftrack.png` | German & American personnel carrier |
 | `bren_carrier.png` | British personnel carrier |
-| `zis_5.png` | Soviet personnel truck |
+| `studebaker_us6.png` | Soviet personnel truck (Studebaker US6) |
 | `transport_truck.png` | generic personnel truck |
-| `studebaker_us6.png` | American & Soviet supply truck |
-| `supply_truck.png` | generic supply truck |
+| `zis_5.png` | Soviet supply truck (ZIS-5) |
+| `supply_truck.png` | generic supply truck (incl. the American GMC) |
 | `flak_88.png` | German AA (the 88) |
 | `aa_artillery.png` | generic AA battery |
 | `spitfire.png` / `bf_109.png` / `zero.png` / `yak_3.png` | fighters |
