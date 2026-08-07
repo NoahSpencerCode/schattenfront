@@ -1320,37 +1320,6 @@ class WorldData:
     # scales the stored plan, so the same rooftops appear at every zoom
     # level -- nothing pops or reshuffles while the camera moves.
 
-    def _dry_the_line(self, curve, max_deg=2.0, passes=3):
-        """Pull a surveyed line off the water and back onto land: a
-        railway BENDS AROUND a firth, it does not run across it.
-        Wet points are drawn to the nearest shore and the line
-        re-smoothed; smoothing can bow a bend back over the water,
-        so the pull is repeated until the line is dry."""
-        out = [tuple(pt) for pt in curve]
-        for _ in range(passes):
-            lat = np.array([p[0] for p in out])
-            lon = np.array([p[1] for p in out])
-            wet = ~self.fine_flags(lat, lon)
-            if not wet.any():
-                return out
-            for i in np.nonzero(wet)[0]:
-                la, lo = self.nearest_land(float(lat[i]),
-                                           float(lon[i]),
-                                           max_deg=max_deg)
-                out[int(i)] = (la, lo)
-            out = [tuple(pt) for pt in
-                   smooth_polyline(np.array(out))]
-        # a last pull with no smoothing behind it, so nothing the
-        # smoother nudged offshore is left standing in the sea
-        lat = np.array([p[0] for p in out])
-        lon = np.array([p[1] for p in out])
-        wet = ~self.fine_flags(lat, lon)
-        for i in np.nonzero(wet)[0]:
-            la, lo = self.nearest_land(float(lat[i]), float(lon[i]),
-                                       max_deg=max_deg)
-            out[int(i)] = (la, lo)
-        return out
-
     def _wet_share(self, curve):
         lat = np.array([p[0] for p in curve])
         lon = np.array([p[1] for p in curve])
@@ -1387,12 +1356,14 @@ class WorldData:
                     a[2], a[3], b[2], b[3], seed, smooth=False)
                 curve = [tuple(pt) for pt in
                          smooth_polyline(np.array(coarse))]
-                # NO MAIN LINE RUNS ACROSS THE SEA: a leg that is
-                # mostly water joins two shores no railway could,
-                # and one that merely clips a firth is bent ashore
+                # NO MAIN LINE RUNS ACROSS THE SEA: a leg mostly
+                # over water joins two shores no railway could. One
+                # that merely clips a firth is left for the game to
+                # send round the coast -- the land route wants the
+                # routing raster, which is built with the planner.
                 if self._wet_share(curve) > 0.35:
                     continue
-                self.rail_paths.append(self._dry_the_line(curve))
+                self.rail_paths.append(curve)
 
     def _build_city_plans(self):
         self.city_plans = {}

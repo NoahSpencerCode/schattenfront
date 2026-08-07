@@ -28,6 +28,10 @@ SEA_LAND_FRAC = 0.85           # must stay open; the corridor refinement
 OFFROAD_MAX_ARC_DEG = 18.0     # longest allowed single off-road hop
 OFFROAD_KNN = 8               # off-road links per node (nearest first)
 ROAD_NODE_SPACING = 0.09       # world units between road entry nodes
+JUNCTION_DEG = 0.05            # a new way this close to an existing
+                               # one is wired to it: the crossing
+RAIL_ROUTE_PREFERENCE = 1.8    # how far the router will go out of
+                               # its way to ride a railway
                                # (finer = a column hugs the snaking road
                                # more closely and can join it nearer the
                                # closest point; ~2x the node density)
@@ -111,13 +115,31 @@ class MovementPlanner:
             if last and snap_b is not None:
                 nn = snap_b
             else:
+                # A JUNCTION WHERE THE WAYS CROSS. Only the ENDS of a
+                # new way were snapped to the network, so a railway
+                # laid across a road met it nowhere: a column
+                # changing from one to the other had to leave the
+                # made ground and go across country to reach it.
+                # Every node of the new way that falls on an existing
+                # one is wired to it.
+                cross = self.nearest_node(vecs[idx],
+                                          max_deg=JUNCTION_DEG)
                 nn = len(nodes)
                 nodes.append((vecs[idx], *vec_to_latlon(vecs[idx])))
+                if cross is not None:
+                    hop = max(1e-6, angle_between(
+                        vecs[idx], nodes[cross][0]) * GLOBE_RADIUS)
+                    edges.append((nn, cross, hop, flag, [], None))
+                    edges.append((cross, nn, hop, flag, [], None))
             seg_len = max(1e-6, arc[idx] - arc[prev_i])
             geom = vecs[prev_i + 1:idx] or None
             # rails carry a routing preference: same true speed, but a
             # column that CAN ride the line should (it burns nothing)
-            rate = ROAD_SPEED_MULTIPLIER * (1.15 if rail else 1.0)
+            # A COLUMN TAKES THE RAILWAY when there is one: the
+            # line carries its stores for it, so the router prices a
+            # rail leg well under a road leg of the same length.
+            rate = ROAD_SPEED_MULTIPLIER * (RAIL_ROUTE_PREFERENCE
+                                            if rail else 1.0)
             xs = crossings(prev_i, idx)
             gate = {'x': xs} if xs else []
             edges.append((prev, nn, seg_len / rate, flag, gate, geom))

@@ -180,6 +180,14 @@ UNIT_TYPES = {
 
 BRANCH_OF = {'land': 'ARMY', 'sea': 'NAVY', 'air': 'AIR FORCE'}
 
+# ---- the price of war ---------------------------------------------
+# EVERY PIECE COSTS THREE TIMES what it did. Applied to the base
+# chassis before the national modifiers scale it, so a nation that
+# builds its armour dear still builds it dear.
+COST_MULTIPLIER = 3
+for _ut, _s in UNIT_TYPES.items():
+    _s['cost'] = int(_s['cost'] * COST_MULTIPLIER)
+
 # ---- supply defaults: logistics wins wars -------------------------------
 # Everything but aircraft burns supply (lbs) to move and fight; aircraft
 # operate in sorties instead (their airfield/carrier pays per takeoff).
@@ -215,7 +223,11 @@ def material_cost(unit_type, country=None):
     if unit_type == 'infantry':
         return {'steel': 0}
     dom = s['domain']
-    div = 50 if dom == 'sea' else 80 if dom == 'air' else 100
+    # the divisors carry the money multiplier with them: it is the
+    # PRICE that tripled, and a factory's steel bill per piece is
+    # meant to stand where it stood
+    div = (50 if dom == 'sea' else 80 if dom == 'air' else 100) \
+        * COST_MULTIPLIER
     return {'steel': max(1, int(s['cost'] // div))}
 
 # ---- sprite sizes: real-world proportions ------------------------------
@@ -901,8 +913,13 @@ class Unit:
                 self.current_order = self.order_queue.pop(0)
                 self.game.begin_order(self, self.current_order)
 
-        # a route is still being planned in the background
+        # a route is still being planned in the background. THE GUNS
+        # DO NOT WAIT ON THE MAP ROOM: a unit standing with an enemy
+        # in range fires while its next route is being worked out --
+        # returning here outright was why troops so often sat and
+        # watched a column go past.
         if getattr(self, 'plan_pending', None):
+            self._combat(dt)
             return
 
         # no supplies: the column halts and the guns fall silent

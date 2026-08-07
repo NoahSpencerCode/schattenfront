@@ -18,6 +18,7 @@ import random
 import time
 import threading
 import zlib
+import numpy as np
 
 from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from direct.showbase.ShowBase import ShowBase
@@ -459,6 +460,8 @@ class WW2RTSGame(ShowBase):
         self.tax_fax = None
         self.draft_fax = None
         self.focus_fax = None
+        self.envoy_fax = None
+        self.envoy_offer = None
         self.diplo_fax = None
         self.newspaper = None
         self._news_cooldown = 0.0
@@ -723,6 +726,8 @@ class WW2RTSGame(ShowBase):
         self.tax_fax = None
         self.draft_fax = None
         self.focus_fax = None
+        self.envoy_fax = None
+        self.envoy_offer = None
         self.diplo_fax = None
         self.newspaper = None
         self._news_cooldown = 0.0
@@ -864,6 +869,9 @@ class WW2RTSGame(ShowBase):
         # A line is a way like any road: every river it crosses gets
         # its span thrown FIRST, so the crossings are legal -- and
         # bombable. (A loaded game recreates its spans from the save.)
+        self.world.rail_paths = [self._rail_around_water(c)
+                                 for c in
+                                 getattr(self.world, 'rail_paths', [])]
         for curve in getattr(self.world, 'rail_paths', []):
             if len(curve) < 2:
                 continue
@@ -1544,11 +1552,16 @@ class WW2RTSGame(ShowBase):
     # together, a few fighting pieces, and the rest of the treasury
     # left in hand for the player to spend as the war demands.
     OPENING_SLATE = (
+        # the staff
         ('army_command', 1), ('naval_command', 1),
         ('airforce_command', 1),
-        ('tank', 2), ('aa_artillery', 1),
+        # the fleet as the admiralty asked for it
+        ('supply_ship', 3), ('destroyer_sea_sea', 2),
+        ('personnel_transport', 2),
+        # and a handful ashore and aloft
+        ('aa_artillery', 1), ('tank', 2),
         ('supply_truck', 2), ('transport_truck', 2),
-        ('fighter', 2), ('destroyer_sea_sea', 1),
+        ('fighter', 2),
     )
 
     def _default_budget_counts(self, country, funds):
@@ -1787,6 +1800,77 @@ class WW2RTSGame(ShowBase):
         if self.diplo_fax:
             self.diplo_fax.rebuild()
         return verdict
+
+    def envoy_arrives(self, nat, gives, wants):
+        """A FOREIGN ENVOY CALLS ON US with a sheet of his own:
+        `gives` is what his nation lays down, `wants` is what it
+        asks of us. Nothing is signed until the player says so --
+        no power binds us to a pact while our back is turned.
+
+        Only one envoy waits in the anteroom at a time; a second
+        arrival while the first is unanswered is turned away at the
+        door and will call again another day."""
+        if self.game_state != 'playing' or self.envoy_fax is not None:
+            return False
+        if nat == self.player_country or nat in self.eliminated:
+            return False
+        from ui import EnvoyFax
+        self.envoy_offer = (nat, list(gives), list(wants))
+        self.envoy_fax = EnvoyFax(self, nat, gives, wants,
+                                  self._envoy_accept,
+                                  self._envoy_decline)
+        return True
+
+    def _close_envoy(self):
+        if self.envoy_fax is not None:
+            self.envoy_fax.destroy()
+            self.envoy_fax = None
+        self.envoy_offer = None
+
+    def _envoy_accept(self):
+        import deals as _d
+        from config import short_name
+        if not self.envoy_offer:
+            self._close_envoy()
+            return
+        nat, gives, wants = self.envoy_offer
+        me = self.player_country
+        # we must be able to honour our half before the pen touches
+        for tok in wants:
+            if tok['kind'] == 'funds_once' and \
+                    self.funds[me] < tok['amount']:
+                self.fax.post("THE SHEET IS DECLINED",
+                              "The Exchequer cannot cover %s."
+                              % B(_d.token_text(tok)),
+                              sender="FOREIGN OFFICE")
+                self._close_envoy()
+                return
+            if tok['kind'] == 'res_once' and \
+                    self.resources[me][tok['res']] < tok['amount']:
+                self.fax.post("THE SHEET IS DECLINED",
+                              "We have no %s to ship."
+                              % B(tok['res'].upper()),
+                              sender="FOREIGN OFFICE")
+                self._close_envoy()
+                return
+        # HIS sheet read from our side: what he asks, we give
+        self._execute_deal(nat, wants, gives)
+        self.fax.post(
+            "THE INSTRUMENT IS SIGNED",
+            "Terms agreed with %s. The instrument is lodged with "
+            "both foreign offices." % B(short_name(nat).upper()),
+            sender="ENVOY OF %s" % short_name(nat).upper())
+        self._close_envoy()
+        if self.diplo_fax:
+            self.diplo_fax.rebuild()
+
+    def _envoy_decline(self):
+        from config import short_name
+        nat = self.envoy_offer[0] if self.envoy_offer else None
+        self._close_envoy()
+        if nat:
+            self.fax_short("THE ENVOY OF %s IS SENT AWAY"
+                           % short_name(nat).upper())
 
     def _execute_deal(self, nat, offer, ask):
         """Both sides honour the sheet at once: cargo and money
@@ -2905,8 +2989,38 @@ class WW2RTSGame(ShowBase):
         else:
             self._click_select(mpos, shift)
 
+    def _pick_city(self, mpos):
+        """A town is picked by its MARK or by its NAME. The label is
+        drawn flat on the map at a fixed size, so the letters are as
+        much a part of the town as the dot under them -- and a town
+        with troops standing in it was all but unclickable while the
+        counters were tested first."""
+        best, best_d = None, None
+        for c in self.cities:
+            if (c.country != self.player_country
+                    or not self._facing_camera(c.pos)):
+                continue
+            sp = self.screen_pos(c.label_pos * GLOBE_RADIUS)
+            if sp is None:
+                continue
+            # the drawn half-width of the name, in world units
+            half = max(0.10, c.label_tn.getWidth() * 0.5 * 0.05)
+            r = max(CLICK_RADIUS * 1.9,
+                    self._struct_pick_radius(half))
+            d = (mpos - sp).length()
+            if d <= r and (best_d is None or d < best_d):
+                best, best_d = c, d
+        return best
+
     def _click_select(self, mpos, shift):
         if shift and self._strike_waypoint(mpos):
+            return
+        # THE TOWN COMES FIRST: its mark and its name outrank the
+        # counters standing on it
+        city = self._pick_city(mpos)
+        if city is not None:
+            self.clear_selection()
+            self._select_city(city)
             return
         own = [(u, self._unit_world_pos(u)) for u in self.units
                if self._commandable(u) and self._facing_camera(u.pos)]
@@ -2996,15 +3110,6 @@ class WW2RTSGame(ShowBase):
         if dep:
             self.clear_selection()
             self._select_deposit(dep)
-            return
-        own_cities = [(c, c.label_pos * GLOBE_RADIUS)
-                      for c in self.cities
-                      if c.country == self.player_country
-                      and self._facing_camera(c.pos)]
-        city = self._pick_object(mpos, own_cities, radius=CLICK_RADIUS * 1.9)
-        if city:
-            self.clear_selection()
-            self._select_city(city)
             return
         # visible enemy: selectable for an intelligence view (no orders)
         foes = [(u, self._unit_world_pos(u)) for u in self.units
@@ -3866,6 +3971,26 @@ class WW2RTSGame(ShowBase):
         from the player's hand for the [PLANNING ROUTE] indicator, and
         pre-plans queued waypoint legs so every leg gets real routing
         (not just the first)."""
+        # THE FRONTIER BINDS EVERY COLUMN, including the lorries
+        # driving their own errands: a supply or transport truck was
+        # crossing closed borders freely because its orders are
+        # issued automatically and the gate only read orders given
+        # by hand.
+        if (unit.country == self.player_country
+                and order.get('kind') == 'move'
+                and order.get('goal') is not None
+                and order.get('auto')):
+            if self.passage_refused(unit, order['goal']) is not None:
+                try:
+                    unit.order_queue.remove(order)
+                except ValueError:
+                    pass
+                if unit.current_order is order:
+                    unit.current_order = None
+                # the errand is off: let the carrier be re-tasked
+                unit._supply_tgt = None
+                unit._depot_haul = False
+                return
         if unit.country == self.player_country and not order.get('auto'):
             order['indicate'] = True
             # THE FRONTIER: a column ordered across a foreign border
@@ -4204,6 +4329,18 @@ class WW2RTSGame(ShowBase):
     def _order_board(self, transport, boarders, shift):
         """Order up to the free berths onto the transport; the rest are
         refused so a full transport can't be over-committed."""
+        # A LORRY CARRIES MEN. Ships and aircraft lift whatever will
+        # fit in a hold, but a motor column has room for infantry and
+        # nothing else -- you cannot stack a lorry on a lorry.
+        if transport.stats['domain'] == 'land':
+            riders = [u for u in boarders if u.unit_type == 'infantry']
+            if len(riders) < len(boarders):
+                self.fax_short("A LORRY CARRIES INFANTRY ONLY -- "
+                               "%d VEHICLE(S) REFUSED"
+                               % (len(boarders) - len(riders)))
+            boarders = riders
+            if not boarders:
+                return
         slots = max(0, self._board_capacity_left(transport))
         # the NEAREST units get the berths; the far ones are refused
         boarders = sorted(boarders,
@@ -4839,6 +4976,25 @@ class WW2RTSGame(ShowBase):
         eng = engineers[0]
         lat, lon = vec_to_latlon(ground)
         label, cost, build_time = self.BUILD_WORKS[kind]
+        # NO WORKS ON ANOTHER MAN'S GROUND: a frontier closed to our
+        # columns is closed to our shovels. War, an alliance or a
+        # right of passage opens it.
+        owner = self.territory_of(Vec3(ground))
+        if (owner not in (None, 'neutral', self.player_country)
+                and not self.at_war(self.player_country, owner)
+                and not self.allied(self.player_country, owner)
+                and not self.has_right(self.player_country, owner,
+                                       'passage')):
+            self.fax.post(
+                "WORKS REFUSED",
+                "That ground is %s. We may not dig on it without a "
+                "%s -- treat for one at the table, or declare war." %
+                (B("%s SOIL" % short_name(owner).upper()),
+                 B("RIGHT OF PASSAGE")),
+                sender="ENGINEER CORPS")
+            self.build_mode = None
+            self._clear_road_plan()
+            return
         if kind == 'harbor':
             # the quay goes ON the water, just off the shore
             if self.world.is_land(lat, lon):
@@ -4930,6 +5086,13 @@ class WW2RTSGame(ShowBase):
         self.fax_short("%s UNDER CONSTRUCTION -- CLICK CHAINS THE NEXT, "
                        "ESC STANDS DOWN" % label)
 
+    # EVERY WAYPOINT RING ON THE MAP IS THIS SIZE, and it is a
+    # FIXED size like the buildings: the survey ring used to be
+    # drawn against the camera (alt * 0.028), so it swelled to cover
+    # a province when the player pulled back, while the order rings
+    # were pinned so small (0.0072wu) that they never showed at all.
+    WAYPOINT_RING = UNIT_SPRITE_SCALE * 0.7
+
     def _draw_road_plan(self, eng):
         """Survey line: the TRAVEL leg (engineer to the start) in
         movement blue, the road itself between survey points in
@@ -4959,13 +5122,10 @@ class WW2RTSGame(ShowBase):
                                / 0.3))
                 for k in range(1, n + 1):
                     segs.drawTo(slerp(a, b, k / n) * lift)
-        # every survey point wears its yellow waypoint ring. It is
-        # sized against the CAMERA: a fixed 0.007wu ring is
-        # sub-pixel at the altitude a Berlin-Warsaw line is planned
-        # from, which is why the survey looked like it did nothing
+        # every survey point wears its yellow waypoint ring, at
+        # the one fixed size every other waypoint ring uses
         segs.setColor(1.0, 0.85, 0.2, 0.9)
-        alt = max(0.05, self.cam_dist - GLOBE_RADIUS)
-        r = max(UNIT_SPRITE_SCALE * 0.30, alt * 0.028)
+        r = self.WAYPOINT_RING
         for jp in self.road_plan:
             east = north_tangent(jp).cross(jp)
             for i in range(17):
@@ -5065,6 +5225,138 @@ class WW2RTSGame(ShowBase):
                           "%s ready at %s." %
                           (B(label), self._grid_ref(lat, lon)),
                           sender="ENGINEER CORPS")
+
+    def _rail_around_water(self, curve):
+        """A MAIN LINE TAKES A SMOOTH DETOUR ROUND THE WATER.
+
+        A surveyed curve is a gentle snake between two cities and
+        knows nothing of the coast, so a line from London to Glasgow
+        cut across the Irish Sea. Pulling each wet point to the
+        nearest shore -- the first attempt -- snapped neighbours to
+        OPPOSITE shores and left the railway thrashing back and
+        forth across the firth.
+
+        The line is instead ROUTED over land by the same raster A*
+        the columns march on, then STRING-PULLED (every waypoint a
+        clear overland run can skip is dropped) and smoothed, which
+        is what makes the detour read as a railway engineer's line
+        rather than a staircase."""
+        lat = np.array([p[0] for p in curve])
+        lon = np.array([p[1] for p in curve])
+        if self.world.fine_flags(lat, lon).all():
+            return curve                # already dry: leave it alone
+        a = latlon_to_vec(curve[0][0], curve[0][1])
+        b = latlon_to_vec(curve[-1][0], curve[-1][1])
+        route = None
+        for pad, budget in ((3.0, 60000), (7.0, 160000)):
+            try:
+                route = self.planner._refine_grid_once(
+                    a, b, pad, budget, want_water=False)
+            except Exception:
+                route = None
+            if route:
+                break
+        if not route:
+            return curve                # no way round: leave as drawn
+        pts = [(curve[0][0], curve[0][1])]
+        pts += [vec_to_latlon(v) for v in route]
+        # STRING-PULL: keep only the corners the coast actually forces
+        keep = [pts[0]]
+        i = 0
+        while i < len(pts) - 1:
+            j = len(pts) - 1
+            while j > i + 1:
+                # a FINE step: the default 0.1deg sampling let a
+                # run clip a headland between samples, and the line
+                # came out with a toe in the water
+                if self.world.segment_on_land(pts[i][0], pts[i][1],
+                                              pts[j][0], pts[j][1],
+                                              step_deg=0.02):
+                    break
+                j -= 1
+            keep.append(pts[j])
+            i = j
+        if len(keep) < 2:
+            return curve
+        # a corner the raster handed back may itself sit on a water
+        # pixel of the finer mask -- step it ashore before any leg is
+        # laid between corners
+        keep = [(pt if self.world.is_land(pt[0], pt[1])
+                 else self.world.nearest_land(pt[0], pt[1]))
+                for pt in keep]
+        # and lay a surveyed curve along each corner-to-corner run,
+        # so the finished line snakes like every other way on the map
+        out = []
+        for (la1, lo1), (la2, lo2) in zip(keep[:-1], keep[1:]):
+            seed = zlib.crc32(("railfix:%.3f,%.3f,%.3f,%.3f"
+                               % (la1, lo1, la2, lo2)).encode())
+            leg = self.world._curved_road_points(
+                la1, lo1, la2, lo2, seed, passes=4, amp=0.02)
+            # the corner-to-corner run is known dry; the SNAKE laid
+            # along it may still dip a toe in a firth. Where it does,
+            # this stretch runs straight -- an engineer surveys a
+            # tight coast straight and saves his curves for open
+            # country.
+            la = np.array([q[0] for q in leg])
+            lo = np.array([q[1] for q in leg])
+            if not self.world.fine_flags(la, lo).all():
+                n = max(2, len(leg))
+                leg = [(la1 + (la2 - la1) * k / (n - 1.0),
+                        lo1 + (lo2 - lo1) * k / (n - 1.0))
+                       for k in range(n)]
+            out.extend(leg if not out else leg[1:])
+        # A STRAY TOE IN THE WATER is stepped ashore. The routing
+        # raster is coarser than the drawn coast, so a run it calls
+        # dry can still clip the head of a firth for a few yards.
+        # Only SHORT wet runs are pulled -- a long one is a real sea
+        # crossing and belongs to the router above, and pulling those
+        # is exactly what made the line thrash shore to shore.
+        la = np.array([q[0] for q in out])
+        lo = np.array([q[1] for q in out])
+        wet = ~self.world.fine_flags(la, lo)
+        if wet.any():
+            i = 0
+            while i < len(out):
+                if not wet[i]:
+                    i += 1
+                    continue
+                j = i
+                while j < len(out) and wet[j]:
+                    j += 1
+                if j - i <= 12:
+                    # BRIDGE the stray run with a straight chord, and
+                    # widen the anchors until that chord is itself
+                    # dry. Every point on the run is then laid along
+                    # one straight line -- smooth by construction.
+                    # (Stepping each wet point to its own nearest
+                    # shore instead put a hairpin in the line: that
+                    # is the same thrash that started all this, in
+                    # miniature.)
+                    a_i, b_i = max(0, i - 1), min(len(out) - 1, j)
+                    for _ in range(40):
+                        if self.world.segment_on_land(
+                                out[a_i][0], out[a_i][1],
+                                out[b_i][0], out[b_i][1],
+                                step_deg=0.02):
+                            break
+                        if a_i > 0:
+                            a_i -= 1
+                        if b_i < len(out) - 1:
+                            b_i += 1
+                        if a_i == 0 and b_i == len(out) - 1:
+                            break
+                    if self.world.segment_on_land(
+                            out[a_i][0], out[a_i][1],
+                            out[b_i][0], out[b_i][1], step_deg=0.02):
+                        la1, lo1 = out[a_i]
+                        la2, lo2 = out[b_i]
+                        span = max(1, b_i - a_i)
+                        for k in range(a_i + 1, b_i):
+                            t = (k - a_i) / float(span)
+                            out[k] = (la1 + (la2 - la1) * t,
+                                      lo1 + (lo2 - lo1) * t)
+                i = j
+        return out
 
     def _auto_bridge_curve(self, curve, quiet=False):
         """Throw a bridge over every river the surveyed way (road OR
@@ -5959,11 +6251,14 @@ void main() {
             if not walkers:
                 dest = Vec3(keep[0][1])
                 job['state'] = 'deliver'
+                # ONE order, not two. A queued unload plans its
+                # OWN route to the same spot, so the lorry drove up,
+                # set off again for the same yard of ground, and only
+                # then dropped its riders -- the back-and-forth the
+                # player sees. The deliver stage below puts them down
+                # the moment the drive is done.
                 truck.give_order({'kind': 'move',
                                   'goal': Vec3(dest), 'auto': True})
-                truck.give_order({'kind': 'unload',
-                                  'goal': Vec3(dest), 'auto': True},
-                                 queue=True)
                 return
             u, _g = min(walkers, key=lambda p: truck.dist_to(p[0].pos))
             if truck.dist_to(u.pos) < self.FERRY_SCOOP:
@@ -7383,13 +7678,18 @@ void main() {
                     draw_leg(prev, Vec3(home.pos))
                     joins.append((Vec3(home.pos), BLUE))
                 continue
-            if not u.path and not u.order_queue:
+            cur_kind = (u.current_order.get('kind')
+                        if u.current_order else None)
+            # A WORKS PARTY STANDING ON ITS SITE still has a road to
+            # show: it has arrived, so its path is spent, and the leg
+            # it is digging would vanish from the map just as the
+            # shovels went in.
+            if (not u.path and not u.order_queue
+                    and cur_kind != 'build'):
                 continue
             drew = True
             # follow the great circle of each leg so long paths hug the
             # planet instead of chording through it
-            cur_kind = (u.current_order.get('kind')
-                        if u.current_order else None)
             cur_col = RED if cur_kind == 'attack' else BLUE
             prev = Vec3(u.pos)
             segs.setColor(*cur_col)
@@ -7452,8 +7752,8 @@ void main() {
                         pv = Vec3(wp)
                     joins.append((pv, YELLOW))
                     prev = pv
-        # join rings: small fixed size (1/5 of the old ring)
-        r = UNIT_SPRITE_SCALE * 0.16
+        # join rings, the same size as a survey ring
+        r = self.WAYPOINT_RING
         for jp, col in joins:
             segs.setColor(*col)
             for i in range(17):
