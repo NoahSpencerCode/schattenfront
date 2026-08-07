@@ -19,31 +19,30 @@ check(sc.menu_loop and '(Loop)' in sc.menu_loop,
       "...and on the LOOPING cut of it")
 check(len(sc.speeches) == 2, "both recorded addresses on file (%d)"
       % len(sc.speeches))
-check('FDR' in sc.speeches[0],
-      "ROOSEVELT stands first in the running order")
 check(any('Eisenhower' in s for s in sc.speeches),
-      "and Eisenhower's D-Day order is with him")
+      "Eisenhower's D-Day order is on the shelf")
 check(not os.path.isabs(sc.menu_loop),
       "media paths stay RELATIVE, as a frozen bundle needs")
 
-# --- THE MENU: the march plays, and a broadcast is laid OVER it
+# --- THE MENU: the march plays, and the wireless drifts over it
 sc.enter_menu()
 check(sc.mode == 'menu' and sc.music is not None,
       "the menu march is up")
 march = sc.music
 
-# THE FIRST BROADCAST COMES EARLY, and it is always Roosevelt
-from score import FIRST_SPEECH_GAP
-lo, hi = FIRST_SPEECH_GAP
-check(lo == 15.0 and hi == 45.0,
-      "the first broadcast is scheduled 15-45s in")
+from score import (SPEECH_GAP, SPEECH_SEGMENT, SPEECH_FADE,
+                   SPEECH_VOLUME)
+lo, hi = SPEECH_GAP
+check(lo == 10.0 and hi == 30.0,
+      "the dial rests ten to thirty seconds between broadcasts")
+check(SPEECH_SEGMENT == 20.0, "and holds each one twenty seconds")
 waits = []
 for _ in range(40):
     sc.enter_campaign()             # force a fresh menu each time
     sc.enter_menu()
     waits.append(sc._next_speech)
 check(all(lo <= w <= hi for w in waits),
-      "every fresh menu schedules it inside that window "
+      "every fresh menu schedules inside that window "
       "(%.1f to %.1f)" % (min(waits), max(waits)))
 
 sc.enter_campaign()
@@ -51,18 +50,39 @@ sc.enter_menu()
 sc._next_speech = 0.0
 sc.update(0.1)
 check(sc.speech is not None, "a broadcast comes over the wireless")
-check('FDR' in sc._last_speech,
-      "and ROOSEVELT is the one heard first")
 check(sc.music is march or sc.music is not None,
       "AND THE MARCH NEVER STOPS FOR IT -- still playing")
 
-# later broadcasts may be either man, and never twice running
+# --- THE ENVELOPE: rise, hold, die away -- the march untouched
+sc.update(0.5)                      # half a second in: fading up
+early = sc._speech_vol
+check(0.0 < early < SPEECH_VOLUME * 0.5,
+      "the voice FADES IN (%.2f of %.2f half a second in)"
+      % (early, SPEECH_VOLUME))
+sc.update(SPEECH_FADE)              # past the head fade: full voice
+check(abs(sc._speech_vol - SPEECH_VOLUME) < 1e-6,
+      "holds at full voice through the middle (%.2f)"
+      % sc._speech_vol)
+sc._speech_t = sc._speech_seg - 1.0
+sc.update(0.05)                     # a second from the end: dying
+check(sc._speech_vol < SPEECH_VOLUME * 0.5,
+      "and FADES OUT toward the end (%.2f)" % sc._speech_vol)
+check(sc.music is not None, "the march plays through all of it")
+sc.update(2.0)                      # past the segment: put down
+check(sc.speech is None,
+      "at twenty seconds the broadcast is put down")
+check(lo <= sc._next_speech <= hi,
+      "and the dial rests 10-30s before the next (%.1fs)"
+      % sc._next_speech)
+
+# --- the addresses take turns: never the same one twice running
 heard = set()
 for _ in range(8):
-    sc.speech = None
     sc._next_speech = 0.0
-    sc.update(0.1)
+    sc.update(0.1)                  # a broadcast comes on
     heard.add(sc._last_speech)
+    sc._speech_t = 99.0
+    sc.update(0.1)                  # and is put down
 check(len(heard) == 2, "both men are heard in turn (%d)" % len(heard))
 
 # --- THE CAMPAIGN: quiet first, then a march of its own accord
@@ -97,8 +117,8 @@ g.score._next_speech = 0.02
 step(g, 20)
 check(g.score.speech is not None,
       "the FRAME TASK brings the broadcast on while on the menu")
-check('FDR' in (g.score._last_speech or ''),
-      "and it is Roosevelt")
+check(g.score._last_speech in g.score.speeches,
+      "and it is one of the addresses on the shelf")
 check(g.score.music is not None, "with the march still under it")
 
 # --- THE MARCH AND THE VOICE SOUND TOGETHER. ShowBase builds the
