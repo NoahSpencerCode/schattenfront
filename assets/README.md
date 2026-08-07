@@ -63,7 +63,7 @@ generic one named for the unit type.
 | `flak_88.png` | The German **88mm Flak** battery. | Cruciform outrigger mount, ONE long barrel. |
 | `army_command.png` | Army field headquarters (OKH, GHQ, Stavka...). Projects the comm circle that keeps land units in contact. | Signals lorry: box body, radio masts and aerials, pennant. |
 | `blimp.png` | The blimp STATION on the ground (winch truck, envelope stowed/low). | Lorry with a small tethered envelope above it. |
-| `blimp_up.png` | The observation blimp ALOFT (wide vision, slow). *Still procedural — awaiting artist art.* | Fat envelope from above, tail fins, gondola line. |
+| `blimp_up.png` | The observation blimp ALOFT (wide vision, slow). | Fat envelope from above, tail fins, gondola line. |
 
 ### Air — every counter is a squadron/wing
 
@@ -97,8 +97,8 @@ generic one named for the unit type.
 | `yamato.png` | Japan's flagship, the **Yamato**. | Massive beam, pagoda-less modern tower, three huge triple turrets. |
 | `battleship.png` | The generic battleship: German **Bismarck**, British **King George V**, American **North Carolina**, Soviet **Gangut (mod.)**. | Two funnels, big twin/quad turrets fore and aft. |
 | `nagato.png` | Japanese **Nagato-class** battleship. | Tall stepped pagoda mast, single funnel. |
-| `fast_battleship.png` | The fast battleship (research): **Iowa**, **Scharnhorst**, **Renown**, **Kongo refit**, **Sovetsky Soyuz**. *Still procedural — awaiting artist art.* | Longer, finer hull; raked funnel. |
-| `heavy_cruiser.png` | The heavy cruiser (research): **Admiral Hipper**, **County**, **Baltimore**, **Takao**, **Kirov**. *Still procedural — awaiting artist art.* | Slimmer than a battleship, more turrets than a destroyer, floatplane catapult. |
+| `fast_battleship.png` | The fast battleship (research): **Iowa**, **Scharnhorst**, **Renown**, **Kongo refit**, **Sovetsky Soyuz**. | Longer, finer hull; raked funnel. |
+| `heavy_cruiser.png` | The heavy cruiser (research): **Admiral Hipper**, **County**, **Baltimore**, **Takao**, **Kirov**. | Slimmer than a battleship, more turrets than a destroyer, floatplane catapult. |
 | `destroyer_sea_sea.png` | The generic gun/torpedo destroyer (Fletcher, Z-boat, Gnevny). | Narrow fast hull, small turrets, two funnels. |
 | `fubuki.png` | Japanese **Fubuki-class** destroyer (Long Lance torpedoes). | Torpedo tube mounts amidships, one funnel pair. |
 | `tribal_class.png` | British **Tribal-class** gun destroyer. | Two forward turrets. |
