@@ -1,5 +1,10 @@
 # Global Operations (1939 Edition) — Icon & UI Art Folder
 
+> For WHAT each image depicts — the full catalogue with a
+> description of every unit, building and button — see
+> [../README.md](../README.md). This file covers the technical
+> rules of replacing art.
+
 This folder is the game's entire 2-D art inventory. Every file here
 can be replaced with hand-made art: keep the **same filename** and
 the **same canvas**, drop it in, and the game uses it forever.
