@@ -71,13 +71,19 @@ class Structure:
             self.flag = None
         c = COUNTRIES[self.country]['color'] if self.country else \
             (1.0, 1.0, 1.0)
-        self.marker = make_icon_quad(self.game.loader, self.ICON, 'dark',
-                                     half=1.05, depth=5, flat=False)
+        # THE WORKS LIE FLAT ON THE MAP, like features surveyed onto
+        # it, not counters standing up: the redrawn art is a
+        # top-down diagram on transparent ground, and a billboard
+        # would tip the aerodrome on its side. Only the flag stays
+        # on the billboard, so ownership still reads at any angle.
+        self.marker = make_icon_quad(self.game.loader, self.ICON,
+                                     'dark', half=1.05, depth=5,
+                                     flat=True)
         t = self.TINT
         self.marker.setColorScale(1 - t + t * c[0], 1 - t + t * c[1],
                                   1 - t + t * c[2], 1.0)
-        self.marker.setR(self.ICON_ROLL)
-        self.marker.reparentTo(self.bb)
+        self.marker.setH(self.ICON_ROLL)
+        self.marker.reparentTo(self.holder)
         self.marker.setLightOff()
         set_marker_layer(self.marker, LAYER_STRUCT)
         # FOREIGN works fly their nation's standard above the mark --

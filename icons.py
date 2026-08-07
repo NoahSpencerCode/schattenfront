@@ -2251,8 +2251,134 @@ def get_icon_path(unit_type, variant='dark', nation=None):
                             (0, 0, 0, 0))
             d = _ScaledDraw(ImageDraw.Draw(img), _SS)
             ink = INK_RED if variant == 'red' else INK_DARK
-            _DRAWERS.get(unit_type, _draw_infantry)(d, ink)
+            fn = _DRAWERS.get(unit_type, _draw_infantry)
+            mode = getattr(fn, 'render_mode', 'ink')
+            fn(d, ink)
+            if mode == 'duotone':
+                # colour art pressed into printer's ink: the darks
+                # carry full ink, the lights thin out, so the whole
+                # top-down diagram survives as a shaded pictogram
+                img = _press_to_ink(img, ink)
             img = _finish_icon(img, 'red' if variant == 'red'
                                else 'dark')
             return img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
     return _ensure(rel, ICON_VERSION, paint)
+
+
+def _press_to_ink(img, ink):
+    """Full-colour art becomes a single-ink pictogram: every pixel
+    takes the ink's hue, its own darkness becoming ink weight."""
+    import numpy as _np
+    arr = _np.asarray(img, dtype=_np.float32)
+    a = arr[..., 3]
+    luma = (arr[..., 0] * 0.30 + arr[..., 1] * 0.55
+            + arr[..., 2] * 0.15) / 255.0
+    weight = 0.52 + 0.48 * (1.0 - luma)      # dark paint = heavy ink
+    out = _np.zeros_like(arr)
+    out[..., 0] = ink[0]
+    out[..., 1] = ink[1]
+    out[..., 2] = ink[2]
+    out[..., 3] = _np.clip(a * weight, 0, 255)
+    return Image.fromarray(out.astype('uint8'), 'RGBA')
+
+
+# ================================================================
+# THE PAINT SHOP TAKES OVER THE BENCHES. paintshop.py holds the
+# redrawn art -- detailed top-down flat diagrams, buildings on
+# transparent ground -- and here its painters replace the old
+# drawers on every registry. The unit-type UI pictograms are the
+# SAME top-down diagrams pressed to printer's ink, so the key a
+# player pushes shows exactly the machine that will roll out.
+import paintshop as _ps
+
+_TOP_DOWN.update({
+    'infantry': _ps.tu_infantry,
+    'tank': _ps.tu_tank,
+    'heavy_tank': _ps.tu_heavy_tank,
+    'supply_truck': _ps.tu_supply_truck,
+    'transport_truck': _ps.tu_transport_truck,
+    'engineer': _ps.tu_engineer,
+    'artillery': _ps.tu_artillery,
+    'aa_artillery': _ps.tu_aa,
+    'army_command': _ps.tu_army_command,
+    'blimp': _ps.tu_blimp_truck,
+    'blimp_up': _ps.tu_blimp_up,
+    'fighter': _ps.tu_fighter,
+    'bomber': _ps.tu_bomber,
+    'heavy_bomber': _ps.tu_heavy_bomber,
+    'jet_fighter': _ps.tu_jet,
+    'transport_air': _ps.tu_transport_air,
+    'airforce_command': _ps.tu_air_command,
+    'destroyer_sea_sea': _ps.tu_dd_sea,
+    'destroyer_aa': _ps.tu_dd_aa,
+    'destroyer_sea_land': _ps.tu_dd_land,
+    'heavy_cruiser': _ps.tu_cruiser,
+    'battleship': _ps.tu_battleship,
+    'fast_battleship': _ps.tu_fast_battleship,
+    'naval_command': _ps.tu_naval_command,
+    'aircraft_carrier': _ps.tu_carrier,
+    'submarine': _ps.tu_submarine,
+    'supply_ship': _ps.tu_supply_ship,
+    'personnel_transport': _ps.tu_personnel_transport,
+})
+
+
+def _unit_ink(fn):
+    """A unit's dark pictogram is its own top-down diagram, pressed
+    to ink by the bench."""
+    def drawer(d, ink, nat=None):
+        fn(d, ink, nat)
+    drawer.render_mode = 'duotone'
+    return drawer
+
+
+for _name, _fn in _TOP_DOWN.items():
+    if _name != 'blimp_up':
+        _DRAWERS[_name] = _unit_ink(_fn)
+
+# the buildings keep their own map-sepia paint everywhere
+for _name, _fn in (('airfield', _ps.bd_airfield),
+                   ('harbor', _ps.bd_harbor),
+                   ('army_post', _ps.bd_army_post),
+                   ('depot', _ps.bd_depot),
+                   ('bunker', _ps.bd_bunker),
+                   ('radar', _ps.bd_radar),
+                   ('derrick', _ps.bd_derrick),
+                   ('foundry', _ps.bd_foundry),
+                   ('granary', _ps.bd_granary),
+                   ('plantation', _ps.bd_plantation),
+                   ('bridge_map', _ps.bd_bridge_map),
+                   ('city', _ps.bd_city),
+                   ('capital', _ps.bd_capital)):
+    _fn.render_mode = 'colour'
+    _DRAWERS[_name] = _fn
+
+_DRAWERS.update({
+    'tax_button': _ps.ub_tax,
+    'enlist_button': _ps.ub_enlist,
+    'factory_button': _ps.ub_factory,
+    'resource_button': _ps.ub_resource,
+    'research_button': _ps.ub_research,
+    'diplomacy_button': _ps.ub_diplomacy,
+    'repair_button': _ps.ub_repair,
+    'info_button': _ps.ub_info,
+    'demolish_button': _ps.ub_demolish,
+    'scramble_button': _ps.ub_scramble,
+    'paradrop_button': _ps.ub_paradrop,
+    'submerge_button': _ps.ub_submerge,
+    'surface_button': _ps.ub_surface,
+    'blimp_raise_button': _ps.ub_blimp_raise,
+    'blimp_lower_button': _ps.ub_blimp_lower,
+    'unload_button': _ps.ub_unload,
+    'road_build': _ps.ub_road,
+    'rail_build': _ps.ub_rail,
+    'nosupply': _ps.ub_nosupply,
+    'crossed_swords': _ps.ub_swords,
+    'cursor_default': _ps.cu_default,
+    'cursor_attack': _ps.cu_attack,
+    'cursor_embark': _ps.cu_embark,
+    'cursor_disembark': _ps.cu_disembark,
+})
+
+# the redraw is a new generation of every asset it touches
+ICON_VERSION = 18

@@ -519,33 +519,185 @@
 "h": "2f1a1034ee72756294cf8811e8ef6ef3",
 "v": 2
 },
+"ui/aa_artillery.png": {
+"h": "f27c826ee0c65ea9ce864496afdd300c",
+"v": 18
+},
+"ui/aircraft_carrier.png": {
+"h": "cdcc860ad7ac1dcffdc48fb67991f7ef",
+"v": 18
+},
+"ui/airfield.png": {
+"h": "accd185d588ec45016d6cfb5426e2f09",
+"v": 18
+},
+"ui/airforce_command.png": {
+"h": "0c3be3b14886e3c7ee51fc3a2053b3c9",
+"v": 18
+},
+"ui/army_command.png": {
+"h": "cd0d52311697c1437fb904250a03bd4c",
+"v": 18
+},
+"ui/army_post.png": {
+"h": "50eb4239fb655c2bd56ecbe8622d53d9",
+"v": 18
+},
+"ui/artillery.png": {
+"h": "b057207366f6552f0a11a1a5cf1a6004",
+"v": 18
+},
+"ui/battleship.png": {
+"h": "48952d9f05b9320ab085fa14bb67c818",
+"v": 18
+},
+"ui/blimp.png": {
+"h": "71575794e6f6d188e96cc94733c82cda",
+"v": 18
+},
+"ui/blimp_lower_button.png": {
+"h": "6e528eb2b1d9724c849e30a20f1717a5",
+"v": 18
+},
+"ui/blimp_raise_button.png": {
+"h": "1df296061d3fd579dbecd7b5c09ce583",
+"v": 18
+},
+"ui/bomber.png": {
+"h": "37d293b19799847591a2e0832a3c3aa3",
+"v": 18
+},
+"ui/bridge_map.png": {
+"h": "f162df04146939b62333da1eecb50ccd",
+"v": 18
+},
+"ui/bunker.png": {
+"h": "dd00506874ac368a219ffe504303ecdc",
+"v": 18
+},
+"ui/capital.png": {
+"h": "6cbaf7dc93d96b1fc0eed8b9f9eba36c",
+"v": 18
+},
+"ui/city.png": {
+"h": "90af108f0b4f3183b5e0343b5bc92669",
+"v": 18
+},
 "ui/crossed_swords.png": {
-"h": "f940114bab8a0c420058fb0d98df4643",
-"v": 17
+"h": "1e7cf1b6baa982b15bc4cf8fe5729250",
+"v": 18
+},
+"ui/cursor_attack.png": {
+"h": "b3add6024e3a9c70740c92a9c21419c3",
+"v": 18
+},
+"ui/cursor_default.png": {
+"h": "44202a4ea4d77b3a409a642e14171350",
+"v": 18
+},
+"ui/cursor_disembark.png": {
+"h": "672eef7dddea42b73b0b3f59b4051214",
+"v": 18
+},
+"ui/cursor_embark.png": {
+"h": "c04a887d71bcca18b0c04bc4d69ed707",
+"v": 18
+},
+"ui/demolish_button.png": {
+"h": "885dace2d2b71bae2625de2198231cdf",
+"v": 18
+},
+"ui/depot.png": {
+"h": "8d2c69e5d52c9dfd9bd9765a1b78c4d8",
+"v": 18
 },
 "ui/derrick.png": {
-"h": "95ba9eef3324fc94c34d5b42ca95e26d",
-"v": 17
+"h": "ee4abe6d7106ffa3f0dd8107cd7a27d2",
+"v": 18
+},
+"ui/destroyer_aa.png": {
+"h": "b6b51a85d03ec00aad71066e2bc1a5fa",
+"v": 18
+},
+"ui/destroyer_sea_land.png": {
+"h": "1dca2986fa21d5e047661f61a1c57360",
+"v": 18
+},
+"ui/destroyer_sea_sea.png": {
+"h": "610d2f19f87fb7f95e9fab63f9b43482",
+"v": 18
+},
+"ui/diplomacy_button.png": {
+"h": "f2de7493a7939e54b4bc4b1acc264f9c",
+"v": 18
+},
+"ui/engineer.png": {
+"h": "19c2f0019800f4209c21cf73899e6e1b",
+"v": 18
+},
+"ui/enlist_button.png": {
+"h": "66e109b0091089ae38b83049a813916f",
+"v": 18
+},
+"ui/factory_button.png": {
+"h": "bf898c2ff503eb6fe8bc2a5f6ff0946d",
+"v": 18
 },
 "ui/fast_battleship.png": {
-"h": "dfd0f6bf2542a932d8dfd3c34941d41f",
-"v": 17
+"h": "aea7c2d4bb3121f93dba281b5dc97f8b",
+"v": 18
+},
+"ui/fighter.png": {
+"h": "8bb1bccf467168271ae55fa7296b9ac4",
+"v": 18
 },
 "ui/foundry.png": {
-"h": "e4b1d3f2f15c79857e39538cd58e5e2d",
-"v": 17
+"h": "f0b5add3c60a403a6eda5e89407f600f",
+"v": 18
 },
 "ui/granary.png": {
-"h": "f8e7df7520e322539c6d26b9a7a29c82",
-"v": 17
+"h": "06df081eeaa18e6dfe99003119098b3a",
+"v": 18
+},
+"ui/harbor.png": {
+"h": "7834f80c32b268d44df6dd384b562a9a",
+"v": 18
+},
+"ui/heavy_bomber.png": {
+"h": "a524b9da408cd91f963429fbfe3344aa",
+"v": 18
 },
 "ui/heavy_cruiser.png": {
-"h": "59495f648f81a08d15c46e704aacce18",
-"v": 17
+"h": "2fa8fd41d1845955b50e1caeb9e9aaac",
+"v": 18
+},
+"ui/heavy_tank.png": {
+"h": "5732bc0b81de73d921234b36e9f69c9a",
+"v": 18
+},
+"ui/infantry.png": {
+"h": "e0c04ace149f251111a1d7915519ef72",
+"v": 18
+},
+"ui/info_button.png": {
+"h": "65f4fd3a84fa6a41bea285b50a356d84",
+"v": 18
+},
+"ui/jet_fighter.png": {
+"h": "26419e5bf3fb9d6d13b0ff2326bb8e68",
+"v": 18
+},
+"ui/naval_command.png": {
+"h": "4cb2106ada76367c08998d1549371eaf",
+"v": 18
+},
+"ui/nosupply.png": {
+"h": "7464018a2fb8f31dfd5d9fec0c2fd987",
+"v": 18
 },
 "ui/nosupply_red.png": {
-"h": "9e4c62feb6525bcbea09b4ddc356f65b",
-"v": 17
+"h": "173e530c6f2fb28c220a6fc7a7e98c30",
+"v": 18
 },
 "ui/panel_button.png": {
 "h": "270d4229532203c8e58fdcec38129f8d",
@@ -571,9 +723,25 @@
 "h": "b30b409dbb6c2c4ff7d2775afb6425fc",
 "v": 17
 },
+"ui/paradrop_button.png": {
+"h": "8e816f13aa4291370501ddb53444a74b",
+"v": 18
+},
+"ui/personnel_transport.png": {
+"h": "68a28d8697775832ad51d75166f074d5",
+"v": 18
+},
 "ui/plantation.png": {
-"h": "e59cb7253b70438dd9fb127b92d53c80",
-"v": 17
+"h": "593f6032505b1877999fcaff713b6646",
+"v": 18
+},
+"ui/radar.png": {
+"h": "bcd38536df416bde8e0ac82b23a63b9e",
+"v": 18
+},
+"ui/rail_build.png": {
+"h": "a97409abcfcc42c61d4e093ea01d0ec9",
+"v": 18
 },
 "ui/red_button.png": {
 "h": "32e12746cdab630bf3a36c3b60ff4510",
@@ -587,24 +755,288 @@
 "h": "40a99ef4fbd53911938f2950ddc01565",
 "v": 17
 },
+"ui/repair_button.png": {
+"h": "0baaf518a503168de69196661dc86329",
+"v": 18
+},
 "ui/research_button.png": {
-"h": "bb05c1404d9ded49c984d450fb4a71cc",
-"v": 17
+"h": "c6e7624ac7fb837df23dd1c973762a99",
+"v": 18
 },
 "ui/resource_button.png": {
-"h": "195d0988e0306e9d0a8a78d99ef79e69",
-"v": 17
+"h": "c6f74ea567cc406956f07d12e295f646",
+"v": 18
+},
+"ui/road_build.png": {
+"h": "0b6f27300b81f8b45a4049a46bbb7ce2",
+"v": 18
+},
+"ui/scramble_button.png": {
+"h": "28f7ce190af2527393cdbf835c6773bf",
+"v": 18
+},
+"ui/submarine.png": {
+"h": "496602ff617393342e2d87b261e8fddb",
+"v": 18
+},
+"ui/submerge_button.png": {
+"h": "e3d3a82e77ee4eeea586a5518e6acd9c",
+"v": 18
+},
+"ui/supply_ship.png": {
+"h": "26e7f5f2755d1de2d33218910b77625b",
+"v": 18
+},
+"ui/supply_truck.png": {
+"h": "ee561f56a362055e8fc98427c1bc7a7a",
+"v": 18
+},
+"ui/surface_button.png": {
+"h": "9b0b8ac8deb3dc84269837dffec312c2",
+"v": 18
+},
+"ui/tank.png": {
+"h": "f344b02a904f10b48ffa4fe11fe42ed2",
+"v": 18
+},
+"ui/tax_button.png": {
+"h": "557795b9ca28fa13ba1220e9a252fc5e",
+"v": 18
+},
+"ui/transport_air.png": {
+"h": "700620acf0f4bbbb04b9b5be9b5915ed",
+"v": 18
+},
+"ui/transport_truck.png": {
+"h": "ac8df600d91d534649d5436e1c556ff5",
+"v": 18
+},
+"ui/unload_button.png": {
+"h": "84dcdef8d652a79704b4b13ef3ac7808",
+"v": 18
+},
+"units/aa_artillery.png": {
+"h": "c0fe26af00f0d35199af86904577a7e1",
+"v": 18
+},
+"units/aircraft_carrier.png": {
+"h": "755ea1a2a16e32a56fc6963b9da6b301",
+"v": 18
+},
+"units/airforce_command.png": {
+"h": "ac39b60ad936a518ee6449b3b8b0c1bf",
+"v": 18
+},
+"units/akagi.png": {
+"h": "9403a75171621e2b3f73a7e4ebaf0ad2",
+"v": 18
+},
+"units/army_command.png": {
+"h": "2f473e018c9e1b0e9522eeee2bc6da59",
+"v": 18
+},
+"units/artillery.png": {
+"h": "117df8bfd85ad7180809d5094f01e8d3",
+"v": 18
+},
+"units/b_17.png": {
+"h": "eeb35acd4d26de54653cf59f52cf2747",
+"v": 18
+},
+"units/b_17_command.png": {
+"h": "927ad801e2ac6b2ad41a640fb445b0e9",
+"v": 18
+},
+"units/battleship.png": {
+"h": "8e0bf5bae57c97071d74078c2de9cf83",
+"v": 18
+},
+"units/bf_109.png": {
+"h": "347640a2fb1d61a2b8f43f55ff8c5482",
+"v": 18
+},
+"units/blimp.png": {
+"h": "441f6765f7d516782c763216c53276fd",
+"v": 18
 },
 "units/blimp_up.png": {
-"h": "c489f7fda7594362c17ff69e04e04fc8",
-"v": 17
+"h": "049302e2d3e7a2aa4fe7eb486f1ba53f",
+"v": 18
+},
+"units/bomber.png": {
+"h": "b3771b599fb2ffb69c1c9d1cf2d50d05",
+"v": 18
+},
+"units/bren_carrier.png": {
+"h": "1a05650ba8f3daf6e19ca0280adb67f0",
+"v": 18
+},
+"units/chi_ha.png": {
+"h": "3313c781e9ad63859367a018babd8231",
+"v": 18
+},
+"units/churchill.png": {
+"h": "8ca3fef5e4873c302ebcfb29d4cf5c57",
+"v": 18
+},
+"units/destroyer_aa.png": {
+"h": "441521b06ca7e01ea90616e43b885667",
+"v": 18
+},
+"units/destroyer_sea_land.png": {
+"h": "11a4c860a9d802029a7b8c828d180b85",
+"v": 18
+},
+"units/destroyer_sea_sea.png": {
+"h": "961da1b85181561d066a071fa2645c27",
+"v": 18
+},
+"units/engineer.png": {
+"h": "93fbb72e34a5a532807c78f143b296f8",
+"v": 18
 },
 "units/fast_battleship.png": {
-"h": "73fde0cf70aaddf00564e000c2684256",
-"v": 17
+"h": "c6ebe62806c54b4330631c47688f4c4b",
+"v": 18
+},
+"units/fighter.png": {
+"h": "a82a4bde60280e66e70a4df704cd4f49",
+"v": 18
+},
+"units/flak_88.png": {
+"h": "274e7b8692521433bc27406cd5400d59",
+"v": 18
+},
+"units/fubuki.png": {
+"h": "858934a71103723ce9a13c69b1f3cfba",
+"v": 18
+},
+"units/g4m_betty.png": {
+"h": "86240c7411398183797ed7661d56b6eb",
+"v": 18
+},
+"units/g4m_command.png": {
+"h": "bf524bee748d7397b7e3e6a539b24ca8",
+"v": 18
+},
+"units/halftrack.png": {
+"h": "026b25c12fc7828fa66a13c83d8850bc",
+"v": 18
+},
+"units/halifax.png": {
+"h": "a957d580375f0148c39b6232061162ca",
+"v": 18
+},
+"units/halifax_command.png": {
+"h": "18bf8d4aa9891458467c2f96d80d8137",
+"v": 18
+},
+"units/heavy_bomber.png": {
+"h": "36728af6791757785521cc05e0a966b5",
+"v": 18
 },
 "units/heavy_cruiser.png": {
-"h": "24ece4578d8151ff81383d30e698462d",
-"v": 17
+"h": "43888fef04c198e23edbd4c6a582f492",
+"v": 18
+},
+"units/heavy_tank.png": {
+"h": "82e605bf39f8fe2ed8868599d4ae0453",
+"v": 18
+},
+"units/il_2.png": {
+"h": "00e88d48f92f337efc6b320cf022fae0",
+"v": 18
+},
+"units/il_2_command.png": {
+"h": "3cf9e679ceccd2b19c7e663753406e09",
+"v": 18
+},
+"units/illustrious.png": {
+"h": "9921af72494fa27c42c82bc1bae03d3d",
+"v": 18
+},
+"units/infantry.png": {
+"h": "cc0cffcb1cea624eab5693975d1427b1",
+"v": 18
+},
+"units/jet_fighter.png": {
+"h": "50ec37eee6dc48fef3bb21334e16058e",
+"v": 18
+},
+"units/lancaster.png": {
+"h": "e357b46d31ceb3ef0afdda00e688580f",
+"v": 18
+},
+"units/nagato.png": {
+"h": "f642e28249a682dba1a6378cfbdb39b8",
+"v": 18
+},
+"units/naval_command.png": {
+"h": "cc84d7fd747218c0c38124ea2f1cd06a",
+"v": 18
+},
+"units/personnel_transport.png": {
+"h": "8be0a6c54b0f6c67daf17615750880ee",
+"v": 18
+},
+"units/spitfire.png": {
+"h": "21567a464f615a53d63ece4564041059",
+"v": 18
+},
+"units/studebaker_us6.png": {
+"h": "0e45761f84c8e03a320ec064a6edd461",
+"v": 18
+},
+"units/submarine.png": {
+"h": "00ff5f697e229dda0e31305b358d5c7f",
+"v": 18
+},
+"units/supply_ship.png": {
+"h": "28f7f15d8ee18489caa8f0864ac027e6",
+"v": 18
+},
+"units/supply_truck.png": {
+"h": "0e45761f84c8e03a320ec064a6edd461",
+"v": 18
+},
+"units/t34.png": {
+"h": "6ddf01594a48f4f99f817b8c344d1068",
+"v": 18
+},
+"units/tank.png": {
+"h": "fc4e39e4607d50946edff5de151d1432",
+"v": 18
+},
+"units/tiger.png": {
+"h": "84712f48f15caa90c403fb68990be7c6",
+"v": 18
+},
+"units/transport_air.png": {
+"h": "ad0f0c68f5be885858e54ba5ca7dbb98",
+"v": 18
+},
+"units/transport_truck.png": {
+"h": "ed89aea7bb3dcbd30cfd629f1ef2d4bf",
+"v": 18
+},
+"units/tribal_class.png": {
+"h": "20ad238953704b53aeff698ad4815598",
+"v": 18
+},
+"units/yak_3.png": {
+"h": "aef5b85cb99157bc4c8e195d4a4f95b2",
+"v": 18
+},
+"units/yamato.png": {
+"h": "e55212d240f34228a0ab8e00c3d19ad9",
+"v": 18
+},
+"units/zero.png": {
+"h": "52ee7f32c0b35d8c274302ed0af018b2",
+"v": 18
+},
+"units/zis_5.png": {
+"h": "ed89aea7bb3dcbd30cfd629f1ef2d4bf",
+"v": 18
 }
 }
