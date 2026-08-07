@@ -1,4 +1,72 @@
 {
+"badges/crossed_swords.png": {
+"h": "f940114bab8a0c420058fb0d98df4643",
+"v": 17
+},
+"badges/nosupply_red.png": {
+"h": "9e4c62feb6525bcbea09b4ddc356f65b",
+"v": 17
+},
+"buildings/derrick.png": {
+"h": "95ba9eef3324fc94c34d5b42ca95e26d",
+"v": 17
+},
+"buildings/foundry.png": {
+"h": "e4b1d3f2f15c79857e39538cd58e5e2d",
+"v": 17
+},
+"buildings/granary.png": {
+"h": "f8e7df7520e322539c6d26b9a7a29c82",
+"v": 17
+},
+"buildings/plantation.png": {
+"h": "e59cb7253b70438dd9fb127b92d53c80",
+"v": 17
+},
+"buttons/panel_button.png": {
+"h": "270d4229532203c8e58fdcec38129f8d",
+"v": 17
+},
+"buttons/panel_button_hover.png": {
+"h": "249e31a0c4093763b3099b32c06d8f69",
+"v": 17
+},
+"buttons/panel_button_press.png": {
+"h": "3939910e84e241bc5880e5933839c990",
+"v": 17
+},
+"buttons/panel_key.png": {
+"h": "d53fa9f5ba0617e13ad0d294bd2b492d",
+"v": 17
+},
+"buttons/panel_key_hover.png": {
+"h": "36351963145ae7dc4ee93b8690e6c477",
+"v": 17
+},
+"buttons/panel_key_press.png": {
+"h": "b30b409dbb6c2c4ff7d2775afb6425fc",
+"v": 17
+},
+"buttons/red_button.png": {
+"h": "32e12746cdab630bf3a36c3b60ff4510",
+"v": 17
+},
+"buttons/red_button_hover.png": {
+"h": "d1b7c4d564ff5b850c8be8f607d0458c",
+"v": 17
+},
+"buttons/red_button_press.png": {
+"h": "40a99ef4fbd53911938f2950ddc01565",
+"v": 17
+},
+"buttons/research_button.png": {
+"h": "bb05c1404d9ded49c984d450fb4a71cc",
+"v": 17
+},
+"buttons/resource_button.png": {
+"h": "195d0988e0306e9d0a8a78d99ef79e69",
+"v": 17
+},
 "flags/australia.png": {
 "h": "4f5aaeb0d0395f975584deefbc31ce79",
 "v": 1
@@ -107,6 +175,10 @@
 "h": "e3be5f757419dc15e5e3b578830d17a0",
 "v": 2
 },
+"keys/panel_hover_a10_00_r0_42.png": {
+"h": "b3078d9e3463c877337d23c58746ac59",
+"v": 3
+},
 "keys/panel_hover_a10_50_r0_42.png": {
 "h": "af2f12da3a61a7e7a2cb81f9eed5717d",
 "v": 3
@@ -171,6 +243,14 @@
 "h": "2a27aa21f0d13e219cd97190715c0054",
 "v": 3
 },
+"keys/panel_hover_a5_50_r0_42.png": {
+"h": "efa7b05f89b803e09243bbd53df51dda",
+"v": 3
+},
+"keys/panel_hover_a5_75_r0_42.png": {
+"h": "0f7e8cdb7c2ef10daeb41350d0e32584",
+"v": 3
+},
 "keys/panel_hover_a6_00_r0_42.png": {
 "h": "f9033a431ac884793abefd8e964451f3",
 "v": 3
@@ -201,6 +281,10 @@
 },
 "keys/panel_hover_a9_25_r0_42.png": {
 "h": "48dfb96b8b6b6d4a0370708141281430",
+"v": 3
+},
+"keys/panel_press_a10_00_r0_42.png": {
+"h": "b0bbb892e04c7686ee4fdaa69711734e",
 "v": 3
 },
 "keys/panel_press_a10_50_r0_42.png": {
@@ -267,6 +351,14 @@
 "h": "a1132de13b65aa6bece21b3c7ac58d58",
 "v": 3
 },
+"keys/panel_press_a5_50_r0_42.png": {
+"h": "3e5e22f82b97e34dcfb7fff6685c53c0",
+"v": 3
+},
+"keys/panel_press_a5_75_r0_42.png": {
+"h": "7dd8fd83b5d1ce95178760c10374cfe0",
+"v": 3
+},
 "keys/panel_press_a6_00_r0_42.png": {
 "h": "a5fd9607e552796bd7cbfac768748d79",
 "v": 3
@@ -297,6 +389,10 @@
 },
 "keys/panel_press_a9_25_r0_42.png": {
 "h": "b720fb86befe2cc648c810f85d4da5de",
+"v": 3
+},
+"keys/panel_ready_a10_00_r0_42.png": {
+"h": "655a81f23749111842e62597aa21a253",
 "v": 3
 },
 "keys/panel_ready_a10_50_r0_42.png": {
@@ -363,6 +459,14 @@
 "h": "511ecf17e88ab9a792ba580a7493a454",
 "v": 3
 },
+"keys/panel_ready_a5_50_r0_42.png": {
+"h": "8a1dfaa5cc8d68606f4c61454d4f98ad",
+"v": 3
+},
+"keys/panel_ready_a5_75_r0_42.png": {
+"h": "14220606e208d31f2d12ef98f950d6fa",
+"v": 3
+},
 "keys/panel_ready_a6_00_r0_42.png": {
 "h": "f28de8bf70dc5025768136035982ad87",
 "v": 3
@@ -403,6 +507,10 @@
 "h": "d585bc7b7f654689f740460eec19a4b9",
 "v": 3
 },
+"keys/red_hover_a3_25_r0_42.png": {
+"h": "b7f2625d4fd1ad2ce00255bd89aaf608",
+"v": 3
+},
 "keys/red_hover_a4_25_r0_42.png": {
 "h": "9d8ffda0b0fa3b7dedcb054cd4221dc4",
 "v": 3
@@ -415,8 +523,20 @@
 "h": "add917f4cb359a1ffc2b99bd861100e3",
 "v": 3
 },
+"keys/red_hover_a5_00_r0_42.png": {
+"h": "984256d5fdc7d825a5307f75f365fb13",
+"v": 3
+},
 "keys/red_hover_a5_25_r0_42.png": {
 "h": "dfb71bbafdc6c390b654abb7a4718cc7",
+"v": 3
+},
+"keys/red_hover_a5_50_r0_42.png": {
+"h": "e04566c33c4ed83e01918ead889875cd",
+"v": 3
+},
+"keys/red_hover_a5_75_r0_42.png": {
+"h": "dd0631a671fd1fdbad2f7fab14e40502",
 "v": 3
 },
 "keys/red_hover_a6_00_r0_42.png": {
@@ -439,6 +559,10 @@
 "h": "fa1e0569a4c50f2013dc1e88dcb40224",
 "v": 3
 },
+"keys/red_press_a3_25_r0_42.png": {
+"h": "47780420c00102f886e9f8f0cfa38eaf",
+"v": 3
+},
 "keys/red_press_a4_25_r0_42.png": {
 "h": "46a0c825097c6c416dacdaf3cac86ffa",
 "v": 3
@@ -451,8 +575,20 @@
 "h": "0af9b48e25c2eed257915f115aa52b9f",
 "v": 3
 },
+"keys/red_press_a5_00_r0_42.png": {
+"h": "56a48546d2decc813ae2bccac2d82510",
+"v": 3
+},
 "keys/red_press_a5_25_r0_42.png": {
 "h": "a1dd7537c05d3573f3fac67659b43274",
+"v": 3
+},
+"keys/red_press_a5_50_r0_42.png": {
+"h": "1fa50b2429724511708d5e79662dc8c3",
+"v": 3
+},
+"keys/red_press_a5_75_r0_42.png": {
+"h": "642fa19a73f8c60e2d5be122fc51da90",
 "v": 3
 },
 "keys/red_press_a6_00_r0_42.png": {
@@ -475,6 +611,10 @@
 "h": "0add7777b60a7a96d1a2f6dffed60eb4",
 "v": 3
 },
+"keys/red_ready_a3_25_r0_42.png": {
+"h": "dea8f55dcc597a22b2c2dae59ae3e669",
+"v": 3
+},
 "keys/red_ready_a4_25_r0_42.png": {
 "h": "fee23d38b0b17c9d103c6dbfbf98327f",
 "v": 3
@@ -487,8 +627,20 @@
 "h": "fcb62a0d7236a9bc20061f0139660d73",
 "v": 3
 },
+"keys/red_ready_a5_00_r0_42.png": {
+"h": "d3902250129c36fcf7d420ef20fe941e",
+"v": 3
+},
 "keys/red_ready_a5_25_r0_42.png": {
 "h": "ea52cc8d45cc03a2683a45ea08db846d",
+"v": 3
+},
+"keys/red_ready_a5_50_r0_42.png": {
+"h": "357362e7122864986b6b65b8f7cdd499",
+"v": 3
+},
+"keys/red_ready_a5_75_r0_42.png": {
+"h": "df872c026d4ef854aa42dacbf442466d",
 "v": 3
 },
 "keys/red_ready_a6_00_r0_42.png": {
@@ -502,6 +654,14 @@
 "keys/red_ready_a7_00_r0_42.png": {
 "h": "2deed29d03f63791a6c326e31907f468",
 "v": 3
+},
+"pictograms/fast_battleship.png": {
+"h": "dfd0f6bf2542a932d8dfd3c34941d41f",
+"v": 17
+},
+"pictograms/heavy_cruiser.png": {
+"h": "59495f648f81a08d15c46e704aacce18",
+"v": 17
 },
 "sheets/bar.png": {
 "h": "941d57620cbaa774105ca89b64d0a7d5",
@@ -518,82 +678,6 @@
 "sheets/plate.png": {
 "h": "2f1a1034ee72756294cf8811e8ef6ef3",
 "v": 2
-},
-"ui/crossed_swords.png": {
-"h": "f940114bab8a0c420058fb0d98df4643",
-"v": 17
-},
-"ui/derrick.png": {
-"h": "95ba9eef3324fc94c34d5b42ca95e26d",
-"v": 17
-},
-"ui/fast_battleship.png": {
-"h": "dfd0f6bf2542a932d8dfd3c34941d41f",
-"v": 17
-},
-"ui/foundry.png": {
-"h": "e4b1d3f2f15c79857e39538cd58e5e2d",
-"v": 17
-},
-"ui/granary.png": {
-"h": "f8e7df7520e322539c6d26b9a7a29c82",
-"v": 17
-},
-"ui/heavy_cruiser.png": {
-"h": "59495f648f81a08d15c46e704aacce18",
-"v": 17
-},
-"ui/nosupply_red.png": {
-"h": "9e4c62feb6525bcbea09b4ddc356f65b",
-"v": 17
-},
-"ui/panel_button.png": {
-"h": "270d4229532203c8e58fdcec38129f8d",
-"v": 17
-},
-"ui/panel_button_hover.png": {
-"h": "249e31a0c4093763b3099b32c06d8f69",
-"v": 17
-},
-"ui/panel_button_press.png": {
-"h": "3939910e84e241bc5880e5933839c990",
-"v": 17
-},
-"ui/panel_key.png": {
-"h": "d53fa9f5ba0617e13ad0d294bd2b492d",
-"v": 17
-},
-"ui/panel_key_hover.png": {
-"h": "36351963145ae7dc4ee93b8690e6c477",
-"v": 17
-},
-"ui/panel_key_press.png": {
-"h": "b30b409dbb6c2c4ff7d2775afb6425fc",
-"v": 17
-},
-"ui/plantation.png": {
-"h": "e59cb7253b70438dd9fb127b92d53c80",
-"v": 17
-},
-"ui/red_button.png": {
-"h": "32e12746cdab630bf3a36c3b60ff4510",
-"v": 17
-},
-"ui/red_button_hover.png": {
-"h": "d1b7c4d564ff5b850c8be8f607d0458c",
-"v": 17
-},
-"ui/red_button_press.png": {
-"h": "40a99ef4fbd53911938f2950ddc01565",
-"v": 17
-},
-"ui/research_button.png": {
-"h": "bb05c1404d9ded49c984d450fb4a71cc",
-"v": 17
-},
-"ui/resource_button.png": {
-"h": "195d0988e0306e9d0a8a78d99ef79e69",
-"v": 17
 },
 "units/blimp_up.png": {
 "h": "c489f7fda7594362c17ff69e04e04fc8",

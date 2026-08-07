@@ -751,9 +751,6 @@ class WW2RTSGame(ShowBase):
             for b, _tn in self.idle_btns.values():
                 b.destroy()
             self.idle_btns = None
-        if getattr(self, 'diplo_btn', None) is not None:
-            self.diplo_btn.destroy()
-            self.diplo_btn = None
         self.selected = []
         self.selected_city = None
         self.groups = {}
@@ -962,7 +959,8 @@ class WW2RTSGame(ShowBase):
         self.top_bar = TopBar(self, self.open_budget,
                               self.open_factory_report,
                               on_resources=self.open_resources_report,
-                              on_tech=self.open_tech_tree)
+                              on_tech=self.open_tech_tree,
+                              on_diplomacy=self.open_diplomacy)
         self.bottom_bar = BottomBar(self)
         self.bottom_bar.set_title("ALL QUIET")
         self.bottom_bar.set_hint(CONTROLS_HINT)
@@ -986,7 +984,6 @@ class WW2RTSGame(ShowBase):
 
         self._make_idle_roster()
         self._make_demolish_button()
-        self._make_diplo_button()
         if snapshot is not None:
             progress("RESTORING THE SITUATION MAP...")
             import saveload
@@ -1335,25 +1332,6 @@ class WW2RTSGame(ShowBase):
     # idle pool of that type.
 
     IDLE_ROSTER_MAX = 10
-
-    def _make_diplo_button(self):
-        """Square key at the top of the right edge: opens the
-        Foreign Office ledger."""
-        from ui import pill_button, add_tooltip, crisp_image
-        from direct.gui.OnscreenImage import OnscreenImage
-        if getattr(self, 'diplo_btn', None) is not None:
-            self.diplo_btn.destroy()
-        b = pill_button(self.a2dRightCenter, '', self.open_diplomacy,
-                        pos=(-0.075, 0, 0.54), hw=0.048, hh=0.048,
-                        corner=0.30)
-        pic = OnscreenImage(image=get_icon_path('diplomacy_button',
-                                                'dark'),
-                            parent=b, scale=0.032, pos=(0, 0, 0.002))
-        pic.setTransparency(True)
-        crisp_image(pic)
-        add_tooltip(b, "DIPLOMACY LEDGER -- WARS, PACTS AND PEACE",
-                    font=self.hud_font, left=0.048)
-        self.diplo_btn = b
 
     def _make_idle_roster(self):
         if getattr(self, 'idle_btns', None):
@@ -2990,25 +2968,51 @@ class WW2RTSGame(ShowBase):
             self._click_select(mpos, shift)
 
     def _pick_city(self, mpos):
-        """A town is picked by its MARK or by its NAME. The label is
-        drawn flat on the map at a fixed size, so the letters are as
-        much a part of the town as the dot under them -- and a town
-        with troops standing in it was all but unclickable while the
-        counters were tested first."""
+        """A town is picked by its MARK or by its NAME -- and by
+        NOTHING ELSE. The name's hitbox is the rectangle the letters
+        actually cover on the map (it was a circle as wide as the
+        whole name in EVERY direction, which swallowed every counter
+        standing near town), and the mark's is a tight ring on the
+        civic centre."""
+        import math as _m
+        alt = max(0.05, self.cam_dist - GLOBE_RADIUS)
+        try:
+            fov_v = _m.radians(self.camLens.getFov()[1])
+            per_wu = 1.0 / (alt * _m.tan(fov_v / 2.0))
+        except Exception:
+            per_wu = None
+        try:
+            aspect = max(0.5, self.getAspectRatio())
+        except Exception:
+            aspect = 16.0 / 9.0
         best, best_d = None, None
         for c in self.cities:
             if (c.country != self.player_country
                     or not self._facing_camera(c.pos)):
                 continue
+            d = None
+            # the civic-centre mark: a unit-sized ring, no more
+            sp = self.screen_pos(c.pos * GLOBE_RADIUS)
+            if sp is not None:
+                r = CLICK_RADIUS * 1.2
+                if per_wu is not None:
+                    r = max(r, 0.022 * per_wu)
+                dm = (mpos - sp).length()
+                if dm <= r:
+                    d = dm
+            # the NAME: the letters run sideways from the anchor and
+            # stand up from the baseline; the camera holds north-up,
+            # so a screen-space rectangle covers them faithfully
             sp = self.screen_pos(c.label_pos * GLOBE_RADIUS)
-            if sp is None:
-                continue
-            # the drawn half-width of the name, in world units
-            half = max(0.10, c.label_tn.getWidth() * 0.5 * 0.05)
-            r = max(CLICK_RADIUS * 1.9,
-                    self._struct_pick_radius(half))
-            d = (mpos - sp).length()
-            if d <= r and (best_d is None or d < best_d):
+            if sp is not None and per_wu is not None:
+                half_w = (c.label_tn.getWidth() * 0.5 + 0.4) * 0.05
+                sw = half_w * 1.1 * per_wu / aspect
+                sh = 0.040 * 1.1 * per_wu
+                cy = sp.y + 0.025 * per_wu    # baseline -> mid-letter
+                if abs(mpos.x - sp.x) <= sw and abs(mpos.y - cy) <= sh:
+                    dn = (mpos - sp).length()
+                    d = dn if d is None else min(d, dn)
+            if d is not None and (best_d is None or d < best_d):
                 best, best_d = c, d
         return best
 

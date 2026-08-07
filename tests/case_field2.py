@@ -126,6 +126,31 @@ spread = min(angle_between(a, b) * GLOBE_RADIUS
              for i, a in enumerate(goals) for b in goals[i + 1:])
 check(spread > 0.01, "and they stand apart (%.3fwu)" % spread)
 
+# --- A TOWN IS PICKED BY ITS MARK OR ITS NAME -- AND NOTHING ELSE
+from panda3d.core import Point2
+berlin = next(c for c in g.cities if c.name == 'Berlin')
+g.cam_lat = g.cam_lat_target = berlin.lat
+g.cam_lon = g.cam_lon_target = berlin.lon
+g.cam_dist = g.cam_dist_target = GLOBE_RADIUS + 1.2
+from harness import step
+step(g, 30)
+sentry = g.spawn_unit('infantry', 'germany', berlin.lat + 0.25,
+                      berlin.lon, seed=910)
+step(g, 5)
+sp = g.screen_pos(g._unit_world_pos(sentry))
+g._click_select(sp, False)
+check(sentry in g.selected and g.selected_city is None,
+      "a counter near town is picked, not the town")
+g.clear_selection()
+sp = g.screen_pos(berlin.label_pos * GLOBE_RADIUS)
+g._click_select(Point2(sp.x, sp.y + 0.02), False)
+check(g.selected_city is berlin, "the NAME still picks the town")
+g.clear_selection()
+sp = g.screen_pos(berlin.pos * GLOBE_RADIUS)
+g._click_select(sp, False)
+check(g.selected_city is berlin, "and so does the MARK")
+g.clear_selection()
+
 # --- A THREATENED TOWN DEFENDS ITSELF
 sov = g._nation_ais['soviet']
 minsk = next(c for c in g.cities if c.name == 'Minsk')
