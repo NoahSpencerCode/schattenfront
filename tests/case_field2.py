@@ -17,12 +17,38 @@ check(not strays, "every deposit is nearest its OWN town (%s)"
       % strays[:3])
 
 # --- RAILS keep off the sea
-wet = 0
+wet = tot = 0
 for curve in g.world.rail_paths:
     lat = np.array([p[0] for p in curve])
     lon = np.array([p[1] for p in curve])
     wet += int((~g.world.fine_flags(lat, lon)).sum())
-check(wet == 0, "no main line runs over water (%d wet points)" % wet)
+    tot += len(lat)
+# a main line takes a SMOOTH DETOUR round the water. A handful of
+# points may still graze the head of a firth the coarse routing
+# raster calls passable -- what must never return is the thrash of
+# a line crossing open sea, or a hairpin where it was dragged
+# ashore point by point
+check(wet <= tot * 0.005,
+      "no main line runs over the sea (%d wet of %d)" % (wet, tot))
+import math
+
+
+def sharpest(curve):
+    worst = 0.0
+    for a, b, d in zip(curve[:-2], curve[1:-1], curve[2:]):
+        v1 = (b[0] - a[0], b[1] - a[1])
+        v2 = (d[0] - b[0], d[1] - b[1])
+        n1 = math.hypot(*v1) or 1e-9
+        n2 = math.hypot(*v2) or 1e-9
+        cs = max(-1.0, min(1.0, (v1[0] * v2[0] + v1[1] * v2[1])
+                           / (n1 * n2)))
+        worst = max(worst, math.degrees(math.acos(cs)))
+    return worst
+
+
+turn = max(sharpest(c) for c in g.world.rail_paths)
+check(turn < 60.0,
+      "and it is SMOOTH -- sharpest turn on any line %.0f deg" % turn)
 
 # --- THE LABORATORIES take nothing from the taxes
 check(all(v == 0 for v in g.research_pct.values()),

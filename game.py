@@ -18,6 +18,7 @@ import random
 import time
 import threading
 import zlib
+import numpy as np
 
 from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from direct.showbase.ShowBase import ShowBase
@@ -868,6 +869,9 @@ class WW2RTSGame(ShowBase):
         # A line is a way like any road: every river it crosses gets
         # its span thrown FIRST, so the crossings are legal -- and
         # bombable. (A loaded game recreates its spans from the save.)
+        self.world.rail_paths = [self._rail_around_water(c)
+                                 for c in
+                                 getattr(self.world, 'rail_paths', [])]
         for curve in getattr(self.world, 'rail_paths', []):
             if len(curve) < 2:
                 continue
@@ -5221,6 +5225,138 @@ class WW2RTSGame(ShowBase):
                           "%s ready at %s." %
                           (B(label), self._grid_ref(lat, lon)),
                           sender="ENGINEER CORPS")
+
+    def _rail_around_water(self, curve):
+        """A MAIN LINE TAKES A SMOOTH DETOUR ROUND THE WATER.
+
+        A surveyed curve is a gentle snake between two cities and
+        knows nothing of the coast, so a line from London to Glasgow
+        cut across the Irish Sea. Pulling each wet point to the
+        nearest shore -- the first attempt -- snapped neighbours to
+        OPPOSITE shores and left the railway thrashing back and
+        forth across the firth.
+
+        The line is instead ROUTED over land by the same raster A*
+        the columns march on, then STRING-PULLED (every waypoint a
+        clear overland run can skip is dropped) and smoothed, which
+        is what makes the detour read as a railway engineer's line
+        rather than a staircase."""
+        lat = np.array([p[0] for p in curve])
+        lon = np.array([p[1] for p in curve])
+        if self.world.fine_flags(lat, lon).all():
+            return curve                # already dry: leave it alone
+        a = latlon_to_vec(curve[0][0], curve[0][1])
+        b = latlon_to_vec(curve[-1][0], curve[-1][1])
+        route = None
+        for pad, budget in ((3.0, 60000), (7.0, 160000)):
+            try:
+                route = self.planner._refine_grid_once(
+                    a, b, pad, budget, want_water=False)
+            except Exception:
+                route = None
+            if route:
+                break
+        if not route:
+            return curve                # no way round: leave as drawn
+        pts = [(curve[0][0], curve[0][1])]
+        pts += [vec_to_latlon(v) for v in route]
+        # STRING-PULL: keep only the corners the coast actually forces
+        keep = [pts[0]]
+        i = 0
+        while i < len(pts) - 1:
+            j = len(pts) - 1
+            while j > i + 1:
+                # a FINE step: the default 0.1deg sampling let a
+                # run clip a headland between samples, and the line
+                # came out with a toe in the water
+                if self.world.segment_on_land(pts[i][0], pts[i][1],
+                                              pts[j][0], pts[j][1],
+                                              step_deg=0.02):
+                    break
+                j -= 1
+            keep.append(pts[j])
+            i = j
+        if len(keep) < 2:
+            return curve
+        # a corner the raster handed back may itself sit on a water
+        # pixel of the finer mask -- step it ashore before any leg is
+        # laid between corners
+        keep = [(pt if self.world.is_land(pt[0], pt[1])
+                 else self.world.nearest_land(pt[0], pt[1]))
+                for pt in keep]
+        # and lay a surveyed curve along each corner-to-corner run,
+        # so the finished line snakes like every other way on the map
+        out = []
+        for (la1, lo1), (la2, lo2) in zip(keep[:-1], keep[1:]):
+            seed = zlib.crc32(("railfix:%.3f,%.3f,%.3f,%.3f"
+                               % (la1, lo1, la2, lo2)).encode())
+            leg = self.world._curved_road_points(
+                la1, lo1, la2, lo2, seed, passes=4, amp=0.02)
+            # the corner-to-corner run is known dry; the SNAKE laid
+            # along it may still dip a toe in a firth. Where it does,
+            # this stretch runs straight -- an engineer surveys a
+            # tight coast straight and saves his curves for open
+            # country.
+            la = np.array([q[0] for q in leg])
+            lo = np.array([q[1] for q in leg])
+            if not self.world.fine_flags(la, lo).all():
+                n = max(2, len(leg))
+                leg = [(la1 + (la2 - la1) * k / (n - 1.0),
+                        lo1 + (lo2 - lo1) * k / (n - 1.0))
+                       for k in range(n)]
+            out.extend(leg if not out else leg[1:])
+        # A STRAY TOE IN THE WATER is stepped ashore. The routing
+        # raster is coarser than the drawn coast, so a run it calls
+        # dry can still clip the head of a firth for a few yards.
+        # Only SHORT wet runs are pulled -- a long one is a real sea
+        # crossing and belongs to the router above, and pulling those
+        # is exactly what made the line thrash shore to shore.
+        la = np.array([q[0] for q in out])
+        lo = np.array([q[1] for q in out])
+        wet = ~self.world.fine_flags(la, lo)
+        if wet.any():
+            i = 0
+            while i < len(out):
+                if not wet[i]:
+                    i += 1
+                    continue
+                j = i
+                while j < len(out) and wet[j]:
+                    j += 1
+                if j - i <= 12:
+                    # BRIDGE the stray run with a straight chord, and
+                    # widen the anchors until that chord is itself
+                    # dry. Every point on the run is then laid along
+                    # one straight line -- smooth by construction.
+                    # (Stepping each wet point to its own nearest
+                    # shore instead put a hairpin in the line: that
+                    # is the same thrash that started all this, in
+                    # miniature.)
+                    a_i, b_i = max(0, i - 1), min(len(out) - 1, j)
+                    for _ in range(40):
+                        if self.world.segment_on_land(
+                                out[a_i][0], out[a_i][1],
+                                out[b_i][0], out[b_i][1],
+                                step_deg=0.02):
+                            break
+                        if a_i > 0:
+                            a_i -= 1
+                        if b_i < len(out) - 1:
+                            b_i += 1
+                        if a_i == 0 and b_i == len(out) - 1:
+                            break
+                    if self.world.segment_on_land(
+                            out[a_i][0], out[a_i][1],
+                            out[b_i][0], out[b_i][1], step_deg=0.02):
+                        la1, lo1 = out[a_i]
+                        la2, lo2 = out[b_i]
+                        span = max(1, b_i - a_i)
+                        for k in range(a_i + 1, b_i):
+                            t = (k - a_i) / float(span)
+                            out[k] = (la1 + (la2 - la1) * t,
+                                      lo1 + (lo2 - lo1) * t)
+                i = j
+        return out
 
     def _auto_bridge_curve(self, curve, quiet=False):
         """Throw a bridge over every river the surveyed way (road OR
