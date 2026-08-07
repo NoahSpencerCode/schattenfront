@@ -1003,29 +1003,18 @@ def _tu_infantry(d, ink, nat=None):
 
 
 def _tu_tank(d, ink, nat=None):
-    """National silhouettes: Tiger I, T-34, Sherman, Churchill, Chi-Ha."""
-    if nat == 'germany':            # Tiger I: wide, boxy, the long 88
-        _tracks(d, 18, 31, 65, 78, 14, 84)
-        _orect(d, 29, 18, 67, 80)
-        for y in (66, 72):          # engine deck louvres
-            d.line([(33, y), (63, y)], fill=_BLACK, width=2)
-        _turret(d, 48, 44, 13, 40, bw=5, brake=True)
-    elif nat == 'soviet':           # T-34: sloped glacis, round turret
+    """National silhouettes: T-34, Sherman, Chi-Ha (the Tiger and the
+    Churchill are HEAVY tanks and live in _tu_heavy_tank)."""
+    if nat == 'soviet':             # T-34: sloped glacis, round turret
         _tracks(d, 22, 33, 63, 74, 14, 84)
         _o(d, [(35, 30), (48, 16), (61, 30), (61, 80), (35, 80)])
         d.line([(38, 74), (58, 74)], fill=_BLACK, width=2)
         _turret(d, 48, 44, 11, 34, bw=4)
-    elif nat == 'britain':          # Churchill: long hull, all-round track
-        _tracks(d, 20, 32, 64, 76, 8, 88)
-        _orect(d, 30, 18, 66, 82)
-        for y in (68, 74):
-            d.line([(34, y), (62, y)], fill=_BLACK, width=2)
-        _turret(d, 48, 42, 10, 26, bw=4)
     elif nat == 'japan':            # Chi-Ha: small, thin gun
         _tracks(d, 27, 37, 59, 69, 20, 80)
         _orect(d, 35, 26, 61, 76)
         _turret(d, 48, 44, 9, 26, bw=3)
-    else:                           # Sherman: tall narrow, round turret
+    else:                           # Sherman / Panzer IV: boxy medium
         _tracks(d, 25, 36, 60, 71, 16, 82)
         _orect(d, 34, 22, 62, 78)
         d.line([(38, 70), (58, 70)], fill=_BLACK, width=2)
@@ -1049,8 +1038,8 @@ def _tu_truck(d, ink, canvas=False, axles=2):
 
 
 def _tu_supply_truck(d, ink, nat=None):
-    _tu_truck(d, ink, canvas=False,
-              axles=3 if nat in ('usa', 'soviet') else 2)
+    # only the GMC deuce is a 6x6; the ZIS-5 and the rest ride 4x2
+    _tu_truck(d, ink, canvas=False, axles=3 if nat == 'usa' else 2)
 
 
 def _tu_halftrack(d, ink):
@@ -1259,7 +1248,7 @@ def _tu_bomber(d, ink, nat=None):
         _o(d, [(cx - 44, 34), (cx + 44, 34), (cx + 38, 50), (cx - 38, 50)])
         for sx in (-30, -16, 16, 30):
             _orect(d, cx + sx - 4, 28, cx + sx + 4, 54, 2)
-        if nat == 'britain':        # Lancaster twin fins
+        if nat == 'britain':        # Halifax twin fins
             _orect(d, cx - 20, 78, cx + 20, 84, 2)
             d.rectangle([cx - 22, 74, cx - 16, 88], fill=_BLACK)
             d.rectangle([cx + 16, 74, cx + 22, 88], fill=_BLACK)
@@ -1313,11 +1302,24 @@ def _tu_artillery(d, ink, nat=None):
 
 def _tu_heavy_tank(d, ink, nat=None):
     """The breakthrough tank: broader than the medium, bigger gun."""
-    _tracks(d, 13, 29, 67, 83, 10, 88)
-    _orect(d, 27, 14, 69, 84)
-    for y in (70, 77):
-        d.line([(31, y), (65, y)], fill=_BLACK, width=2)
-    _turret(d, 48, 42, 15, 38, bw=6, brake=True)
+    if nat == 'germany':            # Tiger I: wide, boxy, the long 88
+        _tracks(d, 18, 31, 65, 78, 14, 84)
+        _orect(d, 29, 18, 67, 80)
+        for y in (66, 72):          # engine deck louvres
+            d.line([(33, y), (63, y)], fill=_BLACK, width=2)
+        _turret(d, 48, 44, 13, 40, bw=5, brake=True)
+    elif nat == 'britain':          # Churchill: long hull, all-round track
+        _tracks(d, 20, 32, 64, 76, 8, 88)
+        _orect(d, 30, 18, 66, 82)
+        for y in (68, 74):
+            d.line([(34, y), (62, y)], fill=_BLACK, width=2)
+        _turret(d, 48, 42, 10, 26, bw=4)
+    else:
+        _tracks(d, 13, 29, 67, 83, 10, 88)
+        _orect(d, 27, 14, 69, 84)
+        for y in (70, 77):
+            d.line([(31, y), (65, y)], fill=_BLACK, width=2)
+        _turret(d, 48, 42, 15, 38, bw=6, brake=True)
 
 
 def _tu_heavy_bomber(d, ink, nat=None):
@@ -2135,16 +2137,22 @@ def prewarm_button_assets():
 # mirrors the nation branches inside the _tu_ drawers EXACTLY --
 # add a branch there, add its name here.
 UNIT_ART = {
-    ('tank', 'germany'): 'tiger',
+    # Every file is named for the equipment the NATION_UNITS label
+    # actually calls the unit; nations whose label has no dedicated
+    # drawing share the generic type file. Most of these files are
+    # the ARTIST'S hand-drawn art (protected by the manifest) --
+    # reassign them, never regenerate them.
     ('tank', 'soviet'): 't34',
-    ('tank', 'britain'): 'churchill',
     ('tank', 'japan'): 'chi_ha',
-    ('supply_truck', 'usa'): 'studebaker_us6',
-    ('supply_truck', 'soviet'): 'studebaker_us6',
+    # the Tiger and the Churchill are the HEAVY tanks; the mediums
+    # (Panzer IV, Matilda II) share the generic tank file
+    ('heavy_tank', 'germany'): 'tiger',
+    ('heavy_tank', 'britain'): 'churchill',
+    ('supply_truck', 'soviet'): 'zis_5',
     ('transport_truck', 'germany'): 'halftrack',
     ('transport_truck', 'usa'): 'halftrack',
     ('transport_truck', 'britain'): 'bren_carrier',
-    ('transport_truck', 'soviet'): 'zis_5',
+    ('transport_truck', 'soviet'): 'studebaker_us6',
     ('aa_artillery', 'germany'): 'flak_88',
     ('naval_command', 'japan'): 'yamato',
     ('destroyer_sea_sea', 'japan'): 'fubuki',
