@@ -170,7 +170,7 @@ class TopBar:
     RESOURCE_COLS = ('OIL', 'STEEL', 'FOOD')
 
     def __init__(self, base, on_budget, on_factory=None,
-                 on_resources=None, on_tech=None):
+                 on_resources=None, on_tech=None, on_diplomacy=None):
         self.base = base
         self.frame = DirectFrame(parent=base.a2dTopCenter,
                                  frameColor=(1, 1, 1, 0.92),
@@ -235,6 +235,19 @@ class TopBar:
         crisp_image(pic)
         add_tooltip(self.tech_btn, "THE RESEARCH CHART -- "
                     "PROGRAMMES [R]", font=base.hud_font, dy=-0.105)
+        # the Foreign Office ledger, last in the rank (moved up from
+        # the right screen edge to sit with its fellow report keys)
+        self.diplo_btn = pill_button(
+            self.content, '', on_diplomacy, pos=(1.975, 0, -0.062),
+            hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
+        pic = OnscreenImage(image=get_icon_path('diplomacy_button',
+                                                'dark'),
+                            parent=self.diplo_btn, scale=0.034,
+                            pos=(0, 0, 0))
+        pic.setTransparency(True)
+        crisp_image(pic)
+        add_tooltip(self.diplo_btn, "DIPLOMACY LEDGER -- WARS, "
+                    "PACTS AND PEACE", font=base.hud_font, dy=-0.105)
         # fourteen dots: the days of the running fortnight
         self.day_dots = []
         for i in range(14):
@@ -292,7 +305,7 @@ class TopBar:
         elif not on and not self.factory_pip.isHidden():
             self.factory_pip.hide()
 
-    LAYOUT_HALF = 1.93          # the half-width the rank is drawn at
+    LAYOUT_HALF = 2.04          # the half-width the rank is drawn at
 
     def _fit_to_screen(self):
         """The strip is drawn for a wide window; a narrower one
@@ -724,13 +737,10 @@ class DiplomacyLedger:
         self.on_close = on_close
         self._COUNTRIES = COUNTRIES
         self._PLAYABLE = PLAYABLE
-        self.frame = DirectFrame(parent=game.aspect2d,
-                                 frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
-                                 frameSize=(-1.42, 1.42, -0.86, 0.86),
-                                 state=DGG.NORMAL)
-        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-1.42, 1.42, 0.835, 0.86))
+        # no security stamp: the WARS RAGING board keeps that corner
+        self.sheet = FormSheet(game, "THE DIPLOMATIC LEDGER",
+                               half_w=1.42, half_h=0.86, stamp=None)
+        self.frame = self.sheet.frame
         self.widgets = []
         self._static()
         self.rebuild()
@@ -751,14 +761,10 @@ class DiplomacyLedger:
         return np_
 
     def _static(self):
-        self._text("++ DIPLOMATIC LEDGER ++", (0, 0.76), 0.05,
-                   align=TextNode.ACenter, keep=True)
-        self._text("FOREIGN OFFICE -- MOST SECRET", (0, 0.70), 0.026,
-                   color=INK_FAINT, align=TextNode.ACenter, keep=True)
-        pill_button(self.frame, "CLOSE [ESC]",
-                    lambda: self.on_close(), pos=(1.16, 0, 0.775),
-                    hw=0.17, hh=0.040, font=self.base.hud_font,
-                    kind='red')
+        self.sheet.keys([
+            ("CLOSE  [ESC]", lambda: self.on_close(), (), 1.08,
+             'red', KEY_LIGHT, 0.18),
+        ])
 
     def rebuild(self):
         """Two pages, one sheet. The ROSTER: every nation as a big
@@ -886,7 +892,7 @@ class DiplomacyLedger:
         f = self.base.hud_font
         b = pill_button(self.frame, "<< THE DOSSIER",
                         self._open_dossier, extraArgs=[nat],
-                        pos=(-1.16, 0, 0.775), hw=0.19, hh=0.040,
+                        pos=(-1.10, 0, -0.742), hw=0.19, hh=0.048,
                         font=f)
         self.widgets.append(b)
         st = g.standing(nat)
@@ -1010,34 +1016,42 @@ class DiplomacyLedger:
                         pos=(x + 0.20, 0, y + 0.008), hw=0.028,
                         hh=0.028, text_scale=0.030, font=f)
                     self.widgets.append(bt)
-            y -= 0.066
-            self._rule(-1.30, 1.30, y + 0.036,
+            y -= 0.054
+            self._rule(-1.34, 1.34, y + 0.030,
                        color=(0.45, 0.40, 0.33, 0.28), w=0.0014)
 
-        # ---- THE SHEET AS IT STANDS: both baskets in words, the
-        # envoy's reading, and what is already signed between us
+        # ---- THE SHEET AS IT STANDS: both baskets in words, what
+        # is already signed, and the envoy's reading -- three ruled
+        # columns above the key row
         offer, ask = self._tokens(self.offer), self._tokens(self.ask)
         verdict, vword, _reply, gain = _d.evaluate(
             offer, ask, st, gates)
-        y -= 0.035
-        self._rule(-1.30, 1.30, y + 0.02)
-        y -= 0.045
-        self._text("THE SHEET AS IT STANDS", (-1.28, y), 0.026,
-                   color=INK_FAINT)
-        y -= 0.055
-        for label, toks, cx in (("WE GIVE", offer, -1.28),
-                                ("WE RECEIVE", ask, 0.06)):
-            self._text(label, (cx, y), 0.024, color=INK_FAINT)
+        y -= 0.030
+        self._rule(-1.34, 1.34, y + 0.02)
+        y -= 0.048
+        for label, toks, cx in (("WE GIVE", offer, -1.34),
+                                ("WE RECEIVE", ask, -0.55)):
+            self._text(label, (cx, y), 0.024,
+                       color=(0.52, 0.10, 0.06, 1.0))
             if not toks:
-                self._text("nothing", (cx + 0.26, y), 0.026,
+                self._text("nothing", (cx, y - 0.042), 0.025,
                            color=INK_FAINT)
             else:
                 for i, tok in enumerate(toks[:4]):
                     self._text(_d.token_text(tok),
-                               (cx + 0.26, y - i * 0.042), 0.026)
-        y -= 0.042 * max(1, min(4, max(len(offer), len(ask)))) + 0.03
-        self._text("THE ENVOY'S READING", (-1.28, y), 0.024,
-                   color=INK_FAINT)
+                               (cx, y - 0.042 - i * 0.038), 0.024)
+        standing_lines = ["%s (%s)" % (what, how)
+                          for what, how in
+                          self._agreement_lines(nat)]
+        self._text("ALREADY SIGNED", (0.24, y), 0.024,
+                   color=(0.52, 0.10, 0.06, 1.0))
+        if not standing_lines:
+            self._text("no instrument stands between us",
+                       (0.24, y - 0.042), 0.025, color=INK_FAINT)
+        else:
+            for i, line in enumerate(standing_lines[:4]):
+                self._text(line, (0.24, y - 0.042 - i * 0.038),
+                           0.023, color=(0.16, 0.38, 0.14, 1.0))
         if not offer and not ask:
             hint = ("Lay counters on the sheet -- what we give on "
                     "the left, what we want on the right.")
@@ -1049,36 +1063,30 @@ class DiplomacyLedger:
             hint = _d.shortfall_hint(gain)
             hcol = ((0.16, 0.38, 0.14, 1.0) if gain >= 0
                     else (0.62, 0.14, 0.10, 1.0))
-        self._text(hint, (-0.94, y), 0.028, color=hcol)
-        # what already stands between the two powers
-        standing_lines = ["%s (%s)" % (what, how)
-                          for what, how in
-                          self._agreement_lines(nat)]
-        y -= 0.06
-        self._text("ALREADY SIGNED", (-1.28, y), 0.024,
+        self._text("THE ENVOY'S READING", (0.24, y - 0.185), 0.024,
                    color=INK_FAINT)
-        if not standing_lines:
-            self._text("no instrument stands between us",
-                       (-0.94, y), 0.026, color=INK_FAINT)
-        else:
-            for i, line in enumerate(standing_lines[:4]):
-                self._text(line, (-0.94 + (i % 2) * 1.05,
-                                  y - (i // 2) * 0.042), 0.025,
-                           color=(0.16, 0.38, 0.14, 1.0))
+        tn = TextNode('reading')
+        tn.setWordwrap(46)
+        tn.setAlign(TextNode.ALeft)
+        if f:
+            tn.setFont(f)
+        tn.setTextColor(*hcol)
+        tn.setText(hint)
+        np_ = self.frame.attachNewNode(tn)
+        np_.setPos(0.24, 0, y - 0.222)
+        np_.setScale(0.023)
+        self.widgets.append(np_)
         bt = pill_button(self.frame, "CLEAR THE SHEET",
                          self._clear_sheet, extraArgs=[],
-                         pos=(-0.52, 0, -0.755), hw=0.20, hh=0.046,
+                         pos=(-0.48, 0, -0.742), hw=0.21, hh=0.048,
                          text_scale=0.028, font=f)
         self.widgets.append(bt)
         bt = pill_button(self.frame, "++ DISPATCH THE ENVOY ++",
                          self._dispatch_envoy, extraArgs=[nat],
-                         pos=(0.16, 0, -0.755), hw=0.34, hh=0.050,
-                         text_scale=0.032, font=f)
+                         pos=(0.28, 0, -0.742), hw=0.34, hh=0.050,
+                         text_scale=0.032, font=f, kind='red',
+                         text_fg=KEY_LIGHT)
         self.widgets.append(bt)
-        self._text("A SHEET IS ANSWERED AT ONCE -- MONEY AND CARGO "
-                   "MOVE ON THE FORTNIGHT, RIGHTS THE MOMENT IT IS "
-                   "SIGNED", (0, -0.83), 0.023,
-                   color=INK_FAINT, align=TextNode.ACenter)
 
     def _build_roster(self):
         g = self.game
@@ -1092,14 +1100,11 @@ class DiplomacyLedger:
                                     short_name(c)))
         # the roster: 5 columns of flag cards, names beneath, the
         # stance toward YOU printed only when it matters
-        for ry in (0.675, 0.667):
-            self._rule(-1.30, 1.30, ry,
-                       color=(0.25, 0.21, 0.17, 0.9), w=0.0024)
         per_row = 5
         for i, nat in enumerate(nations[:25]):
             row, col = divmod(i, per_row)
             x = -1.08 + col * 0.44
-            y = 0.53 - row * 0.27
+            y = 0.49 - row * 0.24
             self._card(nat, x, y)
             at_war = g.at_war(me, nat)
             allied = g.allied(me, nat)
@@ -1116,23 +1121,23 @@ class DiplomacyLedger:
         wx = 1.18
         box = DirectFrame(parent=self.frame, relief=DGG.FLAT,
                           frameColor=(0.45, 0.40, 0.33, 0.55),
-                          frameSize=(-0.222, 0.222, -1.475, 0.075),
-                          pos=(wx, 0, 0.62), state=DGG.DISABLED)
+                          frameSize=(-0.222, 0.222, -1.175, 0.075),
+                          pos=(wx, 0, 0.545), state=DGG.DISABLED)
         inner = DirectFrame(parent=box, relief=DGG.FLAT,
                             frameColor=PAPER[:3] + (1.0,),
-                            frameSize=(-0.218, 0.218, -1.471,
+                            frameSize=(-0.218, 0.218, -1.171,
                                        0.071), state=DGG.DISABLED)
         self.widgets.append(box)
-        self._text("++ WARS RAGING ++", (wx, 0.63), 0.040,
+        self._text("++ WARS RAGING ++", (wx, 0.555), 0.038,
                    color=(0.62, 0.14, 0.10, 1),
                    align=TextNode.ACenter)
         wars = sorted({tuple(sorted(w)) for w in g.wars})
         if not wars:
-            self._text("ALL QUIET ON EVERY FRONT", (wx, 0.50),
+            self._text("ALL QUIET ON EVERY FRONT", (wx, 0.42),
                        0.026, color=INK_FAINT,
                        align=TextNode.ACenter)
-        for i, (a, b) in enumerate(wars[:8]):
-            wy = 0.49 - i * 0.165
+        for i, (a, b) in enumerate(wars[:7]):
+            wy = 0.42 - i * 0.155
             for nat, dx in ((a, -0.115), (b, 0.115)):
                 chip = DirectFrame(parent=self.frame, relief=None,
                                    frameColor=(0, 0, 0, 0),
@@ -1159,15 +1164,15 @@ class DiplomacyLedger:
                                     short_name(b).upper()),
                        (wx, wy - 0.070), 0.021,
                        color=INK_FAINT, align=TextNode.ACenter)
-        if len(wars) > 8:
+        if len(wars) > 7:
             self._text("AND %d MORE FRONTS AFLAME"
-                       % (len(wars) - 8),
-                       (wx, 0.49 - 8 * 0.165), 0.023,
+                       % (len(wars) - 7),
+                       (wx, 0.42 - 7 * 0.155), 0.023,
                        color=(0.62, 0.14, 0.10, 1),
                        align=TextNode.ACenter)
         self._text("CLICK A NATION FOR ITS DOSSIER -- WAR, PACTS "
                    "AND TERMS ARE OFFERED THERE",
-                   (-0.10, -0.80), 0.026, color=INK_FAINT,
+                   (-0.12, -0.628), 0.024, color=INK_FAINT,
                    align=TextNode.ACenter)
 
     def _rule(self, x0, x1, y, color=None, w=0.0022):
@@ -1274,7 +1279,7 @@ class DiplomacyLedger:
         f = self.base.hud_font
         b = pill_button(self.frame, "<< THE WORLD",
                         self._open_dossier, extraArgs=[None],
-                        pos=(-1.16, 0, 0.775), hw=0.17, hh=0.040,
+                        pos=(-1.10, 0, -0.742), hw=0.19, hh=0.048,
                         font=f)
         self.widgets.append(b)
 
@@ -1738,6 +1743,142 @@ def _wrap_markup(text, width):
     return lines or ['']
 
 
+RED_INK = (0.52, 0.10, 0.06, 1.0)       # dispatch red, section heads
+STAMP_RED = (0.60, 0.12, 0.08, 0.92)    # the security stamp
+GREEN_INK = (0.16, 0.38, 0.14, 1.0)
+KEY_LIGHT = (0.95, 0.92, 0.86, 1.0)     # text on a red key
+
+
+class FormSheet:
+    """THE WAR OFFICE FORM -- the shared chrome of every facsimile
+    page, in the manner of the Quick Match sheet: fax leader bands,
+    corner tags, a mastheaded title over double rules, a FROM/RE
+    block with a rotated security stamp, ruled sections with
+    dispatch-red headers, and a bottom key row above the END OF
+    TRANSMISSION tag. Pages draw their body between self.body_top
+    and self.body_bot."""
+
+    def __init__(self, base, title, half_w=1.30, half_h=0.92,
+                 from_line=None, re_line=None, date_line=None,
+                 stamp='MOST SECRET', sheet_tag="SHEET 1 OF 1"):
+        self.base = base
+        self.f = base.hud_font
+        W, H = half_w, half_h
+        self.W, self.H = W, H
+        self.frame = DirectFrame(parent=base.aspect2d,
+                                 frameColor=(1, 1, 1, 1),
+                                 frameTexture=sheet_texture('paper'),
+                                 frameSize=(-W, W, -H, H),
+                                 state=DGG.NORMAL)
+        for z0, z1 in ((H - 0.025, H), (-H, -H + 0.025)):
+            DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
+                        frameSize=(-W, W, z0, z1))
+        self.text("FACSIMILE TRANSMISSION", (-W + 0.08, H - 0.068),
+                  0.026, INK_FAINT)
+        self.text(sheet_tag, (W - 0.08, H - 0.068), 0.026, INK_FAINT,
+                  TextNode.ARight)
+        self.text(title, (0, H - 0.150), 0.054, INK, TextNode.ACenter)
+        self.rule(-W + 0.08, W - 0.08, H - 0.196, 0.005)
+        self.rule(-W + 0.08, W - 0.08, H - 0.210, 0.0022)
+        y = H - 0.262
+        for tag, line in (('FROM', from_line), ('DATE', date_line),
+                          ('RE', re_line)):
+            if not line:
+                continue
+            self.text("%-4s : %s" % (tag, line), (-W + 0.08, y),
+                      0.030)
+            y -= 0.050
+        if from_line or re_line or date_line:
+            self.rule(-W + 0.08, W - 0.08, y - 0.008, 0.0022)
+            self.body_top = y - 0.055
+        else:
+            self.body_top = H - 0.240
+        if stamp:
+            node = self.frame.attachNewNode('stamp')
+            node.setPos(W - 0.40, 0, H - 0.290)
+            node.setR(-7)
+            sw = 0.044 * 0.31 * len(stamp) + 0.10
+            sw = max(0.20, min(0.30, sw))
+            sh = 0.052
+            for x0, x1, z0, z1 in ((-sw, sw, sh - 0.006, sh),
+                                   (-sw, sw, -sh, -sh + 0.006),
+                                   (-sw, -sw + 0.006, -sh, sh),
+                                   (sw - 0.006, sw, -sh, sh)):
+                DirectFrame(parent=node, frameColor=STAMP_RED,
+                            frameSize=(x0, x1, z0, z1))
+            tn = TextNode('stamp_text')
+            tn.setAlign(TextNode.ACenter)
+            if self.f:
+                tn.setFont(self.f)
+            tn.setTextColor(*STAMP_RED)
+            tn.setText(stamp)
+            np_ = node.attachNewNode(tn)
+            np_.setScale(0.044)
+            np_.setPos(0, 0, -0.015)
+        self.body_bot = -H + 0.240
+
+    # ------------------------------------------------------ fittings
+    def text(self, t, pos, scale=0.030, color=INK,
+             align=TextNode.ALeft, wrap=None):
+        tn = TextNode('form_text')
+        tn.setAlign(align)
+        if wrap:
+            tn.setWordwrap(wrap)
+        if self.f:
+            tn.setFont(self.f)
+        tn.setTextColor(*color)
+        tn.setText(t)
+        np_ = self.frame.attachNewNode(tn)
+        np_.setPos(pos[0], 0, pos[1])
+        np_.setScale(scale)
+        return tn, np_
+
+    def rule(self, x0, x1, z, thick=0.0022, color=INK):
+        return DirectFrame(parent=self.frame, frameColor=color,
+                           frameSize=(x0, x1, z - thick / 2.0,
+                                      z + thick / 2.0))
+
+    def vrule(self, x, z0, z1, thick=0.0022, color=INK):
+        return DirectFrame(parent=self.frame, frameColor=color,
+                           frameSize=(x - thick / 2.0,
+                                      x + thick / 2.0, z0, z1))
+
+    def header(self, t, pos, scale=0.032):
+        """A dispatch-red section head, as the Quick Match sheet
+        prints STRENGTHS and SERVICE ASSESSMENT."""
+        return self.text(t, pos, scale, RED_INK)
+
+    def flag(self, country, pos, hw=0.075):
+        from icons import flag_texture
+        fr = DirectFrame(parent=self.frame, frameColor=(1, 1, 1, 1),
+                         frameTexture=flag_texture(country),
+                         frameSize=(-hw, hw, -hw * 2 / 3.0,
+                                    hw * 2 / 3.0), pos=pos)
+        return fr
+
+    def keys(self, specs, end_tag=True):
+        """The bottom key row: a rule, the keys, the transmission
+        tag. specs = (label, command, extraArgs, x, kind, text_fg,
+        half_width)."""
+        W, H = self.W, self.H
+        self.rule(-W + 0.08, W - 0.08, -H + 0.205, 0.0022)
+        out = []
+        for (label, cmd, args, x, kind, fg, hw) in specs:
+            b = pill_button(self.frame, label, cmd,
+                            extraArgs=list(args),
+                            pos=(x, 0, -H + 0.118), hw=hw, hh=0.055,
+                            text_scale=0.038, font=self.f, kind=kind,
+                            text_fg=fg)
+            out.append(b)
+        if end_tag:
+            self.text("++ END OF TRANSMISSION ++", (0, -H + 0.040),
+                      0.023, INK_FAINT, TextNode.ACenter)
+        return out
+
+    def destroy(self):
+        self.frame.destroy()
+
+
 class BudgetFax:
     """The fortnight budget manifest — a large FAX form on which the
     commander allocates the appropriation across unit types, then
@@ -1763,41 +1904,34 @@ class BudgetFax:
         self.qty_tns = {}
 
         f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
-                                 frameSize=(-1.18, 1.18, -0.92, 0.92),
-                                 state=DGG.NORMAL)
-        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-1.18, 1.18, 0.895, 0.92))
+        sheet = FormSheet(
+            base, "BUDGET MANIFEST", half_w=1.30, half_h=0.92,
+            from_line="THE EXCHEQUER, WAR APPROPRIATIONS",
+            re_line="FORTNIGHT APPROPRIATION -- COMMIT BY RETURN "
+                    "FACSIMILE")
+        self.sheet = sheet
+        self.frame = sheet.frame
+        sheet.text(subtitle if subtitle else
+                   "APPROPRIATION AVAILABLE: $%d   --   ONCE "
+                   "TRANSMITTED THE BUDGET STANDS FOR TWO WEEKS."
+                   % self.funds, (0, sheet.body_top), 0.028,
+                   INK_FAINT, TextNode.ACenter)
 
-        def text(t, pos, scale=0.034, color=INK, align=TextNode.ALeft):
-            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
-            tn.setText(t)
-            return tn
-
-        text("*** BUDGET MANIFEST -- FORTNIGHT APPROPRIATION ***",
-             (0, 0.83), 0.045, INK, TextNode.ACenter)
-        text("FROM : THE EXCHEQUER, WAR APPROPRIATIONS", (-1.10, 0.76))
-        text("RE   : ALLOCATION OF FUNDS -- COMMIT BY RETURN FACSIMILE",
-             (-1.10, 0.71))
-        text(subtitle if subtitle else
-             "APPROPRIATION AVAILABLE: $%d   ONCE TRANSMITTED THE BUDGET "
-             "STANDS FOR TWO WEEKS." % self.funds, (-1.10, 0.66), 0.030,
-             INK_FAINT)
-        text("-" * 78, (0, 0.62), 0.034, INK, TextNode.ACenter)
-
-        # two columns of rows
-        col_x = (-1.10, 0.10)
-        row_y0 = 0.545
-        row_h = 0.077
+        # two ruled columns of rows, a faint divider between them
+        col_x = (-1.22, 0.06)
+        row_y0 = sheet.body_top - 0.070
         rows = self._build_rows()
         per_col = (len(rows) + 1) // 2
+        row_h = (row_y0 - (-0.615)) / max(1, per_col)
+        sheet.vrule(-0.065, -0.640, row_y0 + 0.045, 0.0022,
+                    INK_FAINT)
         for i, row in enumerate(rows):
             col = i // per_col
             y = row_y0 - (i % per_col) * row_h
             x = col_x[col]
             if row[0] == 'header':
-                text(row[1], (x, y), 0.036, INK_FAINT)
+                sheet.header(row[1], (x, y))
+                sheet.rule(x, x + 1.16, y - 0.016, 0.0022, INK_FAINT)
                 continue
             ut, stats, available = row[1], row[2], row[3]
             ic = DirectFrame(parent=self.frame, relief=None,
@@ -1808,52 +1942,51 @@ class BudgetFax:
                              pos=(x + 0.024, 0, y + 0.009))
             ic.setTransparency(True)
             crisp_image(ic)
-            text(stats['label'][:24], (x + 0.06, y), 0.030)
+            sheet.text(stats['label'][:24], (x + 0.06, y), 0.028)
             mat = self.mat_costs.get(ut, {})
             cost_s = "$%d" % stats['cost']
             if mat.get('steel'):
                 cost_s += " %dS" % mat['steel']
-            text(cost_s, (x + 0.56, y), 0.024, INK_FAINT)
+            sheet.text(cost_s, (x + 0.60, y), 0.024, INK_FAINT)
             if not available:
-                text("NO HARBOR", (x + 0.80, y), 0.028, INK_FAINT)
+                sheet.text("NO HARBOR", (x + 0.84, y), 0.026,
+                           INK_FAINT)
                 continue
             pill_button(self.frame, "-", self._adjust,
-                        extraArgs=[ut, -1], pos=(x + 0.815, 0, y + 0.007),
+                        extraArgs=[ut, -1],
+                        pos=(x + 0.865, 0, y + 0.007),
                         hw=0.030, hh=0.030, text_scale=0.040, font=f,
                         kind='key')
-            tn, _ = _make_text(self.frame, f, (x + 0.885, y), 0.032, INK,
-                               TextNode.ACenter)
+            tn, _ = _make_text(self.frame, f, (x + 0.935, y), 0.032,
+                               INK, TextNode.ACenter)
             tn.setText(str(self.counts.get(ut, 0)))
             self.qty_tns[ut] = tn
             pill_button(self.frame, "+", self._adjust,
-                        extraArgs=[ut, +1], pos=(x + 0.955, 0, y + 0.007),
+                        extraArgs=[ut, +1],
+                        pos=(x + 1.005, 0, y + 0.007),
                         hw=0.030, hh=0.030, text_scale=0.040, font=f,
                         kind='key')
 
-        text("-" * 78, (0, -0.70), 0.034, INK, TextNode.ACenter)
-        self.total_tn, _ = _make_text(self.frame, f, (0, -0.755), 0.036,
-                                      INK, TextNode.ACenter)
+        self.total_tn, _ = sheet.text("", (0, -0.672), 0.032, INK,
+                                      TextNode.ACenter)
         self._refresh_totals()
-
-        pill_button(self.frame, "++ TRANSMIT ++", self._transmit,
-                    pos=(-0.40, 0, -0.842), hw=0.30, hh=0.047,
-                    text_scale=0.042, text_fg=(0.10, 0.25, 0.10, 1),
-                    font=f)
-        pill_button(self.frame, "-- DISCARD --", self._discard,
-                    pos=(0.40, 0, -0.842), hw=0.30, hh=0.047,
-                    text_scale=0.042, text_fg=(0.45, 0.12, 0.08, 1),
-                    font=f)
+        sheet.keys([
+            ("++ TRANSMIT ++", self._transmit, (), -0.42, 'red',
+             KEY_LIGHT, 0.30),
+            ("-- DISCARD --", self._discard, (), 0.42, 'panel',
+             (0.45, 0.12, 0.08, 1), 0.30),
+        ])
 
     def _build_rows(self):
-        rows = [('header', '--- ARMY ---')]
+        rows = [('header', 'ARMY')]
         for ut, s in self.unit_types.items():
             if s['domain'] == 'land':
                 rows.append(('unit', ut, s, True))
-        rows.append(('header', '--- NAVY ---'))
+        rows.append(('header', 'NAVY'))
         for ut, s in self.unit_types.items():
             if s['domain'] == 'sea':
                 rows.append(('unit', ut, s, self.has_harbor))
-        rows.append(('header', '--- AIR FORCE ---'))
+        rows.append(('header', 'AIR FORCE'))
         for ut, s in self.unit_types.items():
             if s['domain'] == 'air':
                 rows.append(('unit', ut, s, True))
@@ -1990,56 +2123,59 @@ class TaxFax:
                      else city.tax_rate)
 
         f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
-                                 frameSize=(-0.85, 0.85, -0.62, 0.62),
-                                 state=DGG.NORMAL)
-        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-0.85, 0.85, 0.595, 0.62))
+        sheet = FormSheet(
+            base, "TAX DECREE -- %s" % city.name.upper(),
+            half_w=1.00, half_h=0.78,
+            from_line="THE EXCHEQUER, REVENUE BRANCH",
+            re_line="RATE OF TAXATION UPON THE MUNICIPALITY")
+        self.sheet = sheet
+        self.frame = sheet.frame
 
-        def text(t, pos, scale=0.036, color=INK, align=TextNode.ALeft):
-            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
-            tn.setText(t)
-            return tn
+        # LEFT: the municipal record, as a ruled table
+        lx0, lx1 = -0.92, -0.12
+        sheet.header("THE MUNICIPAL RECORD", (lx0, sheet.body_top))
+        rows = [("POPULATION", "{:,}".format(city.population)),
+                ("INDUSTRY HEALTH", "%.0f%%" % city.industry),
+                ("PRESENT RATE", "%d%%" % city.tax_rate)]
+        ry = sheet.body_top - 0.070
+        for label, val in rows:
+            sheet.text(label, (lx0, ry), 0.030)
+            sheet.text(val, (lx1, ry), 0.030, INK,
+                       TextNode.ARight)
+            sheet.rule(lx0, lx1, ry - 0.022, 0.0016, INK_FAINT)
+            ry -= 0.078
+        sheet.text("AT %d%% THE INDUSTRY HOLDS;\nBELOW IT HEALS; "
+                   "ABOVE IT DECAYS." % TAX_EQUILIBRIUM,
+                   (lx0, ry - 0.015), 0.026, INK_FAINT)
+        sheet.vrule(0.0, -0.38, sheet.body_top + 0.03, 0.0022,
+                    INK_FAINT)
 
-        text("*** TAX DECREE -- %s ***" % city.name.upper(),
-             (0, 0.52), 0.048, INK, TextNode.ACenter)
-        text("FROM : THE EXCHEQUER, REVENUE BRANCH", (-0.78, 0.44))
-        text("RE   : RATE OF TAXATION UPON THE MUNICIPALITY",
-             (-0.78, 0.39))
-        text("-" * 56, (0, 0.345), 0.036, INK, TextNode.ACenter)
-        text("POPULATION ......... %s" % "{:,}".format(city.population),
-             (-0.78, 0.28))
-        text("INDUSTRY HEALTH .... %.0f%%" % city.industry, (-0.78, 0.22))
-        text("PRESENT RATE ....... %d%%" % city.tax_rate, (-0.78, 0.16))
-        text("AT %d%% THE INDUSTRY HOLDS; BELOW IT HEALS; ABOVE IT "
-             "DECAYS." % TAX_EQUILIBRIUM, (-0.78, 0.10), 0.028, INK_FAINT)
-
+        # RIGHT: the rate, set by key
+        rx = 0.50
+        sheet.header("RATE OF TAXATION", (0.12, sheet.body_top))
         pill_button(self.frame, "-", self._adjust, extraArgs=[-5],
-                    pos=(-0.30, 0, -0.041), hw=0.045, hh=0.043,
-                    text_scale=0.052, font=f, kind='key')
-        self.rate_tn, _ = _make_text(self.frame, f, (0, -0.055), 0.075,
-                                     INK, TextNode.ACenter)
+                    pos=(rx - 0.28, 0, sheet.body_top - 0.155),
+                    hw=0.045, hh=0.043, text_scale=0.052, font=f,
+                    kind='key')
+        self.rate_tn, _ = sheet.text(
+            "", (rx, sheet.body_top - 0.175), 0.080, INK,
+            TextNode.ACenter)
         pill_button(self.frame, "+", self._adjust, extraArgs=[+5],
-                    pos=(0.30, 0, -0.041), hw=0.045, hh=0.043,
-                    text_scale=0.052, font=f, kind='key')
-
-        self.proj_tn, _ = _make_text(self.frame, f, (0, -0.20), 0.034,
-                                     INK, TextNode.ACenter)
-        self.drift_tn, _ = _make_text(self.frame, f, (0, -0.26), 0.034,
-                                      INK, TextNode.ACenter)
-        text("THE DECREE BINDS FROM THE NEXT FORTNIGHT.", (0, -0.34),
-             0.030, INK_FAINT, TextNode.ACenter)
+                    pos=(rx + 0.28, 0, sheet.body_top - 0.155),
+                    hw=0.045, hh=0.043, text_scale=0.052, font=f,
+                    kind='key')
+        self.proj_tn, _ = sheet.text("", (0.12, -0.235), 0.028, INK)
+        self.drift_tn, _ = sheet.text("", (0.12, -0.290), 0.028, INK)
         self._refresh()
 
-        pill_button(self.frame, "++ TRANSMIT ++", self._transmit,
-                    pos=(-0.32, 0, -0.492), hw=0.26, hh=0.044,
-                    text_scale=0.040, text_fg=(0.1, 0.25, 0.1, 1),
-                    font=f)
-        pill_button(self.frame, "-- DISCARD --", self._discard,
-                    pos=(0.32, 0, -0.492), hw=0.26, hh=0.044,
-                    text_scale=0.040, text_fg=(0.45, 0.12, 0.08, 1),
-                    font=f)
+        sheet.text("THE DECREE BINDS FROM THE NEXT FORTNIGHT.",
+                   (0, -0.415), 0.026, INK_FAINT, TextNode.ACenter)
+        sheet.keys([
+            ("++ TRANSMIT ++", self._transmit, (), -0.34, 'red',
+             KEY_LIGHT, 0.27),
+            ("-- DISCARD --", self._discard, (), 0.34, 'panel',
+             (0.45, 0.12, 0.08, 1), 0.27),
+        ])
 
     def _adjust(self, delta):
         self.rate = max(0, min(100, self.rate + delta))
@@ -2081,64 +2217,62 @@ class DraftFax:
         self.n = min(city.draft_pool, self.ceiling)
 
         f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d,
-                                 frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
-                                 frameSize=(-0.85, 0.85, -0.66, 0.66),
-                                 state=DGG.NORMAL)
-        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-0.85, 0.85, 0.635, 0.66))
+        sheet = FormSheet(
+            base, "CIVILIAN DRAFT -- %s" % city.name.upper(),
+            half_w=1.00, half_h=0.78,
+            from_line="THE RECRUITING OFFICE",
+            re_line="IMMEDIATE MUSTER OF THE MUNICIPALITY")
+        self.sheet = sheet
+        self.frame = sheet.frame
 
-        def text(t, pos, scale=0.036, color=INK,
-                 align=TextNode.ALeft):
-            tn, _ = _make_text(self.frame, f, pos, scale, color,
-                               align)
-            tn.setText(t)
-            return tn
+        # LEFT: the recruiting record, as a ruled table
+        lx0, lx1 = -0.92, -0.12
+        sheet.header("THE RECRUITING RECORD", (lx0, sheet.body_top))
+        rows = [("POPULATION", "{:,}".format(city.population)),
+                ("ON THE ROLLS, FREE", "%d SECTION(S)"
+                 % city.draft_pool),
+                ("INDUSTRY HEALTH", "%.0f%%" % city.industry)]
+        ry = sheet.body_top - 0.070
+        for label, val in rows:
+            sheet.text(label, (lx0, ry), 0.030)
+            sheet.text(val, (lx1, ry), 0.030, INK, TextNode.ARight)
+            sheet.rule(lx0, lx1, ry - 0.022, 0.0016, INK_FAINT)
+            ry -= 0.078
+        sheet.text("THE ROLLS REFILL AT THE FORTNIGHT.  BEYOND "
+                   "THEM\nIS CONSCRIPTION: -%.1f%% INDUSTRY A "
+                   "SECTION,\nDOWN TO NOUGHT." % self.grind,
+                   (lx0, ry - 0.015), 0.026, INK_FAINT)
+        sheet.vrule(0.0, -0.38, sheet.body_top + 0.03, 0.0022,
+                    INK_FAINT)
 
-        text("*** CIVILIAN DRAFT -- %s ***" % city.name.upper(),
-             (0, 0.56), 0.048, INK, TextNode.ACenter)
-        text("FROM : THE RECRUITING OFFICE", (-0.78, 0.48))
-        text("RE   : IMMEDIATE MUSTER OF THE MUNICIPALITY",
-             (-0.78, 0.43))
-        text("-" * 56, (0, 0.385), 0.036, INK, TextNode.ACenter)
-        text("POPULATION ......... %s"
-             % "{:,}".format(city.population), (-0.78, 0.32))
-        text("ON THE ROLLS ....... %d SECTION(S), FREE -- REFILLED "
-             "AT THE FORTNIGHT" % city.draft_pool, (-0.78, 0.26))
-        text("INDUSTRY HEALTH .... %.0f%%" % city.industry,
-             (-0.78, 0.20))
-        text("BEYOND THE ROLLS IS CONSCRIPTION: -%.1f%% INDUSTRY A "
-             "SECTION, DOWN TO NOUGHT." % self.grind,
-             (-0.78, 0.14), 0.028, INK_FAINT)
-
-        text("SECTIONS TO MUSTER AT ONCE", (0, 0.045), 0.032, INK,
-             TextNode.ACenter)
-        for dx, d, lbl in ((-0.44, -5, "-5"), (-0.30, -1, "-"),
-                           (0.30, +1, "+"), (0.44, +5, "+5")):
+        # RIGHT: the muster, set by key
+        rx = 0.50
+        sheet.header("SECTIONS TO MUSTER AT ONCE",
+                     (0.12, sheet.body_top))
+        for dx, d, lbl in ((-0.38, -5, "-5"), (-0.24, -1, "-"),
+                           (0.24, +1, "+"), (0.38, +5, "+5")):
             pill_button(self.frame, lbl, self._adjust, extraArgs=[d],
-                        pos=(dx, 0, -0.031), hw=0.052, hh=0.043,
-                        text_scale=0.042, font=f, kind='key')
-        self.n_tn, _ = _make_text(self.frame, f, (0, -0.045), 0.085,
-                                  INK, TextNode.ACenter)
-        self.cost_tn, _ = _make_text(self.frame, f, (0, -0.165),
-                                     0.030, INK, TextNode.ACenter)
-        self.cap_tn, _ = _make_text(self.frame, f, (0, -0.225),
-                                    0.026, INK_FAINT,
-                                    TextNode.ACenter)
-        text("EVERY MUSTER STILL WANTS ITS RATIONS -- 4 TONS OF "
-             "FOOD THE SECTION.", (0, -0.335), 0.030, INK_FAINT,
-             TextNode.ACenter)
+                        pos=(rx + dx, 0, sheet.body_top - 0.155),
+                        hw=0.052, hh=0.043, text_scale=0.042, font=f,
+                        kind='key')
+        self.n_tn, _ = sheet.text(
+            "", (rx, sheet.body_top - 0.185), 0.085, INK,
+            TextNode.ACenter)
+        self.cost_tn, _ = sheet.text("", (0.12, -0.225), 0.022, INK,
+                                     wrap=36)
+        self.cap_tn, _ = sheet.text("", (0.12, -0.305), 0.022,
+                                    INK_FAINT, wrap=36)
         self._refresh()
 
-        pill_button(self.frame, "++ MUSTER ++", self._transmit,
-                    pos=(-0.32, 0, -0.532), hw=0.26, hh=0.044,
-                    text_scale=0.040, text_fg=(0.1, 0.25, 0.1, 1),
-                    font=f)
-        pill_button(self.frame, "-- DISCARD --", self._discard,
-                    pos=(0.32, 0, -0.532), hw=0.26, hh=0.044,
-                    text_scale=0.040, text_fg=(0.45, 0.12, 0.08, 1),
-                    font=f)
+        sheet.text("EVERY MUSTER STILL WANTS ITS RATIONS -- 4 TONS "
+                   "OF FOOD THE SECTION.", (0, -0.415), 0.026,
+                   INK_FAINT, TextNode.ACenter)
+        sheet.keys([
+            ("++ MUSTER ++", self._transmit, (), -0.34, 'red',
+             KEY_LIGHT, 0.27),
+            ("-- DISCARD --", self._discard, (), 0.34, 'panel',
+             (0.45, 0.12, 0.08, 1), 0.27),
+        ])
 
     def _adjust(self, d):
         self.n = max(0, min(self.ceiling, self.n + d))
@@ -2225,60 +2359,53 @@ class CityFocusFax:
             rows.append(('base_%s' % kind, label, note, possible))
         self.rows = rows
 
-        self.frame = DirectFrame(parent=base.aspect2d,
-                                 frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
-                                 frameSize=(-0.98, 0.98, -0.80, 0.80),
-                                 state=DGG.NORMAL)
-        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-0.98, 0.98, 0.775, 0.80))
+        sheet = FormSheet(
+            base, "FORTNIGHT FOCUS -- %s" % city.name.upper(),
+            half_w=1.30, half_h=0.92,
+            from_line="THE TOWN CLERK, %s" % city.name.upper(),
+            re_line="THE TOWN WORKS AT ONE DIRECTIVE A FORTNIGHT")
+        self.sheet = sheet
+        self.frame = sheet.frame
 
-        def text(t, pos, scale=0.034, color=INK,
-                 align=TextNode.ALeft):
-            tn, _ = _make_text(self.frame, f, pos, scale, color,
-                               align)
-            tn.setText(t)
-            return tn
-
-        text("*** FORTNIGHT FOCUS -- %s ***" % city.name.upper(),
-             (0, 0.70), 0.048, INK, TextNode.ACenter)
-        text("THE TOWN WORKS AT ONE DIRECTIVE A FORTNIGHT",
-             (0, 0.63), 0.028, INK_FAINT, TextNode.ACenter)
-        text("-" * 64, (0, 0.585), 0.034, INK, TextNode.ACenter)
+        # the directive table: DIRECTIVE | EFFECT | STATUS
+        cx_d, cx_e, cx_s = -1.22, -0.30, 1.00
+        sheet.header("DIRECTIVE", (cx_d, sheet.body_top))
+        sheet.header("EFFECT AT THIS TOWN", (cx_e, sheet.body_top))
+        sheet.header("STATUS", (cx_s + 0.10, sheet.body_top, ),
+                     0.032)
+        sheet.rule(cx_d, 1.22, sheet.body_top - 0.022, 0.0022)
+        sheet.vrule(-0.36, -0.62, sheet.body_top - 0.022, 0.0016,
+                    INK_FAINT)
+        sheet.vrule(0.94, -0.62, sheet.body_top - 0.022, 0.0016,
+                    INK_FAINT)
 
         self.marks = {}
-        y = 0.50
+        y = sheet.body_top - 0.090
+        row_h = 0.128
         for key, label, note, possible in rows:
             if possible:
                 pill_button(self.frame, label, self._pick,
                             extraArgs=[key],
-                            pos=(-0.52, 0, y), hw=0.40, hh=0.038,
+                            pos=(-0.80, 0, y), hw=0.40, hh=0.040,
                             text_scale=0.030, font=f)
             else:
-                tn, _ = _make_text(self.frame, f, (-0.52, y - 0.012),
-                                   0.030, INK_FAINT,
-                                   TextNode.ACenter)
-                tn.setText(label)
-            tn, _ = _make_text(self.frame, f, (-0.06, y - 0.012),
-                               0.026, INK_FAINT)
-            tn.setText(note)
-            mk, _ = _make_text(self.frame, f, (0.88, y - 0.012),
-                               0.030, (0.16, 0.38, 0.14, 1.0),
-                               TextNode.ACenter)
+                tn, _ = sheet.text(label, (-0.80, y - 0.012), 0.030,
+                                   INK_FAINT, TextNode.ACenter)
+            sheet.text(note, (cx_e, y - 0.012), 0.026, INK_FAINT)
+            mk, _ = sheet.text("", (cx_s + 0.11, y - 0.012), 0.028,
+                               GREEN_INK, TextNode.ACenter)
             self.marks[key] = mk
-            y -= 0.115
+            y -= row_h
+            sheet.rule(cx_d, 1.22, y + row_h - 0.066, 0.0014,
+                       (INK[0], INK[1], INK[2], 0.25))
 
         self._refresh()
-        pill_button(self.frame, "++ SET THE FOCUS ++",
-                    self._transmit,
-                    pos=(-0.36, 0, -0.70), hw=0.30, hh=0.044,
-                    text_scale=0.040,
-                    text_fg=(0.1, 0.25, 0.1, 1), font=f)
-        pill_button(self.frame, "-- LEAVE AS IT STANDS --",
-                    self._discard,
-                    pos=(0.36, 0, -0.70), hw=0.30, hh=0.044,
-                    text_scale=0.040,
-                    text_fg=(0.45, 0.12, 0.08, 1), font=f)
+        sheet.keys([
+            ("++ SET THE FOCUS ++", self._transmit, (), -0.44,
+             'red', KEY_LIGHT, 0.32),
+            ("-- LEAVE AS IT STANDS --", self._discard, (), 0.44,
+             'panel', (0.45, 0.12, 0.08, 1), 0.32),
+        ])
 
     def _pick(self, key):
         self.choice = key
@@ -2308,72 +2435,54 @@ class EnvoyFax:
     def __init__(self, base, nat, gives, wants, on_accept, on_decline):
         import deals as _d
         from config import short_name, COUNTRIES
-        from models import make_flag_quad
         self.base = base
         self.on_accept = on_accept
         self.on_decline = on_decline
-        f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d,
-                                 frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
-                                 frameSize=(-0.86, 0.86, -0.60, 0.60),
-                                 state=DGG.NORMAL)
-        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-0.86, 0.86, 0.575, 0.60))
+        sheet = FormSheet(
+            base, "AN ENVOY OF %s CALLS" % short_name(nat).upper(),
+            half_w=1.00, half_h=0.78,
+            from_line="THE FOREIGN OFFICE OF %s"
+                      % COUNTRIES[nat]['name'].upper(),
+            re_line="TERMS LAID BEFORE US -- NOTHING BINDS UNTIL "
+                    "WE SIGN")
+        self.sheet = sheet
+        self.frame = sheet.frame
+        sheet.flag(nat, (-0.83, 0, sheet.H - 0.155), hw=0.062)
 
-        def text(t, pos, scale=0.032, color=INK,
-                 align=TextNode.ALeft):
-            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
-            tn.setText(t)
-            return tn
-
-        flag = make_flag_quad(base.loader, nat, half=0.055, flat=True)
-        flag.reparentTo(self.frame)
-        flag.setPos(-0.70, 0, 0.455)
-        flag.setP(-90)
-        flag.setLightOff()
-        text("*** AN ENVOY OF %s CALLS ***"
-             % short_name(nat).upper(), (0.04, 0.44), 0.044, INK,
-             TextNode.ACenter)
-        text("FROM : THE FOREIGN OFFICE OF %s"
-             % COUNTRIES[nat]['name'].upper(), (-0.78, 0.355))
-        text("RE   : TERMS LAID BEFORE US", (-0.78, 0.310))
-        text("-" * 58, (0, 0.265), 0.032, INK, TextNode.ACenter)
-
-        def side(title, tokens, y):
-            text(title, (-0.78, y), 0.030, (0.52, 0.10, 0.06, 1.0))
+        # the terms, two ruled columns: what they give, what they ask
+        def side(title, tokens, x0):
+            sheet.header(title, (x0, sheet.body_top))
+            y = sheet.body_top - 0.062
             if not tokens:
-                text("NOTHING", (-0.40, y), 0.028, INK_FAINT)
-                return y - 0.048
-            for tok in tokens:
-                text("-- %s" % _d.token_text(tok).upper(),
-                     (-0.40, y), 0.028, INK)
-                y -= 0.042
-            return y - 0.014
+                sheet.text("NOTHING", (x0 + 0.02, y), 0.028,
+                           INK_FAINT)
+                return
+            for tok in tokens[:6]:
+                sheet.text("+ %s" % _d.token_text(tok).upper(),
+                           (x0 + 0.02, y), 0.027, INK)
+                y -= 0.052
 
-        y = side("THEY OFFER", gives, 0.200)
-        y = side("THEY ASK", wants, y - 0.02)
+        side("THEY OFFER", gives, -0.92)
+        side("THEY ASK IN RETURN", wants, 0.10)
+        sheet.vrule(0.0, -0.28, sheet.body_top + 0.03, 0.0022,
+                    INK_FAINT)
+        sheet.rule(-0.92, 0.92, -0.32, 0.0022, INK_FAINT)
 
         worth = _d.basket_value(gives) - _d.basket_value(wants)
         if worth >= 0:
             note = ("OUR OWN VALUERS MAKE THIS SHEET FAVOURABLE "
                     "TO US.")
-            col = (0.16, 0.38, 0.14, 1.0)
+            col = GREEN_INK
         else:
-            note = ("OUR OWN VALUERS MAKE THIS SHEET COSTLY TO US.")
+            note = "OUR OWN VALUERS MAKE THIS SHEET COSTLY TO US."
             col = (0.62, 0.14, 0.10, 1.0)
-        text(note, (0, -0.36), 0.027, col, TextNode.ACenter)
-        text("NOTHING IS BOUND UNTIL YOU SIGN.", (0, -0.405), 0.026,
-             INK_FAINT, TextNode.ACenter)
-
-        pill_button(self.frame, "++ ACCEPT THE TERMS ++", on_accept,
-                    pos=(-0.34, 0, -0.505), hw=0.29, hh=0.045,
-                    text_scale=0.038,
-                    text_fg=(0.1, 0.25, 0.1, 1), font=f)
-        pill_button(self.frame, "-- SEND HIM AWAY --", on_decline,
-                    pos=(0.34, 0, -0.505), hw=0.29, hh=0.045,
-                    text_scale=0.038,
-                    text_fg=(0.45, 0.12, 0.08, 1), font=f)
+        sheet.text(note, (0, -0.385), 0.028, col, TextNode.ACenter)
+        sheet.keys([
+            ("++ ACCEPT THE TERMS ++", on_accept, (), -0.34, 'red',
+             KEY_LIGHT, 0.29),
+            ("-- SEND HIM AWAY --", on_decline, (), 0.34, 'panel',
+             (0.45, 0.12, 0.08, 1), 0.29),
+        ])
 
     def destroy(self):
         self.frame.destroy()
@@ -2394,41 +2503,35 @@ class ProductionFax:
         self.on_close = on_close
         self.bottlenecks = list(bottlenecks)
         self.f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
-                                 frameSize=(-1.12, 1.12, -0.88, 0.88),
-                                 state=DGG.NORMAL)
-        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-1.12, 1.12, 0.855, 0.88))
-        tn, _ = _make_text(self.frame, self.f, (0, 0.78), 0.045, INK,
-                           TextNode.ACenter)
-        tn.setText("*** WAR INDUSTRIES -- PRODUCTION STATE ***")
-        self.head_tn, _ = _make_text(self.frame, self.f, (0, 0.70),
-                                     0.032, INK_FAINT, TextNode.ACenter)
-        tn, _ = _make_text(self.frame, self.f, (0, 0.655), 0.032, INK,
-                           TextNode.ACenter)
-        tn.setText("-" * 74)
+        sheet = FormSheet(
+            base, "WAR INDUSTRIES -- PRODUCTION STATE",
+            half_w=1.30, half_h=0.92,
+            from_line="THE MINISTRY OF SUPPLY",
+            re_line="THE FORTNIGHT ORDER, LIVE FROM THE FACTORY "
+                    "FLOOR")
+        self.sheet = sheet
+        self.frame = sheet.frame
+        self.head_tn, _ = sheet.text("", (0, sheet.body_top), 0.030,
+                                     INK_FAINT, TextNode.ACenter)
         # BOTTLENECKS lead the page: halted lines are the news
         self._bneck_drop = 0.0
         if self.bottlenecks:
-            by = 0.595
-            tn, _ = _make_text(self.frame, self.f, (-1.04, by), 0.032,
-                               (0.62, 0.14, 0.10, 1.0))
-            tn.setText("++ BOTTLENECKS -- LINES HALTED FOR "
-                       "MATERIALS ++")
+            by = sheet.body_top - 0.062
+            sheet.header("BOTTLENECKS -- LINES HALTED FOR "
+                         "MATERIALS", (-1.22, by))
             shown = self.bottlenecks[:3]
             for i, line in enumerate(shown):
-                tn, _ = _make_text(self.frame, self.f,
-                                   (-1.04, by - 0.048 - i * 0.042),
-                                   0.027, INK_FAINT)
-                tn.setText(line + (
+                sheet.text(line + (
                     "   (+%d MORE)" % (len(self.bottlenecks) - 3)
                     if i == len(shown) - 1
-                    and len(self.bottlenecks) > 3 else ""))
-            self._bneck_drop = 0.048 + len(shown) * 0.042 + 0.03
-        pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
-                    self._close, pos=(0, 0, -0.772), hw=0.42, hh=0.046,
-                    text_scale=0.040, font=self.f)
+                    and len(self.bottlenecks) > 3 else ""),
+                    (-1.20, by - 0.048 - i * 0.042), 0.027,
+                    INK_FAINT)
+            self._bneck_drop = 0.062 + 0.048 + len(shown) * 0.042
+        sheet.keys([
+            ("++ FILE AND ACKNOWLEDGE ++", self._close, (), 0,
+             'panel', INK, 0.42),
+        ])
         self._grid = []             # destroyable widgets of the grid
         self._widgets = {}          # label -> (tally_tn, fill, pct_tn)
         self._keys = None
@@ -2468,9 +2571,7 @@ class ProductionFax:
         self._widgets = {}
 
         def text(t, pos, scale=0.032, color=INK, align=TextNode.ALeft):
-            tn, np_ = _make_text(self.frame, self.f, pos, scale, color,
-                                 align)
-            tn.setText(t)
+            tn, np_ = self.sheet.text(t, pos, scale, color, align)
             self._grid.append(np_)
             return tn
 
@@ -2481,24 +2582,37 @@ class ProductionFax:
                 slots.append(('H', sec_label))
                 slots.extend(('R',) + r for r in rows)
         if not slots:
-            text("ALL PRODUCTION LINES IDLE.", (0, 0.30), 0.04, INK,
+            text("ALL PRODUCTION LINES IDLE.", (0, 0.20), 0.04, INK,
                  TextNode.ACenter)
             text("THE NEXT FORTNIGHT APPROPRIATION WILL SET THEM "
-                 "TURNING AGAIN.", (0, 0.22), 0.030, INK_FAINT,
+                 "TURNING AGAIN.", (0, 0.12), 0.030, INK_FAINT,
                  TextNode.ACenter)
             return
 
-        col_x = (-1.02, 0.10)
-        row_y0 = 0.56 - getattr(self, '_bneck_drop', 0.0)
-        row_h = 0.111
+        col_x = (-1.22, 0.06)
+        row_y0 = (self.sheet.body_top - 0.075
+                  - getattr(self, '_bneck_drop', 0.0))
+        row_h = (row_y0 + 0.60) / 11.0
         per_col = 11
+        div = DirectFrame(parent=self.frame,
+                          frameColor=(INK[0], INK[1], INK[2], 0.35),
+                          frameSize=(-0.0011, 0.0011, -0.640,
+                                     row_y0 + 0.050))
+        div.setPos(-0.065, 0, 0)
+        self._grid.append(div)
         for i, slot in enumerate(slots[:22]):
             col = i // per_col
             x = col_x[col]
             y = row_y0 - (i % per_col) * row_h
             if slot[0] == 'H':
-                text("++ %s ++" % slot[1], (x + 0.035, y), 0.030,
+                text("%s" % slot[1], (x, y), 0.030,
                      (0.52, 0.10, 0.06, 1.0))
+                r = DirectFrame(parent=self.frame,
+                                frameColor=(INK[0], INK[1], INK[2],
+                                            0.35),
+                                frameSize=(x, x + 1.16, y - 0.017,
+                                           y - 0.0148))
+                self._grid.append(r)
                 continue
             _tag, label, icon, done, total, prog = slot
             ic = DirectFrame(parent=self.frame, relief=None,
@@ -2510,8 +2624,8 @@ class ProductionFax:
             ic.setTransparency(True)
             self._grid.append(ic)
             text(label[:24], (x + 0.085, y), 0.028)
-            tally = text("%d/%d" % (done, total), (x + 0.92, y), 0.030,
-                         INK, TextNode.ARight)
+            tally = text("%d/%d" % (done, total), (x + 1.14, y),
+                         0.030, INK, TextNode.ARight)
             bx = x + 0.085
             back = DirectFrame(parent=self.frame,
                                frameColor=(0.72, 0.68, 0.56, 1.0),
@@ -2548,89 +2662,82 @@ class ResourcesFax:
     def __init__(self, base, data, on_close):
         self.base = base
         self.on_close = on_close
-        f = base.hud_font
-        self.frame = DirectFrame(parent=base.aspect2d,
-                                 frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
-                                 frameSize=(-1.18, 1.18, -0.92, 0.92),
-                                 state=DGG.NORMAL)
-        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-1.18, 1.18, 0.895, 0.92))
+        sheet = FormSheet(
+            base, "STRATEGIC RESOURCES", half_w=1.30, half_h=0.92,
+            from_line="THE QUARTERMASTER GENERAL",
+            re_line="STOCKS ON HAND, THE FORTNIGHT'S TAKE, AND THE "
+                    "PUMPS")
+        self.sheet = sheet
+        self.frame = sheet.frame
+        text = sheet.text
 
-        def text(t, pos, scale=0.030, color=INK,
-                 align=TextNode.ALeft):
-            tn, _ = _make_text(self.frame, f, pos, scale, color, align)
-            tn.setText(t)
-            return tn
-
-        text("*** STRATEGIC RESOURCES -- THE QUARTERMASTER'S "
-             "LEDGER ***", (0, 0.82), 0.043, INK, TextNode.ACenter)
-        text("STOCKS ON HAND, THE FORTNIGHT'S TAKE, AND THE PUMPS",
-             (0, 0.755), 0.027, INK_FAINT, TextNode.ACenter)
-        cols = {'oil': -0.78, 'steel': 0.0, 'food': 0.78}
+        top = sheet.body_top
+        net_top = -0.245
+        cols = {'oil': -0.86, 'steel': 0.0, 'food': 0.86}
+        for vx in (-0.43, 0.43):
+            sheet.vrule(vx, net_top + 0.035, top + 0.035, 0.0022,
+                        INK_FAINT)
         for res, cx in cols.items():
             d = data[res]
-            text(res.upper(), (cx, 0.66), 0.045, INK,
-                 TextNode.ACenter)
-            text("%d TONS IN STOCK" % d['stock'], (cx, 0.585),
-                 0.036, INK, TextNode.ACenter)
-            y = 0.505
+            sheet.header(res.upper(), (cx, top), 0.042)
+            text("%d TONS IN STOCK" % d['stock'], (cx, top - 0.065),
+                 0.034, INK, TextNode.ACenter)
+            sheet.rule(cx - 0.33, cx + 0.33, top - 0.095, 0.0016,
+                       INK_FAINT)
+            y = top - 0.140
             text("THE TAKE (PER FORTNIGHT, PAID DAILY):",
-                 (cx - 0.33, y),
-                 0.026, INK_FAINT)
-            y -= 0.048
+                 (cx - 0.36, y), 0.025, INK_FAINT)
+            y -= 0.046
             for name, n in d['income'][:6]:
-                text("%s +%d" % (name, n), (cx - 0.29, y), 0.027)
-                y -= 0.044
+                text("%s +%d" % (name, n), (cx - 0.32, y), 0.026)
+                y -= 0.042
             if d['more_income']:
                 text("+%d MORE SITES" % d['more_income'],
-                     (cx - 0.29, y), 0.025, INK_FAINT)
-                y -= 0.044
+                     (cx - 0.32, y), 0.024, INK_FAINT)
+                y -= 0.042
             text("SPENT SO FAR THIS FORTNIGHT: %d" % d['spent'],
-                 (cx - 0.33, y - 0.010), 0.026,
+                 (cx - 0.36, y - 0.010), 0.025,
                  (0.62, 0.14, 0.10, 1.0))
-            y -= 0.070
+            y -= 0.066
             if d['foreign']:
-                text("FOREIGN SOURCES OF NOTE:", (cx - 0.33, y),
-                     0.025, INK_FAINT)
-                y -= 0.044
+                text("FOREIGN SOURCES OF NOTE:", (cx - 0.36, y),
+                     0.024, INK_FAINT)
+                y -= 0.042
                 for name, owner, n in d['foreign'][:3]:
                     text("%s +%d  (%s)" % (name, n, owner),
-                         (cx - 0.29, y), 0.024, INK_FAINT)
-                    y -= 0.040
+                         (cx - 0.32, y), 0.023, INK_FAINT)
+                    y -= 0.038
         # THE SUPPLY NET: the plain statement of the relationship
-        ry = -0.42
-        tn, _ = _make_text(self.frame, f, (0, ry), 0.032, INK,
-                           TextNode.ACenter)
-        tn.setText("-" * 74)
-        text("THE SUPPLY NET", (0, ry - 0.055), 0.034, INK,
-             TextNode.ACenter)
+        ry = net_top
+        sheet.rule(-1.22, 1.22, ry, 0.0022)
+        sheet.header("THE SUPPLY NET", (-1.22, ry - 0.052))
         text("%s LBS OF STORES IN TOWN AND STATION STOCKS   //   "
              "%s LBS ABOARD THE COLUMNS AND FLEETS"
              % ("{:,}".format(data['net_stocks']),
                 "{:,}".format(data['unit_stores'])),
-             (0, ry - 0.105), 0.027, INK_FAINT, TextNode.ACenter)
+             (0, ry - 0.110), 0.027, INK_FAINT, TextNode.ACenter)
         text("THE PUMPS: %s LBS ISSUED TO MACHINES SO FAR THIS "
              "FORTNIGHT DREW %d TONS OF OIL"
              % ("{:,}".format(int(data['pump_lbs'])),
                 int(data['pump_oil'])),
-             (0, ry - 0.155), 0.027, INK_FAINT, TextNode.ACenter)
+             (0, ry - 0.158), 0.027, INK_FAINT, TextNode.ACenter)
         text("ONE TON OF OIL MOVES 1,250 LBS OF STORES INTO A "
              "MACHINE -- MEN AND THE RAILWAYS DRAW NONE",
-             (0, ry - 0.205), 0.027, INK, TextNode.ACenter)
+             (0, ry - 0.206), 0.027, INK, TextNode.ACenter)
         if data.get('ration'):
-            text(data['ration'], (0, ry - 0.245), 0.027, INK,
+            text(data['ration'], (0, ry - 0.250), 0.027, INK,
                  TextNode.ACenter)
         if data.get('trade'):
-            text("IMPORTS & EXPORTS BY TREATY:", (-1.04, ry - 0.265),
-                 0.028, INK)
+            sheet.header("IMPORTS & EXPORTS BY TREATY",
+                         (-1.22, ry - 0.302), 0.028)
             for i, line in enumerate(data['trade'][:4]):
-                text(line, (-1.00 + (i % 2) * 1.10,
-                            ry - 0.310 - (i // 2) * 0.045),
+                text(line, (-1.18 + (i % 2) * 1.20,
+                            ry - 0.350 - (i // 2) * 0.045),
                      0.025, INK_FAINT)
-        pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
-                    self._close, pos=(0, 0, -0.79), hw=0.42,
-                    hh=0.046, text_scale=0.040, font=f)
+        sheet.keys([
+            ("++ FILE AND ACKNOWLEDGE ++", self._close, (), 0,
+             'panel', INK, 0.42),
+        ])
         snd = getattr(base, 'fax_snd', None)
         if snd is not None:
             snd.play()
@@ -2666,21 +2773,24 @@ class TechFax:
         'capital_gunnery': (0.21, 1), 'naval_aviation': (0.21, 2),
     }
     COL_X = {'land': -0.84, 'air': 0.0, 'sea': 0.84}
-    ROW_Y = (0.40, 0.09, -0.22)
+    ROW_Y = (0.175, -0.135, -0.445)
 
     def __init__(self, base, game, on_close):
         self.base = base
         self.game = game
         self.on_close = on_close
-        self.frame = DirectFrame(parent=base.aspect2d,
-                                 frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
-                                 frameSize=(-1.30, 1.30, -0.95, 0.95),
-                                 state=DGG.NORMAL)
-        DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
-                    frameSize=(-1.30, 1.30, 0.925, 0.95))
+        self.sheet = FormSheet(
+            base, "THE RESEARCH CHART", half_w=1.30, half_h=0.95,
+            from_line="THE DIRECTORATE OF SCIENTIFIC RESEARCH",
+            re_line="THE NATION'S PROGRAMMES AND THE POINTS IN "
+                    "HAND")
+        self.frame = self.sheet.frame
         self._dyn = []
         self._build()
+        self.sheet.keys([
+            ("++ FILE AND ACKNOWLEDGE ++", self.on_close, (), 0,
+             'panel', INK, 0.42),
+        ])
 
     def _text(self, t, pos, scale=0.032, color=INK,
               align=TextNode.ALeft):
@@ -2730,17 +2840,12 @@ class TechFax:
                            x.population / 1e6 * FOCUS_RESEARCH_RP_PER_M)
                        for x in labs)
 
-        self._text("*** THE RESEARCH CHART ***", (0, 0.86), 0.046,
-                   INK, TextNode.ACenter)
-        self._text("POINTS ON HAND: %.0f RP" % rp, (0, 0.79), 0.030,
+        top = self.sheet.body_top
+        self._text("POINTS ON HAND: %.0f RP" % rp, (0, top), 0.032,
                    (0.52, 0.10, 0.06, 1.0), TextNode.ACenter)
         # THE POINTS COME FROM THE TOWNS, and only from the towns:
         # a city set on the laboratories works its fortnight for
         # the chart instead of the treasury
-        self._text("THE LABORATORIES ARE FUNDED BY THE CITIES: SET A "
-                   "TOWN'S FORTNIGHT FOCUS ON \"FUND THE "
-                   "LABORATORIES\" TO WORK IT FOR THE CHART",
-                   (0, 0.735), 0.026, INK_FAINT, TextNode.ACenter)
         if labs:
             names = ", ".join(x.name.upper() for x in labs[:4])
             if len(labs) > 4:
@@ -2749,22 +2854,24 @@ class TechFax:
                     "FORTNIGHT" % (names, yield_rp))
             colour = (0.16, 0.38, 0.14, 1.0)
         else:
-            line = ("NO TOWN IS WORKING FOR THE CHART -- THE "
-                    "PROGRAMMES STAND STILL")
+            line = ("NO TOWN IS WORKING FOR THE CHART -- SET A "
+                    "TOWN'S FORTNIGHT FOCUS ON THE LABORATORIES")
             colour = (0.62, 0.14, 0.10, 1.0)
-        self._text(line, (0, 0.695), 0.027, colour, TextNode.ACenter)
+        self._text(line, (0, top - 0.048), 0.026, colour,
+                   TextNode.ACenter)
         self._text("A PROGRAMME OPENS WHEN EVERY PROGRAMME WIRED "
                    "ABOVE IT IS DELIVERED -- CHOOSE THE PATH; THE "
                    "POINTS WILL NOT COVER EVERYTHING AT ONCE",
-                   (0, 0.655), 0.024, INK_FAINT, TextNode.ACenter)
+                   (0, top - 0.090), 0.023, INK_FAINT,
+                   TextNode.ACenter)
 
         for branch, title in (('land', "ARMY PROGRAMMES"),
                               ('air', "AIR PROGRAMMES"),
                               ('sea', "NAVAL PROGRAMMES")):
             x = self.COL_X[branch]
-            self._text("++ %s ++" % title, (x, 0.565), 0.033,
+            self._text(title, (x, top - 0.165), 0.032,
                        (0.52, 0.10, 0.06, 1.0), TextNode.ACenter)
-            self._rule(x, 0.545, 0.78, 0.0035,
+            self._rule(x, top - 0.187, 0.78, 0.0030,
                        (0.44, 0.41, 0.33, 0.5))
 
         # the WIRING first, so cards sit over the lines
@@ -2858,12 +2965,6 @@ class TechFax:
                 self._text("AFTER %s" % bar[:24],
                            (cx, cy - 0.128), 0.020, INK_FAINT,
                            TextNode.ACenter)
-
-        btn = pill_button(self.frame, "++ FILE AND ACKNOWLEDGE ++",
-                          self.on_close, pos=(0, 0, -0.862),
-                          hw=0.42, hh=0.046, text_scale=0.040,
-                          font=self.base.hud_font)
-        self._dyn.append(btn)
 
     def _research(self, nid):
         g = self.game

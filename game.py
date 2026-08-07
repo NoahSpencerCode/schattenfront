@@ -751,9 +751,6 @@ class WW2RTSGame(ShowBase):
             for b, _tn in self.idle_btns.values():
                 b.destroy()
             self.idle_btns = None
-        if getattr(self, 'diplo_btn', None) is not None:
-            self.diplo_btn.destroy()
-            self.diplo_btn = None
         self.selected = []
         self.selected_city = None
         self.groups = {}
@@ -962,7 +959,8 @@ class WW2RTSGame(ShowBase):
         self.top_bar = TopBar(self, self.open_budget,
                               self.open_factory_report,
                               on_resources=self.open_resources_report,
-                              on_tech=self.open_tech_tree)
+                              on_tech=self.open_tech_tree,
+                              on_diplomacy=self.open_diplomacy)
         self.bottom_bar = BottomBar(self)
         self.bottom_bar.set_title("ALL QUIET")
         self.bottom_bar.set_hint(CONTROLS_HINT)
@@ -986,7 +984,6 @@ class WW2RTSGame(ShowBase):
 
         self._make_idle_roster()
         self._make_demolish_button()
-        self._make_diplo_button()
         if snapshot is not None:
             progress("RESTORING THE SITUATION MAP...")
             import saveload
@@ -1335,25 +1332,6 @@ class WW2RTSGame(ShowBase):
     # idle pool of that type.
 
     IDLE_ROSTER_MAX = 10
-
-    def _make_diplo_button(self):
-        """Square key at the top of the right edge: opens the
-        Foreign Office ledger."""
-        from ui import pill_button, add_tooltip, crisp_image
-        from direct.gui.OnscreenImage import OnscreenImage
-        if getattr(self, 'diplo_btn', None) is not None:
-            self.diplo_btn.destroy()
-        b = pill_button(self.a2dRightCenter, '', self.open_diplomacy,
-                        pos=(-0.075, 0, 0.54), hw=0.048, hh=0.048,
-                        corner=0.30)
-        pic = OnscreenImage(image=get_icon_path('diplomacy_button',
-                                                'dark'),
-                            parent=b, scale=0.032, pos=(0, 0, 0.002))
-        pic.setTransparency(True)
-        crisp_image(pic)
-        add_tooltip(b, "DIPLOMACY LEDGER -- WARS, PACTS AND PEACE",
-                    font=self.hud_font, left=0.048)
-        self.diplo_btn = b
 
     def _make_idle_roster(self):
         if getattr(self, 'idle_btns', None):
