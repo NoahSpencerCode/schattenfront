@@ -241,13 +241,21 @@ class Score:
         self._speech_seg = seg
         self._speech_t = 0.0
         self._speech_vol = 0.0
+        self._speech_start = start
         self.speech = snd
-        snd.play()
+        # ON OPENAL THE SEEK MUST COME FIRST: setTime() does not
+        # move a sound already playing -- it only arms the start
+        # offset for the NEXT play(). (The menu reel's
+        # play-then-setTime pattern is a MovieTexture rule; audio
+        # is the other way round. Verified against the real
+        # backend: seek-then-play lands on the mark, the reverse
+        # plays from the top.)
         if start > 0.0:
             try:
                 snd.setTime(start)
             except Exception:
                 pass
+        snd.play()
 
     def _tick_campaign(self, dt):
         if not self.tracks:
