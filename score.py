@@ -48,7 +48,7 @@ SPEECH_FILES = ('FDR_pearlharborspeech_64kb.mp3',
 
 MUSIC_VOLUME = 0.55
 MENU_VOLUME = 0.60
-SPEECH_VOLUME = 0.95
+SPEECH_VOLUME = 0.76
 
 # how long the map stays quiet between marches, in seconds
 CAMPAIGN_GAP = (150.0, 420.0)
@@ -57,7 +57,7 @@ CAMPAIGN_GAP = (150.0, 420.0)
 # dial rests ten to thirty seconds before finding another
 SPEECH_GAP = (10.0, 30.0)
 SPEECH_SEGMENT = 20.0
-SPEECH_FADE = 2.5
+SPEECH_FADE = 5.0
 
 
 def _listing(folder, suffix='.ogg'):
