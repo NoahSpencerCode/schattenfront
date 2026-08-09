@@ -5229,12 +5229,16 @@ class WW2RTSGame(ShowBase):
         self.fax_short("%s UNDER CONSTRUCTION -- CLICK CHAINS THE NEXT, "
                        "ESC STANDS DOWN" % label)
 
-    # EVERY WAYPOINT RING ON THE MAP IS THIS SIZE, and it is a
-    # FIXED size like the buildings: the survey ring used to be
-    # drawn against the camera (alt * 0.028), so it swelled to cover
-    # a province when the player pulled back, while the order rings
-    # were pinned so small (0.0072wu) that they never showed at all.
+    # THE SURVEY RING'S fixed size (it used to be drawn against the
+    # camera, alt * 0.028, and swelled to cover a province when the
+    # player pulled back).
     WAYPOINT_RING = UNIT_SPRITE_SCALE * 0.7
+    # THE JOIN RINGS between path legs keep their ORIGINAL small
+    # size. In 1.3.1 they were quietly folded into WAYPOINT_RING
+    # ("one size for every ring") -- an UNASKED change riding along
+    # with an asked fix, and wrong: the small ring was right. The
+    # two rings are different furniture; they keep their own sizes.
+    PATH_JOIN_RING = UNIT_SPRITE_SCALE * 0.16
 
     def _draw_road_plan(self, eng):
         """Survey line: the TRAVEL leg (engineer to the start) in
@@ -7897,8 +7901,8 @@ void main() {
                         pv = Vec3(wp)
                     joins.append((pv, YELLOW))
                     prev = pv
-        # join rings, the same size as a survey ring
-        r = self.WAYPOINT_RING
+        # join rings: small fixed size, as they always were
+        r = self.PATH_JOIN_RING
         for jp, col in joins:
             segs.setColor(*col)
             for i in range(17):
