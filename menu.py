@@ -13,8 +13,7 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from panda3d.core import CardMaker, MovieTexture, TextNode, TextureStage
 
 from config import COUNTRIES, MEDIA_PATH, MENU_VIDEO_PATH
-from ui import PAPER, PAPER_EDGE, INK, INK_FAINT
-from icons import sheet_texture
+from ui import PAPER, PAPER_EDGE, INK, INK_FAINT, sheet_tex, flag_tex
 
 TITLE_COLOR = (0.92, 0.87, 0.70, 1.0)
 SUB_COLOR = (0.70, 0.66, 0.55, 1.0)
@@ -218,9 +217,12 @@ class MenuScreen:
         for w in self.widgets:
             w.destroy() if hasattr(w, 'destroy') else w.removeNode()
         self.widgets = []
-        for key in ('n', 'h', 'l', 'q', 'b', 's', 'escape', 'enter',
-                    '1', '2', '3', '4', '5', '6'):
+        for key in ('n', 'h', 'l', 'q', 'b', 's', 'w', 'escape',
+                    'enter', '1', '2', '3', '4', '5', '6'):
             self.base.ignore(key)
+        if getattr(self, 'wiki', None) is not None:
+            self.wiki.destroy()
+            self.wiki = None
 
     # --------------------------------------------------------------- pages
     def show_main(self):
@@ -231,19 +233,24 @@ class MenuScreen:
                    0.05, SUB_COLOR)
         # new game and load game live together behind one key: the
         # selection page carries LOAD GAME in its bottom-left corner
-        self._button("[N]  QUICK MATCH", (0, 0.22),
+        self._button("[N]  QUICK MATCH", (0, 0.30),
                      self.show_country_select, ['new'])
-        # multiplayer is not in this build: the key sits dark and dead
-        mp = self._button("MULTIPLAYER  (COMING SOON)", (0, 0.06), None)
-        mp['state'] = DGG.DISABLED
-        mp.setColorScale(0.55, 0.55, 0.55, 0.75)
-        self._button("[S]  SETTINGS", (0, -0.10), self.show_settings)
-        self._button("[Q]  QUIT", (0, -0.26), self._quit)
+        # the campaign and multiplayer are not in this build: their
+        # keys sit dark and dead
+        for label, y in (("CAMPAIGN  (COMING SOON)", 0.14),
+                         ("MULTIPLAYER  (COMING SOON)", -0.02)):
+            dead = self._button(label, (0, y), None)
+            dead['state'] = DGG.DISABLED
+            dead.setColorScale(0.55, 0.55, 0.55, 0.75)
+        self._button("[W]  WIKI", (0, -0.18), self.show_wiki)
+        self._button("[S]  SETTINGS", (0, -0.34), self.show_settings)
+        self._button("[Q]  QUIT", (0, -0.50), self._quit)
         from config import GAME_VERSION
         self._text("ALPHA %s" % GAME_VERSION,
                    (0, -0.85), 0.035, SUB_COLOR)
         self.base.accept('n', self.show_country_select, ['new'])
         self.base.accept('enter', self.show_country_select, ['new'])
+        self.base.accept('w', self.show_wiki)
         self.base.accept('s', self.show_settings)
         self.base.accept('q', self._quit)
 
@@ -256,7 +263,7 @@ class MenuScreen:
         go_back = (self.show_country_select if back_to == 'select'
                    else self.show_main)
         frame = DirectFrame(parent=self.root, frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
+                                 frameTexture=sheet_tex('paper'),
                             frameSize=(-0.95, 0.95, -0.78, 0.78),
                             state=DGG.NORMAL)
         self.widgets.append(frame)
@@ -330,7 +337,6 @@ class MenuScreen:
         their standards, the General Staff appreciation of the chosen
         power on the right, LOAD GAME bottom-left, START GAME
         bottom-right. Clicking a power re-prints the sheet."""
-        from icons import flag_texture
         from config import PLAYABLE
         self._clear()
         self._mode = mode
@@ -341,7 +347,7 @@ class MenuScreen:
 
         X0, X1, Z0, Z1 = -1.30, 1.30, -0.92, 0.92
         frame = DirectFrame(parent=self.root, frameColor=(1, 1, 1, 1),
-                            frameTexture=sheet_texture('paper'),
+                            frameTexture=sheet_tex('paper'),
                             frameSize=(X0, X1, Z0, Z1), state=DGG.NORMAL)
         self.widgets.append(frame)
         # fax leader bands top and bottom
@@ -382,7 +388,7 @@ class MenuScreen:
 
         def flag(key, pos, hw, hh):
             f = DirectFrame(parent=frame, frameColor=(1, 1, 1, 1),
-                            frameTexture=flag_texture(key),
+                            frameTexture=flag_tex(key),
                             frameSize=(-hw, hw, -hh, hh), pos=pos)
             self.widgets.append(f)
             return f
@@ -569,7 +575,7 @@ class MenuScreen:
     def show_settings(self):
         self._clear()
         frame = DirectFrame(parent=self.root, frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
+                                 frameTexture=sheet_tex('paper'),
                             frameSize=(-0.95, 0.95, -0.78, 0.78),
                             state=DGG.NORMAL)
         self.widgets.append(frame)
@@ -628,6 +634,14 @@ class MenuScreen:
                      scale=0.04)
         self.base.accept('b', self.show_main)
         self.base.accept('escape', self.show_main)
+
+    def show_wiki(self):
+        """THE FIELD MANUAL: the tabbed wiki of every mechanic."""
+        from wiki import WikiFax
+        self._clear()
+        self.wiki = WikiFax(self.base, self.show_main)
+        self.base.accept('escape', self.show_main)
+        self.base.accept('b', self.show_main)
 
     def _set_antialias(self, samples):
         if hasattr(self.base, 'set_antialias'):

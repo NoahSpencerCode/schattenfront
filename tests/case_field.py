@@ -77,8 +77,14 @@ for i in range(need):
                       seed=300 + i)
     u.pos = warsaw.pos
     u.supply = u.stats['supply_cap']
+# a POLISH DEFENDER STANDS ON THE TOWN. (The home-defense garrison
+# usually stands here on its own, but its exact stand is random and
+# once in a while falls outside the clear ring -- the LAW under
+# test is the refusal, so give it a defender it cannot miss.)
+d = g2.spawn_unit('infantry', 'poland', warsaw.lat, warsaw.lon,
+                  seed=299)
+d.pos = warsaw.pos
 step(g2, 5)
-# polish garrison stands ON the town: capture must refuse
 foes = g2.enemies_near_city(warsaw, 'germany')
 check(foes > 0, "%d defenders stand near Warsaw" % foes)
 check(not g2.attempt_capture(warsaw, 'germany'),

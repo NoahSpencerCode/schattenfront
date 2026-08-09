@@ -5,10 +5,13 @@ voices that cut across it.
 Two programmes, one conductor:
 
   THE MENU stands on a single looping march -- ENGINES OF WAR --
-  and at odd intervals a wireless set somewhere in the building
-  carries a war leader's address OVER it. The march never stops for
-  the speech; the speech is laid on top, the way a broadcast is
-  heard across a room where a gramophone is playing.
+  and a wireless set somewhere in the building drifts across the
+  dial: every ten to thirty seconds it finds a war leader's address
+  ALREADY IN PROGRESS at some random point, fades it in, holds it
+  twenty seconds, and fades it away again. The march never stops
+  for the voice and its volume is never touched; the broadcast is
+  laid on top, the way a wireless is heard across a room where a
+  gramophone is playing.
 
   THE CAMPAIGN plays no music most of the time -- the map has its
   own quiet -- and then, at random, one of the pack's marches comes
@@ -37,23 +40,24 @@ SPEECHES = os.path.join(MEDIA_PATH, 'speeches')
 # the march the main menu stands on
 MENU_LOOP = '2. Engines of War (Loop).ogg'
 
-# THE RECORDED ADDRESSES, IN ORDER OF PRECEDENCE. The first is
-# always the first heard on a fresh menu -- Roosevelt opens the
-# programme; the rest follow at random afterwards.
+# THE RECORDED ADDRESSES on the shelf. Any of them may come over
+# the wireless; the same one is never heard twice running.
 SPEECH_FILES = ('FDR_pearlharborspeech_64kb.mp3',
                 'Gen._Dwight_D._Eisenhower_s_D-Day_order_of_the_day'
                 '.mp3')
 
 MUSIC_VOLUME = 0.55
 MENU_VOLUME = 0.60
-SPEECH_VOLUME = 0.95
+SPEECH_VOLUME = 0.76
 
 # how long the map stays quiet between marches, in seconds
 CAMPAIGN_GAP = (150.0, 420.0)
-# the FIRST broadcast comes early -- a listener should not have to
-# wait to hear one -- and later ones are spaced out
-FIRST_SPEECH_GAP = (15.0, 45.0)
-SPEECH_GAP = (90.0, 210.0)
+# THE WIRELESS ON THE MENU: a broadcast is caught mid-speech at a
+# random point, faded in, held for the segment, faded out, and the
+# dial rests ten to thirty seconds before finding another
+SPEECH_GAP = (10.0, 30.0)
+SPEECH_SEGMENT = 20.0
+SPEECH_FADE = 5.0
 
 
 def _listing(folder, suffix='.ogg'):
@@ -155,11 +159,9 @@ class Score:
                                 volume=MENU_VOLUME)
         if self.music is not None:
             self.music.play()
-        # ROOSEVELT OPENS THE PROGRAMME, and soon: the first
-        # broadcast is heard inside the first three-quarters of a
-        # minute, and every one after it is chosen at random
-        self._next_speech = self._rng.uniform(*FIRST_SPEECH_GAP)
-        self._speech_idx = 0
+        # the wireless rests before finding its first broadcast,
+        # the same ten-to-thirty beat it keeps thereafter
+        self._next_speech = self._rng.uniform(*SPEECH_GAP)
 
     def enter_campaign(self):
         """The map: quiet, until a march comes up of its own accord."""
@@ -177,6 +179,23 @@ class Score:
         self.music = self.speech = None
         self.mode = None
 
+    def reopen(self, mode=None):
+        """The output device moved (headphones plugged or pulled)
+        and the music manager was rebuilt: put the SAME programme
+        back on the new device. The caller passes the mode when it
+        silenced us before the swap; otherwise the current mode is
+        used. The menu march restarts its loop; the campaign
+        returns to its quiet; the wireless finds its next broadcast
+        on its own beat."""
+        if mode is None:
+            mode = self.mode
+        self.stop()
+        self._open_the_manager()
+        if mode == 'menu':
+            self.enter_menu()
+        elif mode == 'campaign':
+            self.enter_campaign()
+
     # ------------------------------------------------------------- update
     def update(self, dt):
         if self.mode == 'menu':
@@ -186,30 +205,74 @@ class Score:
 
     def _tick_menu(self, dt):
         # the march is looping on its own; only the broadcast is
-        # timed. It plays OVER the music -- nothing is stopped.
+        # timed. It plays OVER the music -- nothing is stopped and
+        # the march's volume is never touched; the fades below are
+        # the SPEECH'S alone.
         if not self.speeches:
             return
-        if self._playing(self.speech):
+        if self.speech is not None:
+            # a broadcast is on: run its envelope -- rise, hold,
+            # die away -- and put it down when the segment is done
+            self._speech_t += dt
+            seg = self._speech_seg
+            if self._speech_t >= seg:
+                self._stop(self.speech)
+                self.speech = None
+                self._next_speech = self._rng.uniform(*SPEECH_GAP)
+                return
+            t = self._speech_t
+            head = min(1.0, t / SPEECH_FADE)
+            tail = min(1.0, (seg - t) / SPEECH_FADE)
+            self._speech_vol = SPEECH_VOLUME * max(
+                0.0, min(head, tail))
+            try:
+                self.speech.setVolume(self._speech_vol)
+            except Exception:
+                pass
             return
         self._next_speech -= dt
         if self._next_speech > 0:
             return
-        self._next_speech = self._rng.uniform(*SPEECH_GAP)
-        idx = getattr(self, '_speech_idx', 0)
-        if idx == 0:
-            path = self.speeches[0]         # Roosevelt, always first
-        else:
-            # afterwards any of them, but not the one just heard
-            pool = [s for s in self.speeches
-                    if s != getattr(self, '_last_speech', None)] \
-                or self.speeches
-            path = self._rng.choice(pool)
-        self._speech_idx = idx + 1
+        # the dial finds a broadcast: any address but the one just
+        # heard, joined ALREADY IN PROGRESS at a random point
+        pool = [s for s in self.speeches
+                if s != getattr(self, '_last_speech', None)] \
+            or self.speeches
+        path = self._rng.choice(pool)
         self._last_speech = path
-        self.speech = self._load(path, loop=False,
-                                 volume=SPEECH_VOLUME)
-        if self.speech is not None:
-            self.speech.play()
+        snd = self._load(path, loop=False, volume=0.0)
+        if snd is None:
+            self._next_speech = self._rng.uniform(*SPEECH_GAP)
+            return
+        try:
+            length = float(snd.length())
+        except Exception:
+            length = 0.0
+        # the segment fits inside the recording; a short recording
+        # simply plays from its start
+        seg = (min(SPEECH_SEGMENT, length) if length > 0.0
+               else SPEECH_SEGMENT)
+        start = 0.0
+        if length > seg + 1.0:
+            start = self._rng.uniform(0.0, length - seg - 1.0)
+        self._speech_seg = seg
+        self._speech_t = 0.0
+        self._speech_vol = 0.0
+        self._speech_start = start
+        self.speech = snd
+        # ON OPENAL THE SEEK MUST COME FIRST: setTime() does not
+        # move a sound already playing -- it only arms the start
+        # offset for the NEXT play(). (The menu reel's
+        # play-then-setTime pattern is a MovieTexture rule; audio
+        # is the other way round. Verified against the real
+        # backend: seek-then-play lands on the mark, the reverse
+        # plays from the top.)
+        if start > 0.0:
+            try:
+                snd.setTime(start)
+            except Exception:
+                pass
+        snd.play()
 
     def _tick_campaign(self, dt):
         if not self.tracks:

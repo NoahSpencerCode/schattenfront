@@ -12,10 +12,34 @@ import textwrap
 
 from direct.gui.OnscreenImage import OnscreenImage
 from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
-from panda3d.core import (SamplerState, TextNode, Plane,
-                          PlaneNode, Point3, Vec3)
+from panda3d.core import (SamplerState, TextNode, TexturePool,
+                          Plane, PlaneNode, Point3, Vec3)
 
 from icons import get_icon_path, sheet_texture
+
+
+def sheet_tex(kind):
+    """A painted sheet as a FILTERED texture. frameTexture= handed a
+    path loads it with plain bilinear; the minified sheets (the bar,
+    the toast paper, the tooltip plate) then shimmer with grain.
+    The pool shares textures by path, so one filtered load covers
+    every later user of the same file."""
+    tex = TexturePool.loadTexture(sheet_texture(kind))
+    tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
+    tex.setAnisotropicDegree(8)
+    return tex
+
+
+def flag_tex(country):
+    """A nation's standard, filtered, for gui chips. The map's flag
+    quads set the same filters on the same pooled textures, but a
+    chip drawn before any map exists -- the whole main menu -- was
+    getting plain bilinear, order-dependent."""
+    from icons import flag_texture
+    tex = TexturePool.loadTexture(flag_texture(country))
+    tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
+    tex.setAnisotropicDegree(8)
+    return tex
 
 
 def crisp_image(widget):
@@ -30,7 +54,7 @@ def crisp_image(widget):
     for i in range(tc.getNumTextures()):
         tex = tc.getTexture(i)
         tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
-        tex.setAnisotropicDegree(4)
+        tex.setAnisotropicDegree(8)
     return widget
 
 PAPER = (0.91, 0.88, 0.78, 0.97)
@@ -116,7 +140,7 @@ def add_tooltip(btn, text, font=None, dy=0.085, left=None):
     pos = ((-(left + hw + 0.015), 0, 0) if left is not None
            else (0, 0, dy))
     f = DirectFrame(parent=btn, frameColor=(1, 1, 1, 0.96),
-                    frameTexture=sheet_texture('plate'),
+                    frameTexture=sheet_tex('plate'),
                     frameSize=(-hw, hw, -0.020, 0.032),
                     relief=DGG.FLAT, state=DGG.DISABLED, pos=pos)
     f.setTransparency(True)
@@ -174,7 +198,7 @@ class TopBar:
         self.base = base
         self.frame = DirectFrame(parent=base.a2dTopCenter,
                                  frameColor=(1, 1, 1, 0.92),
-                                 frameTexture=sheet_texture('bar'),
+                                 frameTexture=sheet_tex('bar'),
                                  frameSize=(-2.0, 2.0, -0.155, 0.0),
                                  state=DGG.NORMAL)
         self.frame.setTransparency(True)
@@ -353,7 +377,7 @@ class BottomBar:
         # them at any window aspect
         self.frame = DirectFrame(parent=base.a2dBottomRight,
                                  frameColor=(1, 1, 1, 0.92),
-                                 frameTexture=sheet_texture('bar'),
+                                 frameTexture=sheet_tex('bar'),
                                  frameSize=(-1.35, 1.35, 0.0, 0.35),
                                  pos=(-1.35, 0, 0),
                                  state=DGG.NORMAL)
@@ -627,7 +651,7 @@ class Newspaper:
         tall = 0.48 if final is None else 0.86
         self.frame = DirectFrame(parent=base.aspect2d,
                                  frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('newsprint'),
+                                 frameTexture=sheet_tex('newsprint'),
                                  frameSize=(-0.98, 0.98, -tall, tall),
                                  state=DGG.NORMAL, pos=(0, 0, 0.06))
         self.frame.setTransparency(True)
@@ -1418,7 +1442,7 @@ class _Toast:
 
         self.frame = DirectFrame(parent=base.a2dBottomLeft,
                                  frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
+                                 frameTexture=sheet_tex('paper'),
                                  frameSize=(0, self.width, 0,
                                             self.height),
                                  state=DGG.NORMAL)
@@ -1512,7 +1536,7 @@ class FacsimileArchive:
         f = base.hud_font
         self.frame = DirectFrame(parent=base.aspect2d,
                                  frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
+                                 frameTexture=sheet_tex('paper'),
                                  frameSize=(-1.05, 1.05, -0.88, 0.88),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
@@ -1628,7 +1652,7 @@ class FaxPanel:
         self.console = DirectFrame(
             parent=base.a2dBottomLeft,
             frameColor=(1, 1, 1, 0.96),
-            frameTexture=sheet_texture('bar'),
+            frameTexture=sheet_tex('bar'),
             frameSize=(x0 + bd, x1, bd, top),
             state=DGG.NORMAL)
         self.console.setTransparency(True)
@@ -1767,7 +1791,7 @@ class FormSheet:
         self.W, self.H = W, H
         self.frame = DirectFrame(parent=base.aspect2d,
                                  frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
+                                 frameTexture=sheet_tex('paper'),
                                  frameSize=(-W, W, -H, H),
                                  state=DGG.NORMAL)
         for z0, z1 in ((H - 0.025, H), (-H, -H + 0.025)):
@@ -1849,9 +1873,8 @@ class FormSheet:
         return self.text(t, pos, scale, RED_INK)
 
     def flag(self, country, pos, hw=0.075):
-        from icons import flag_texture
         fr = DirectFrame(parent=self.frame, frameColor=(1, 1, 1, 1),
-                         frameTexture=flag_texture(country),
+                         frameTexture=flag_tex(country),
                          frameSize=(-hw, hw, -hw * 2 / 3.0,
                                     hw * 2 / 3.0), pos=pos)
         return fr
@@ -2046,7 +2069,7 @@ class BriefingFax:
         f = base.hud_font
         W, H = self.HALF_W, self.HALF_H
         self.frame = DirectFrame(parent=base.aspect2d, frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
+                                 frameTexture=sheet_tex('paper'),
                                  frameSize=(-W, W, -H, H),
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,

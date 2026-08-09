@@ -15,6 +15,7 @@ OUT OF CONTACT: invisible and beyond command until the net reaches them.
 import math
 import os
 import random
+import sys
 import time
 import threading
 import zlib
@@ -347,21 +348,45 @@ class WW2RTSGame(ShowBase):
         # framebuffer before the window opened; here we switch the
         # scene's antialias attribute on to use it)
         self.settings = load_settings()
-        self.aa_samples = int(self.settings.get('antialias', 0))
+        self.aa_samples = int(self.settings.get('antialias', 4))
         self._apply_aa_attrib()
 
-        # open fully expanded; the OS pointer stays visible by default --
-        # the software cursor sprite only appears for the special modes
-        # (attack / embark / disembark)
-        if self.win is not None:
-            try:
-                from panda3d.core import WindowProperties
-                wp = WindowProperties()
-                if hasattr(wp, 'setMaximized'):
-                    wp.setMaximized(True)
-                self.win.requestProperties(wp)
-            except Exception:
-                pass
+        # (window size is clamped to the display in main.py before the
+        # window opens; the old setMaximized request here was a no-op --
+        # WindowProperties has no such member on Panda 1.10)
+
+        def _sharpen_font(font):
+            """THE ATLAS MUST MIPMAP -- BUT NOT TOO DEEP. UI text is
+            drawn far smaller than the glyph atlas; Panda's default
+            plain-linear filter skips most of the texels and the
+            strokes crumble (the old pixelation). Naive full-chain
+            trilinear over-corrects: at HUD sizes the sampler dives
+            4-5 mip levels down, where glyphs are mush and each
+            glyph's atlas cell bleeds into its neighbours -- faint
+            BOXES around every letter. So: a wide texture margin to
+            isolate the cells, the mip chain CLAMPED at level 3
+            (glyphs never fall below ~30 px source), and a slight
+            negative bias for contrast. Chosen against a six-variant
+            side-by-side."""
+            font.setPixelsPerUnit(240)      # sharp even magnified at
+            font.setPageSize(2048, 2048)    # street zoom; one page
+            font.setTextureMargin(12)
+            font.setMinfilter(SamplerState.FTLinearMipmapLinear)
+            font.setMagfilter(SamplerState.FTLinear)
+            font.setAnisotropicDegree(4)
+            # pages are cut as glyphs first render: raster the whole
+            # working set NOW so the clamp below reaches every page
+            warm = TextNode('font_warm')
+            warm.setFont(font)
+            warm.setText(''.join(chr(c) for c in range(32, 127))
+                         + 'äöüÄÖÜßé')
+            warm.generate()
+            for i in range(font.getNumPages()):
+                pg = font.getPage(i)
+                samp = SamplerState(pg.getDefaultSampler())
+                samp.setMaxLod(3.0)
+                samp.setLodBias(-0.3)
+                pg.setDefaultSampler(samp)
 
         font_path = find_typewriter_font_path()
         self.hud_font = None
@@ -370,8 +395,7 @@ class WW2RTSGame(ShowBase):
         if font_path:
             try:
                 self.hud_font = self.loader.loadFont(font_path)
-                self.hud_font.setPixelsPerUnit(120)   # crisp FAX print
-                self.hud_font.setPageSize(1024, 1024)
+                _sharpen_font(self.hud_font)
                 self.map_font = self.hud_font
             except Exception:
                 pass
@@ -379,8 +403,7 @@ class WW2RTSGame(ShowBase):
         if reg_path:
             try:
                 self.body_font = self.loader.loadFont(reg_path)
-                self.body_font.setPixelsPerUnit(120)
-                self.body_font.setPageSize(1024, 1024)
+                _sharpen_font(self.body_font)
             except Exception:
                 pass
         if self.hud_font:
@@ -512,7 +535,7 @@ class WW2RTSGame(ShowBase):
             mgr = (self.sfxManagerList[0]
                    if self.sfxManagerList else None)
             if (mgr is not None and not mgr.isValid()
-                    and type(mgr).__name__ != 'NullAudioManager'):
+                    and mgr.getType().getName() != 'NullAudioManager'):
                 from panda3d.core import AudioManager
                 retry = AudioManager.createAudioManager()
                 if retry.isValid():
@@ -540,6 +563,26 @@ class WW2RTSGame(ShowBase):
         except Exception as exc:
             print("WARNING: the score failed to start: %r" % exc)
             self.score = None
+        # THE AUDIO WATCH: OpenAL binds whatever loudspeaker was the
+        # default at launch and never follows it -- headphones
+        # plugged in mid-session left the game mute. Poll the
+        # system's default output; when it moves, rebuild the
+        # managers on the new device.
+        self._audio_dev = None
+        try:
+            from audiodev import default_output_device
+            self._audio_dev = default_output_device()
+            # the null device reports isValid() False and its C++
+            # type through getType() -- the PYTHON class is always
+            # plain AudioManager, so never test __name__
+            real_audio = (self.musicManager is not None
+                          and self.musicManager.isValid())
+            if self._audio_dev is not None and real_audio:
+                self.taskMgr.doMethodLater(2.0,
+                                           self._tick_audio_watch,
+                                           'audio_watch')
+        except Exception:
+            pass
         self._build_cursor()
         self.hover_glow = None          # built lazily (needs no loader)
         self._vision_units = []
@@ -588,10 +631,16 @@ class WW2RTSGame(ShowBase):
     # ================================================== lighting & clock
     # --------------------------------------------------- player settings
     def _apply_aa_attrib(self):
+        # BOTH scene graphs: render2d (the GUI, every fax page) is
+        # its own graph and never inherits render's attrib -- without
+        # it the panels drew unsmoothed even with a multisampled
+        # framebuffer
         if self.aa_samples > 0:
             self.render.setAntialias(AntialiasAttrib.MMultisample)
+            self.render2d.setAntialias(AntialiasAttrib.MMultisample)
         else:
             self.render.clearAntialias()
+            self.render2d.clearAntialias()
 
     def set_antialias(self, samples):
         """Persist an MSAA sample count (0/2/4/8) and apply it now.
@@ -620,6 +669,95 @@ class WW2RTSGame(ShowBase):
                 print("Could not rebuild the window for the AA change:",
                       exc)
         self._apply_aa_attrib()
+
+    # ------------------------------------------------ the audio watch
+    def _tick_audio_watch(self, task):
+        """Every couple of seconds: is the system still pointing at
+        the loudspeaker we opened? If not, follow it."""
+        try:
+            from audiodev import default_output_device
+            dev = default_output_device()
+            if dev is not None and dev != self._audio_dev:
+                self._audio_dev = dev
+                self.restart_audio()
+        except Exception:
+            pass
+        return task.again
+
+    def restart_audio(self):
+        """Rebuild every audio manager on the CURRENT default output
+        and rewire the sounds. Two rules paid for with a field
+        crash report:
+
+        - the OLD managers are RETIRED, held alive forever, never
+          garbage-collected: destroying an OpenAL manager while
+          another lives corrupts the shared device state and the
+          NEXT shutdown walk segfaults;
+        - the score is silenced BEFORE the swap, so nothing is
+          playing on a manager as it goes into retirement.
+
+        Widgets already on screen keep their old (now silent) click
+        sounds until their page is next rebuilt; the music and the
+        fax clatter -- the audible life of the game -- move over at
+        once."""
+        from panda3d.core import AudioManager
+        mode = self.score.mode if self.score is not None else None
+        if self.score is not None:
+            self.score.stop()
+        retired = getattr(self, '_retired_audio_managers', None)
+        if retired is None:
+            retired = self._retired_audio_managers = []
+        # the interface sounds
+        try:
+            from audio import get_sound_path
+            new_sfx = AudioManager.createAudioManager()
+            if new_sfx is not None and new_sfx.isValid():
+                if self.sfxManagerList:
+                    retired.append(self.sfxManagerList[0])
+                    self.sfxManagerList[0] = new_sfx
+                else:
+                    self.addSfxManager(new_sfx)
+                self.click_snd = new_sfx.getSound(
+                    get_sound_path('click'))
+                self.fax_snd = new_sfx.getSound(get_sound_path('fax'))
+                self.click_snd.setVolume(0.55)
+                self.fax_snd.setVolume(0.5)
+                import direct.gui.DirectGuiGlobals as _DGG
+                _DGG.setDefaultClickSound(self.click_snd)
+        except Exception as exc:
+            print("WARNING: interface audio restart failed: %r" % exc)
+        # the score's manager, and the programme back onto it
+        try:
+            new_music = AudioManager.createAudioManager()
+            if new_music is not None and new_music.isValid():
+                retired.append(self.musicManager)
+                self.musicManager = new_music
+                self.musicManagerIsValid = True
+        except Exception as exc:
+            print("WARNING: music restart failed: %r" % exc)
+        if self.score is not None:
+            self.score.reopen(mode)
+        print("AUDIO: managers rebuilt on the new output device")
+
+    def finalizeExit(self):
+        """LEAVE BY THE DOOR, NOT THE TEARDOWN PARADE. ShowBase's
+        atexit hook shuts every audio manager down inside
+        interpreter finalization; once the device watch has rebuilt
+        managers, that walk segfaults in OpenAL's shared state (a
+        field crash report's worth of proof). Nothing here needs a
+        graceful finalize -- settings save on change, campaigns on
+        demand -- so silence the score, flush, and go."""
+        try:
+            if self.score is not None:
+                self.score.stop()
+        except Exception:
+            pass
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:
+            pass
+        os._exit(0)
 
     def _setup_lighting(self):
         amb = AmbientLight('ambient')
@@ -3920,6 +4058,7 @@ class WW2RTSGame(ShowBase):
         from panda3d.core import SamplerState as _SS
         tex.setMinfilter(_SS.FTLinearMipmapLinear)
         tex.setMagfilter(_SS.FTLinear)
+        tex.setAnisotropicDegree(8)     # as every other counter
         unit.counter.setTexture(tex, 1)
         if unit.country == self.player_country:
             self.fax_short("BLIMP %s" %
@@ -5090,12 +5229,13 @@ class WW2RTSGame(ShowBase):
         self.fax_short("%s UNDER CONSTRUCTION -- CLICK CHAINS THE NEXT, "
                        "ESC STANDS DOWN" % label)
 
-    # EVERY WAYPOINT RING ON THE MAP IS THIS SIZE, and it is a
-    # FIXED size like the buildings: the survey ring used to be
-    # drawn against the camera (alt * 0.028), so it swelled to cover
-    # a province when the player pulled back, while the order rings
-    # were pinned so small (0.0072wu) that they never showed at all.
-    WAYPOINT_RING = UNIT_SPRITE_SCALE * 0.7
+    # EVERY RING ON THE MAP -- the engineer's survey ring included
+    # -- is the ORIGINAL SMALL size, and FIXED (never drawn against
+    # the camera: the old alt-scaled survey ring swelled to cover a
+    # province when the player pulled back). The user's law, set
+    # after the 1.3.1 review quadrupled the rings uninvited.
+    WAYPOINT_RING = UNIT_SPRITE_SCALE * 0.16
+    PATH_JOIN_RING = UNIT_SPRITE_SCALE * 0.16
 
     def _draw_road_plan(self, eng):
         """Survey line: the TRAVEL leg (engineer to the start) in
@@ -7395,7 +7535,9 @@ void main() {
         for mode in ('default', 'attack', 'embark', 'disembark'):
             tex = self.loader.loadTexture(
                 get_icon_path('cursor_' + mode, 'dark'))
-            tex.setMinfilter(SamplerState.FTLinear)
+            # 384 px art on a ~27 px card: without mipmaps the
+            # minification skips texels and the pointer pixelates
+            tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
             tex.setMagfilter(SamplerState.FTLinear)
             self.cursor_tex[mode] = tex
         cm = CardMaker('cursor')
@@ -7756,8 +7898,8 @@ void main() {
                         pv = Vec3(wp)
                     joins.append((pv, YELLOW))
                     prev = pv
-        # join rings, the same size as a survey ring
-        r = self.WAYPOINT_RING
+        # join rings: small fixed size, as they always were
+        r = self.PATH_JOIN_RING
         for jp, col in joins:
             segs.setColor(*col)
             for i in range(17):

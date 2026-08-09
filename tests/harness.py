@@ -69,4 +69,10 @@ def check(ok, label):
 def finish():
     print("---- %d passed, %d failed" %
           (_checks['pass'], _checks['fail']))
-    sys.exit(1 if _checks['fail'] else 0)
+    # LEAVE BY THE DOOR: sys.exit runs interpreter finalization,
+    # whose atexit hook walks ShowBase's audio/graphics teardown --
+    # the occasional segfault-after-all-pass that poisoned battery
+    # verdicts. The checks are printed; nothing needs finalizing.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(1 if _checks['fail'] else 0)

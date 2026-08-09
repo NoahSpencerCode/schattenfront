@@ -91,8 +91,12 @@ from pathfinding import RAIL_ROUTE_PREFERENCE, JUNCTION_DEG
 check(RAIL_ROUTE_PREFERENCE > 1.5,
       "the router prefers a railway (x%.2f)" % RAIL_ROUTE_PREFERENCE)
 check(JUNCTION_DEG > 0, "and wires the ways where they cross")
-check(abs(g.WAYPOINT_RING - 0.0315) < 1e-6,
-      "every waypoint ring is one fixed size (%.4f)"
+# EVERY ring -- survey and join alike -- is the original small
+# size, fixed, never camera-scaled: the user's law
+check(abs(g.WAYPOINT_RING - 0.0072) < 1e-6,
+      "the survey ring is the original small size (%.4f)"
       % g.WAYPOINT_RING)
+check(abs(g.PATH_JOIN_RING - 0.0072) < 1e-6,
+      "and so are the join rings (%.4f)" % g.PATH_JOIN_RING)
 
 finish()
