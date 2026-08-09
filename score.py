@@ -179,6 +179,20 @@ class Score:
         self.music = self.speech = None
         self.mode = None
 
+    def reopen(self):
+        """The output device moved (headphones plugged or pulled)
+        and the music manager was rebuilt: put the SAME programme
+        back on the new device. The menu march restarts its loop;
+        the campaign returns to its quiet; the wireless finds its
+        next broadcast on its own beat."""
+        mode = self.mode
+        self.stop()
+        self._open_the_manager()
+        if mode == 'menu':
+            self.enter_menu()
+        elif mode == 'campaign':
+            self.enter_campaign()
+
     # ------------------------------------------------------------- update
     def update(self, dt):
         if self.mode == 'menu':

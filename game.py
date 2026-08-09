@@ -534,7 +534,7 @@ class WW2RTSGame(ShowBase):
             mgr = (self.sfxManagerList[0]
                    if self.sfxManagerList else None)
             if (mgr is not None and not mgr.isValid()
-                    and type(mgr).__name__ != 'NullAudioManager'):
+                    and mgr.getType().getName() != 'NullAudioManager'):
                 from panda3d.core import AudioManager
                 retry = AudioManager.createAudioManager()
                 if retry.isValid():
@@ -562,6 +562,26 @@ class WW2RTSGame(ShowBase):
         except Exception as exc:
             print("WARNING: the score failed to start: %r" % exc)
             self.score = None
+        # THE AUDIO WATCH: OpenAL binds whatever loudspeaker was the
+        # default at launch and never follows it -- headphones
+        # plugged in mid-session left the game mute. Poll the
+        # system's default output; when it moves, rebuild the
+        # managers on the new device.
+        self._audio_dev = None
+        try:
+            from audiodev import default_output_device
+            self._audio_dev = default_output_device()
+            # the null device reports isValid() False and its C++
+            # type through getType() -- the PYTHON class is always
+            # plain AudioManager, so never test __name__
+            real_audio = (self.musicManager is not None
+                          and self.musicManager.isValid())
+            if self._audio_dev is not None and real_audio:
+                self.taskMgr.doMethodLater(2.0,
+                                           self._tick_audio_watch,
+                                           'audio_watch')
+        except Exception:
+            pass
         self._build_cursor()
         self.hover_glow = None          # built lazily (needs no loader)
         self._vision_units = []
@@ -648,6 +668,61 @@ class WW2RTSGame(ShowBase):
                 print("Could not rebuild the window for the AA change:",
                       exc)
         self._apply_aa_attrib()
+
+    # ------------------------------------------------ the audio watch
+    def _tick_audio_watch(self, task):
+        """Every couple of seconds: is the system still pointing at
+        the loudspeaker we opened? If not, follow it."""
+        try:
+            from audiodev import default_output_device
+            dev = default_output_device()
+            if dev is not None and dev != self._audio_dev:
+                self._audio_dev = dev
+                self.restart_audio()
+        except Exception:
+            pass
+        return task.again
+
+    def restart_audio(self):
+        """Rebuild every audio manager on the CURRENT default output
+        and rewire the sounds. The old managers are simply abandoned
+        to the collector -- their destructors close the dead device;
+        calling into them mid-swap is what crashes.
+
+        Widgets already on screen keep their old (now silent) click
+        sounds until their page is next rebuilt; the music and the
+        fax clatter -- the audible life of the game -- move over at
+        once."""
+        from panda3d.core import AudioManager
+        # the interface sounds
+        try:
+            from audio import get_sound_path
+            new_sfx = AudioManager.createAudioManager()
+            if new_sfx is not None and new_sfx.isValid():
+                if self.sfxManagerList:
+                    self.sfxManagerList[0] = new_sfx
+                else:
+                    self.addSfxManager(new_sfx)
+                self.click_snd = new_sfx.getSound(
+                    get_sound_path('click'))
+                self.fax_snd = new_sfx.getSound(get_sound_path('fax'))
+                self.click_snd.setVolume(0.55)
+                self.fax_snd.setVolume(0.5)
+                import direct.gui.DirectGuiGlobals as _DGG
+                _DGG.setDefaultClickSound(self.click_snd)
+        except Exception as exc:
+            print("WARNING: interface audio restart failed: %r" % exc)
+        # the score's manager, and the programme back onto it
+        try:
+            new_music = AudioManager.createAudioManager()
+            if new_music is not None and new_music.isValid():
+                self.musicManager = new_music
+                self.musicManagerIsValid = True
+                if self.score is not None:
+                    self.score.reopen()
+        except Exception as exc:
+            print("WARNING: music restart failed: %r" % exc)
+        print("AUDIO: managers rebuilt on the new output device")
 
     def _setup_lighting(self):
         amb = AmbientLight('ambient')

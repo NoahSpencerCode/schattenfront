@@ -149,6 +149,24 @@ check(fake.limit == 0,
       "the score LIFTS the limit so two streams may sound at once")
 g.musicManager = real_mm
 
+# --- THE AUDIO WATCH: headphones plugged mid-session move the
+# system's default output; the game follows by rebuilding its
+# managers. Under the null audio device the WATCH never engages
+# (nothing real to follow) but the rebuild path must hold.
+check(not g.taskMgr.getTasksNamed('audio_watch'),
+      "the watch stays off the null audio device")
+g.show_menu()
+mode_before = g.score.mode
+g.restart_audio()
+check(g.score.mode == mode_before,
+      "restart_audio keeps the programme (%s)" % g.score.mode)
+check(g.click_snd is not None and g.fax_snd is not None,
+      "and the interface sounds are rewired")
+g.score.enter_campaign()
+g.restart_audio()
+check(g.score.mode == 'campaign',
+      "the campaign's quiet survives the swap too")
+
 # --- a missing shelf is silence, never a crash
 sc.tracks = []
 sc.speeches = []
