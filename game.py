@@ -5229,15 +5229,12 @@ class WW2RTSGame(ShowBase):
         self.fax_short("%s UNDER CONSTRUCTION -- CLICK CHAINS THE NEXT, "
                        "ESC STANDS DOWN" % label)
 
-    # THE SURVEY RING'S fixed size (it used to be drawn against the
-    # camera, alt * 0.028, and swelled to cover a province when the
-    # player pulled back).
-    WAYPOINT_RING = UNIT_SPRITE_SCALE * 0.7
-    # THE JOIN RINGS between path legs keep their ORIGINAL small
-    # size. In 1.3.1 they were quietly folded into WAYPOINT_RING
-    # ("one size for every ring") -- an UNASKED change riding along
-    # with an asked fix, and wrong: the small ring was right. The
-    # two rings are different furniture; they keep their own sizes.
+    # EVERY RING ON THE MAP -- the engineer's survey ring included
+    # -- is the ORIGINAL SMALL size, and FIXED (never drawn against
+    # the camera: the old alt-scaled survey ring swelled to cover a
+    # province when the player pulled back). The user's law, set
+    # after the 1.3.1 review quadrupled the rings uninvited.
+    WAYPOINT_RING = UNIT_SPRITE_SCALE * 0.16
     PATH_JOIN_RING = UNIT_SPRITE_SCALE * 0.16
 
     def _draw_road_plan(self, eng):
