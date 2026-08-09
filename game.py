@@ -15,6 +15,7 @@ OUT OF CONTACT: invisible and beyond command until the net reaches them.
 import math
 import os
 import random
+import sys
 import time
 import threading
 import zlib
@@ -685,21 +686,34 @@ class WW2RTSGame(ShowBase):
 
     def restart_audio(self):
         """Rebuild every audio manager on the CURRENT default output
-        and rewire the sounds. The old managers are simply abandoned
-        to the collector -- their destructors close the dead device;
-        calling into them mid-swap is what crashes.
+        and rewire the sounds. Two rules paid for with a field
+        crash report:
+
+        - the OLD managers are RETIRED, held alive forever, never
+          garbage-collected: destroying an OpenAL manager while
+          another lives corrupts the shared device state and the
+          NEXT shutdown walk segfaults;
+        - the score is silenced BEFORE the swap, so nothing is
+          playing on a manager as it goes into retirement.
 
         Widgets already on screen keep their old (now silent) click
         sounds until their page is next rebuilt; the music and the
         fax clatter -- the audible life of the game -- move over at
         once."""
         from panda3d.core import AudioManager
+        mode = self.score.mode if self.score is not None else None
+        if self.score is not None:
+            self.score.stop()
+        retired = getattr(self, '_retired_audio_managers', None)
+        if retired is None:
+            retired = self._retired_audio_managers = []
         # the interface sounds
         try:
             from audio import get_sound_path
             new_sfx = AudioManager.createAudioManager()
             if new_sfx is not None and new_sfx.isValid():
                 if self.sfxManagerList:
+                    retired.append(self.sfxManagerList[0])
                     self.sfxManagerList[0] = new_sfx
                 else:
                     self.addSfxManager(new_sfx)
@@ -716,13 +730,34 @@ class WW2RTSGame(ShowBase):
         try:
             new_music = AudioManager.createAudioManager()
             if new_music is not None and new_music.isValid():
+                retired.append(self.musicManager)
                 self.musicManager = new_music
                 self.musicManagerIsValid = True
-                if self.score is not None:
-                    self.score.reopen()
         except Exception as exc:
             print("WARNING: music restart failed: %r" % exc)
+        if self.score is not None:
+            self.score.reopen(mode)
         print("AUDIO: managers rebuilt on the new output device")
+
+    def finalizeExit(self):
+        """LEAVE BY THE DOOR, NOT THE TEARDOWN PARADE. ShowBase's
+        atexit hook shuts every audio manager down inside
+        interpreter finalization; once the device watch has rebuilt
+        managers, that walk segfaults in OpenAL's shared state (a
+        field crash report's worth of proof). Nothing here needs a
+        graceful finalize -- settings save on change, campaigns on
+        demand -- so silence the score, flush, and go."""
+        try:
+            if self.score is not None:
+                self.score.stop()
+        except Exception:
+            pass
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:
+            pass
+        os._exit(0)
 
     def _setup_lighting(self):
         amb = AmbientLight('ambient')
