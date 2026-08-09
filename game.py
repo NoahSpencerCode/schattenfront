@@ -355,17 +355,37 @@ class WW2RTSGame(ShowBase):
         # WindowProperties has no such member on Panda 1.10)
 
         def _sharpen_font(font):
-            """THE ATLAS MUST MIPMAP. UI text is drawn 4-11x smaller
-            than the glyph atlas; Panda's default plain-linear filter
-            then skips ~93%% of the texels and the strokes crumble --
-            the 'pixelated text' seen everywhere. Trilinear mipmaps
-            with a touch of anisotropy (for labels lying on the
-            globe) is the same cure crisp_image gives the icons."""
+            """THE ATLAS MUST MIPMAP -- BUT NOT TOO DEEP. UI text is
+            drawn far smaller than the glyph atlas; Panda's default
+            plain-linear filter skips most of the texels and the
+            strokes crumble (the old pixelation). Naive full-chain
+            trilinear over-corrects: at HUD sizes the sampler dives
+            4-5 mip levels down, where glyphs are mush and each
+            glyph's atlas cell bleeds into its neighbours -- faint
+            BOXES around every letter. So: a wide texture margin to
+            isolate the cells, the mip chain CLAMPED at level 3
+            (glyphs never fall below ~30 px source), and a slight
+            negative bias for contrast. Chosen against a six-variant
+            side-by-side."""
             font.setPixelsPerUnit(240)      # sharp even magnified at
             font.setPageSize(2048, 2048)    # street zoom; one page
+            font.setTextureMargin(12)
             font.setMinfilter(SamplerState.FTLinearMipmapLinear)
             font.setMagfilter(SamplerState.FTLinear)
             font.setAnisotropicDegree(4)
+            # pages are cut as glyphs first render: raster the whole
+            # working set NOW so the clamp below reaches every page
+            warm = TextNode('font_warm')
+            warm.setFont(font)
+            warm.setText(''.join(chr(c) for c in range(32, 127))
+                         + 'äöüÄÖÜßé')
+            warm.generate()
+            for i in range(font.getNumPages()):
+                pg = font.getPage(i)
+                samp = SamplerState(pg.getDefaultSampler())
+                samp.setMaxLod(3.0)
+                samp.setLodBias(-0.3)
+                pg.setDefaultSampler(samp)
 
         font_path = find_typewriter_font_path()
         self.hud_font = None
