@@ -13,8 +13,7 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from panda3d.core import CardMaker, MovieTexture, TextNode, TextureStage
 
 from config import COUNTRIES, MEDIA_PATH, MENU_VIDEO_PATH
-from ui import PAPER, PAPER_EDGE, INK, INK_FAINT
-from icons import sheet_texture
+from ui import PAPER, PAPER_EDGE, INK, INK_FAINT, sheet_tex, flag_tex
 
 TITLE_COLOR = (0.92, 0.87, 0.70, 1.0)
 SUB_COLOR = (0.70, 0.66, 0.55, 1.0)
@@ -264,7 +263,7 @@ class MenuScreen:
         go_back = (self.show_country_select if back_to == 'select'
                    else self.show_main)
         frame = DirectFrame(parent=self.root, frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
+                                 frameTexture=sheet_tex('paper'),
                             frameSize=(-0.95, 0.95, -0.78, 0.78),
                             state=DGG.NORMAL)
         self.widgets.append(frame)
@@ -338,7 +337,6 @@ class MenuScreen:
         their standards, the General Staff appreciation of the chosen
         power on the right, LOAD GAME bottom-left, START GAME
         bottom-right. Clicking a power re-prints the sheet."""
-        from icons import flag_texture
         from config import PLAYABLE
         self._clear()
         self._mode = mode
@@ -349,7 +347,7 @@ class MenuScreen:
 
         X0, X1, Z0, Z1 = -1.30, 1.30, -0.92, 0.92
         frame = DirectFrame(parent=self.root, frameColor=(1, 1, 1, 1),
-                            frameTexture=sheet_texture('paper'),
+                            frameTexture=sheet_tex('paper'),
                             frameSize=(X0, X1, Z0, Z1), state=DGG.NORMAL)
         self.widgets.append(frame)
         # fax leader bands top and bottom
@@ -390,7 +388,7 @@ class MenuScreen:
 
         def flag(key, pos, hw, hh):
             f = DirectFrame(parent=frame, frameColor=(1, 1, 1, 1),
-                            frameTexture=flag_texture(key),
+                            frameTexture=flag_tex(key),
                             frameSize=(-hw, hw, -hh, hh), pos=pos)
             self.widgets.append(f)
             return f
@@ -577,7 +575,7 @@ class MenuScreen:
     def show_settings(self):
         self._clear()
         frame = DirectFrame(parent=self.root, frameColor=(1, 1, 1, 1),
-                                 frameTexture=sheet_texture('paper'),
+                                 frameTexture=sheet_tex('paper'),
                             frameSize=(-0.95, 0.95, -0.78, 0.78),
                             state=DGG.NORMAL)
         self.widgets.append(frame)

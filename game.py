@@ -347,21 +347,25 @@ class WW2RTSGame(ShowBase):
         # framebuffer before the window opened; here we switch the
         # scene's antialias attribute on to use it)
         self.settings = load_settings()
-        self.aa_samples = int(self.settings.get('antialias', 0))
+        self.aa_samples = int(self.settings.get('antialias', 4))
         self._apply_aa_attrib()
 
-        # open fully expanded; the OS pointer stays visible by default --
-        # the software cursor sprite only appears for the special modes
-        # (attack / embark / disembark)
-        if self.win is not None:
-            try:
-                from panda3d.core import WindowProperties
-                wp = WindowProperties()
-                if hasattr(wp, 'setMaximized'):
-                    wp.setMaximized(True)
-                self.win.requestProperties(wp)
-            except Exception:
-                pass
+        # (window size is clamped to the display in main.py before the
+        # window opens; the old setMaximized request here was a no-op --
+        # WindowProperties has no such member on Panda 1.10)
+
+        def _sharpen_font(font):
+            """THE ATLAS MUST MIPMAP. UI text is drawn 4-11x smaller
+            than the glyph atlas; Panda's default plain-linear filter
+            then skips ~93%% of the texels and the strokes crumble --
+            the 'pixelated text' seen everywhere. Trilinear mipmaps
+            with a touch of anisotropy (for labels lying on the
+            globe) is the same cure crisp_image gives the icons."""
+            font.setPixelsPerUnit(240)      # sharp even magnified at
+            font.setPageSize(2048, 2048)    # street zoom; one page
+            font.setMinfilter(SamplerState.FTLinearMipmapLinear)
+            font.setMagfilter(SamplerState.FTLinear)
+            font.setAnisotropicDegree(4)
 
         font_path = find_typewriter_font_path()
         self.hud_font = None
@@ -370,8 +374,7 @@ class WW2RTSGame(ShowBase):
         if font_path:
             try:
                 self.hud_font = self.loader.loadFont(font_path)
-                self.hud_font.setPixelsPerUnit(120)   # crisp FAX print
-                self.hud_font.setPageSize(1024, 1024)
+                _sharpen_font(self.hud_font)
                 self.map_font = self.hud_font
             except Exception:
                 pass
@@ -379,8 +382,7 @@ class WW2RTSGame(ShowBase):
         if reg_path:
             try:
                 self.body_font = self.loader.loadFont(reg_path)
-                self.body_font.setPixelsPerUnit(120)
-                self.body_font.setPageSize(1024, 1024)
+                _sharpen_font(self.body_font)
             except Exception:
                 pass
         if self.hud_font:
@@ -588,10 +590,16 @@ class WW2RTSGame(ShowBase):
     # ================================================== lighting & clock
     # --------------------------------------------------- player settings
     def _apply_aa_attrib(self):
+        # BOTH scene graphs: render2d (the GUI, every fax page) is
+        # its own graph and never inherits render's attrib -- without
+        # it the panels drew unsmoothed even with a multisampled
+        # framebuffer
         if self.aa_samples > 0:
             self.render.setAntialias(AntialiasAttrib.MMultisample)
+            self.render2d.setAntialias(AntialiasAttrib.MMultisample)
         else:
             self.render.clearAntialias()
+            self.render2d.clearAntialias()
 
     def set_antialias(self, samples):
         """Persist an MSAA sample count (0/2/4/8) and apply it now.
@@ -3920,6 +3928,7 @@ class WW2RTSGame(ShowBase):
         from panda3d.core import SamplerState as _SS
         tex.setMinfilter(_SS.FTLinearMipmapLinear)
         tex.setMagfilter(_SS.FTLinear)
+        tex.setAnisotropicDegree(8)     # as every other counter
         unit.counter.setTexture(tex, 1)
         if unit.country == self.player_country:
             self.fax_short("BLIMP %s" %
@@ -7395,7 +7404,9 @@ void main() {
         for mode in ('default', 'attack', 'embark', 'disembark'):
             tex = self.loader.loadTexture(
                 get_icon_path('cursor_' + mode, 'dark'))
-            tex.setMinfilter(SamplerState.FTLinear)
+            # 384 px art on a ~27 px card: without mipmaps the
+            # minification skips texels and the pointer pixelates
+            tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
             tex.setMagfilter(SamplerState.FTLinear)
             self.cursor_tex[mode] = tex
         cm = CardMaker('cursor')

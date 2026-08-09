@@ -50,11 +50,27 @@ from config import (SCREEN_WIDTH, SCREEN_HEIGHT, FULLSCREEN, WINDOW_TITLE,
                     SHOW_FPS_METER)
 
 loadPrcFileData('', 'window-title %s' % WINDOW_TITLE)
-loadPrcFileData('', 'win-size %d %d' % (SCREEN_WIDTH, SCREEN_HEIGHT))
+# SIZE TO THE DESK: the config asks for 1920x1080 POINTS, but a
+# smaller desktop (a Retina MacBook is 1512-1728 points wide) would
+# hang the window off both screen edges. Probe the display and
+# clamp; the height margin leaves menu-bar room and AppKit trims
+# further for the dock. Making the default pipe opens no window.
+_win_w, _win_h = SCREEN_WIDTH, SCREEN_HEIGHT
+try:
+    from panda3d.core import GraphicsPipeSelection
+    _pipe = GraphicsPipeSelection.getGlobalPtr().makeDefaultPipe()
+    if _pipe is not None and _pipe.getDisplayWidth() > 0:
+        _win_w = min(_win_w, _pipe.getDisplayWidth())
+        _win_h = min(_win_h, _pipe.getDisplayHeight() - 64)
+except Exception:
+    pass
+loadPrcFileData('', 'win-size %d %d' % (_win_w, _win_h))
 loadPrcFileData('', 'fullscreen %s' % ('1' if FULLSCREEN else '0'))
 loadPrcFileData('', 'sync-video 1')
 loadPrcFileData('', 'text-flatten 1')
-# keep non-power-of-two textures at full resolution (detail overlay)
+# keep non-power-of-two textures at full resolution: the detail
+# overlay AND the gui art (180x120 flags, the bar/paper/plate
+# sheets) all depend on it
 loadPrcFileData('', 'textures-power-2 none')
 # interface audio: console-key clicks and the FAX teletype
 loadPrcFileData('', 'audio-library-name p3openal_audio')
@@ -62,7 +78,7 @@ loadPrcFileData('', 'audio-library-name p3openal_audio')
 # anti-aliasing must be requested before the window opens (the
 # settings menu can also rebuild the window at runtime)
 from settings import load_settings
-_aa = int(load_settings().get('antialias', 0))
+_aa = int(load_settings().get('antialias', 4))
 if _aa > 0:
     loadPrcFileData('', 'framebuffer-multisample 1')
     loadPrcFileData('', 'multisamples %d' % _aa)

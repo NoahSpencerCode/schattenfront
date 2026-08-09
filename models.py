@@ -152,7 +152,7 @@ def _icon_texture(loader, name, variant, nation=None):
                                                nation=nation))
         tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
         tex.setMagfilter(SamplerState.FTLinear)
-        tex.setAnisotropicDegree(4)     # keeps glancing angles crisp
+        tex.setAnisotropicDegree(8)     # keeps glancing angles crisp
         _icon_tex_cache[key] = tex
     return tex
 
@@ -185,7 +185,7 @@ def make_flag_quad(loader, country, half=0.34, depth=8, flat=True):
         tex = loader.loadTexture(flag_texture(country))
         tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
         tex.setMagfilter(SamplerState.FTLinear)
-        tex.setAnisotropicDegree(4)
+        tex.setAnisotropicDegree(8)
         _flag_tex_cache[country] = tex
     hh = half * 2.0 / 3.0
     cm = CardMaker('flag_' + country)

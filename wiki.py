@@ -19,7 +19,7 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from panda3d.core import TextNode
 
 import config as C
-from icons import get_icon_path, flag_texture
+from icons import get_icon_path
 from ui import (FormSheet, pill_button, crisp_image, INK, INK_FAINT,
                 RED_INK, GREEN_INK, KEY_LIGHT)
 from units import UNIT_TYPES, BRANCH_OF, FIRE_SUPPLY_FACTOR
@@ -172,9 +172,10 @@ class WikiFax:
         return ic
 
     def flag(self, country, pos, hw=0.060):
+        from ui import flag_tex
         f = DirectFrame(parent=self._content,
                         frameColor=(1, 1, 1, 1),
-                        frameTexture=flag_texture(country),
+                        frameTexture=flag_tex(country),
                         frameSize=(-hw, hw, -hw * 2 / 3.0,
                                    hw * 2 / 3.0),
                         pos=(pos[0], 0, pos[1]))
