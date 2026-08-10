@@ -906,6 +906,10 @@ class Unit:
     def give_order(self, order, queue=False):
         if not queue:
             self.clear_orders()
+            # a DIRECT order from the hand outranks every standing
+            # arrangement -- including a transport's hold at the
+            # ramp for boarders who never came
+            order['direct'] = True
         self.order_queue.append(order)
         self.game.on_order_given(self, order, queue)
 
@@ -946,15 +950,25 @@ class Unit:
         if self.current_order is None and self.order_queue:
             nxt = self.order_queue[0]
             # a transport holds at the ramp until every unit ordered
-            # aboard has embarked -- waypoints can be planned ahead
+            # aboard has embarked -- waypoints can be planned ahead.
+            # BUT a DIRECT order sails at once: a boarder who never
+            # arrives must never pin the ship to the quay forever --
+            # the player's fresh move outranks the wait, and the
+            # riders' board orders simply chase the new anchorage.
             hold = (self.stats.get('capacity')
                     and self.stats['domain'] != 'air'
                     and nxt.get('kind') in ('move', 'unload')
                     and not nxt.get('auto')
+                    and not nxt.get('direct')
                     and self.game.inbound_boarders(self))
             if not hold:
                 self.current_order = self.order_queue.pop(0)
                 self.game.begin_order(self, self.current_order)
+
+        # an attack order CHASES: the march corrects onto the
+        # target's current position while it stays in sight
+        if self.current_order is not None:
+            self.game.tick_attack_pursuit(self)
 
         # a route is still being planned in the background. THE GUNS
         # DO NOT WAIT ON THE MAP ROOM: a unit standing with an enemy

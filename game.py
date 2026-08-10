@@ -4181,6 +4181,48 @@ class WW2RTSGame(ShowBase):
         goal = self._legal_goal(unit, Vec3(target.pos))
         self._enqueue_plan(unit, goal, indicate=indicate)
 
+    # ---------------------------------------------------- the pursuit
+    PURSUIT_PERIOD = 0.7        # seconds between chase corrections
+    PURSUIT_SLACK = 0.04        # wu the prey must move to replot
+
+    def tick_attack_pursuit(self, unit):
+        """AN ATTACK ORDER CHASES ITS PREY. While the target stands
+        in the hunter's sight (his own eyes, or his side's for the
+        long arms), the march corrects onto the target's CURRENT
+        position every beat -- not the spot it stood when the order
+        was given. Sight lost: the column carries on to the LAST
+        KNOWN place. Sight regained: the chase locks on again.
+        Aircraft keep their own sortie law."""
+        o = unit.current_order
+        if (o is None or o.get('kind') != 'attack'
+                or unit.stats['domain'] == 'air'):
+            return
+        target = o.get('target')
+        if not isinstance(target, Unit) or not target.alive:
+            return
+        now = globalClock.getFrameTime()
+        if now - getattr(unit, '_pursuit_t', -9.0) \
+                < self.PURSUIT_PERIOD:
+            return
+        unit._pursuit_t = now
+        seen = (unit.dist_to(target.pos) <= unit.vision_range()
+                or self.target_observed(unit, target))
+        if not seen:
+            return          # march on to the last known place
+        known = o.get('_last_seen')
+        o['_last_seen'] = Vec3(target.pos)
+        if (known is not None
+                and angle_between(Vec3(target.pos), known)
+                * GLOBE_RADIUS < self.PURSUIT_SLACK):
+            return          # the prey has not moved enough
+        if unit.dist_to(target.pos) <= \
+                self.effective_fire_range(unit, target):
+            return          # in range already: the guns talk now
+        if getattr(unit, 'plan_pending', None) \
+                or not self._replan_ready(unit):
+            return
+        self._approach_target(unit, target)
+
     def on_order_given(self, unit, order, queue):
         """Called for every order entering a unit's queue. Marks orders
         from the player's hand for the [PLANNING ROUTE] indicator, and

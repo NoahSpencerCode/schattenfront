@@ -527,6 +527,12 @@ class WikiFax:
         self.bullets([
             "Units fire on enemies in range OF THEIR OWN ACCORD "
             "-- no order needed.",
+            "AN ATTACK ORDER CHASES: while the prey is in sight "
+            "the march corrects",
+            "  onto its CURRENT position; sight lost, the column "
+            "makes for the last",
+            "  known place -- and locks on again when sight "
+            "returns.",
             "Damage is the salvo's weight; strength (HP) is what "
             "a unit absorbs.",
             "Each arm engages only what its guns can hurt: AA "
@@ -576,6 +582,10 @@ class WikiFax:
             "Transports never unload on their own: the UNLOAD "
             "key sites the",
             "  put-ashore, PARADROP the drop.",
+            "A transport HOLDS AT THE RAMP for ordered boarders "
+            "-- but a direct",
+            "  MOVE order sails at once; no straggler ever pins "
+            "the ship.",
         ], M, t - 0.055)
         self.header("BRIDGES AND WORKS UNDER FIRE",
                     (M, t - 0.430))
