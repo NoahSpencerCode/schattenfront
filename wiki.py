@@ -214,10 +214,11 @@ class WikiFax:
             "Friendly towns keep their own watch (%.0f mi about "
             "the walls)." % _mi(C.CITY_VISION_RANGE),
             "Ground you cannot see is darker and drained of "
-            "colour; enemies there are invisible.",
+            "colour; enemies",
+            "  there are invisible.",
         ], L, t - 0.345)
 
-        self.header("THE WIRELESS NET -- COMMAND", (L, t - 0.545))
+        self.header("THE WIRELESS NET -- COMMAND", (L, t - 0.640))
         self.bullets([
             "Command posts, flagships and command wings carry "
             "the net: radius",
@@ -225,10 +226,10 @@ class WikiFax:
             "Friendly cities carry the land-line network "
             "(%.0f mi about each town)." % _mi(C.CITY_COMM_RADIUS),
             "A unit OUTSIDE the net goes W/T SILENT: invisible, "
-            "unselectable, deaf to orders.",
-            "The top bar counts your silent units under [OUT OF "
-            "CONTACT].",
-        ], L, t - 0.600)
+            "unselectable,",
+            "  deaf to orders. The top bar counts them under "
+            "[OUT OF CONTACT].",
+        ], L, t - 0.695)
 
         self.vrule(-0.04, -0.66, t + 0.02)
         self.header("ROADS, RAILS AND RIVERS", (M, t))
@@ -550,20 +551,20 @@ class WikiFax:
             "they see.",
             "A unit under fire flashes a red ring on the map.",
         ], L, t - 0.055)
-        self.header("THE NIGHT", (L, t - 0.380))
+        self.header("THE NIGHT", (L, t - 0.660))
         self.bullets([
             "Night halves every eye, and aircraft and surface "
             "units cannot spot",
             "  each other at all -- night convoys slip beneath "
             "the bombers.",
-        ], L, t - 0.435)
-        self.header("BUNKERS", (L, t - 0.575))
+        ], L, t - 0.715)
+        self.header("BUNKERS", (L, t - 0.855))
         self.bullets([
             "Engineer-built. INFANTRY ONLY may stand on the "
             "works; vehicles",
-            "  deflect around the rim.",
-            "Enemy fire on infantry inside is QUARTERED.",
-        ], L, t - 0.630)
+            "  deflect around the rim. Enemy fire on infantry "
+            "inside is QUARTERED.",
+        ], L, t - 0.910)
 
         self.vrule(-0.04, -0.66, t + 0.02)
         self.header("EMBARKATION AND THE CHAIN", (M, t))
@@ -588,7 +589,7 @@ class WikiFax:
             "the ship.",
         ], M, t - 0.055)
         self.header("BRIDGES AND WORKS UNDER FIRE",
-                    (M, t - 0.430))
+                    (M, t - 0.475))
         self.bullets([
             "Bridges (%d hp) can be dropped by gunfire or bombs "
             "and repaired by" % C.BRIDGE_HP,
@@ -596,13 +597,13 @@ class WikiFax:
             % C.BRIDGE_REPAIR_RATE,
             "Airfields are targetable works: destroyed, their "
             "parked wings die.",
-        ], M, t - 0.485)
-        self.header("AIRCRAFT IN ACTION", (M, t - 0.660))
+        ], M, t - 0.530)
+        self.header("AIRCRAFT IN ACTION", (M, t - 0.705))
         self.bullets([
             "Squadrons launch from a field or deck (SCRAMBLE, or "
             "ENTER), strike",
             "  and come home; carriers are moving airfields.",
-        ], M, t - 0.715)
+        ], M, t - 0.760)
 
     # -------------------------------------------- the stat tables
     def _stat_table(self, domain):
@@ -634,8 +635,15 @@ class WikiFax:
         for ut, s in rows:
             self.icon(ut, (L + 0.045, y + 0.006), 0.030)
             self.text(s['label'], (L + 0.10, y), 0.0245)
-            self.text("$%d" % s['cost'], (-0.42, y), 0.0245,
-                      INK, TextNode.ARight)
+            if ut == 'infantry':
+                # never bought: the budget sells no Enlisted -- they
+                # muster from the city draft (rolls free, conscripts
+                # paid in industry)
+                self.text("DRAFT", (-0.42, y), 0.0245,
+                          INK, TextNode.ARight)
+            else:
+                self.text("$%d" % s['cost'], (-0.42, y), 0.0245,
+                          INK, TextNode.ARight)
             self.text("%d" % s['hp'], (-0.27, y), 0.0245, INK,
                       TextNode.ARight)
             if s['damage'] > 0:
