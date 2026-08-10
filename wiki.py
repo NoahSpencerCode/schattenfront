@@ -516,6 +516,14 @@ class WikiFax:
             "  destroyers at what their class names, bombers at "
             "what lies under",
             "  the flight path. See the service tables.",
+            "A SELECTED unit wears a thin red ring at its guns' "
+            "longest reach:",
+            "  most arms are capped by their own daytime eyes, "
+            "but tanks, artillery",
+            "  and warships strike TWICE their eyes with a "
+            "friendly observer on",
+            "  the target -- and aircraft strike shorter than "
+            "they see.",
             "A unit under fire flashes a red ring on the map.",
         ], L, t - 0.055)
         self.header("THE NIGHT", (L, t - 0.380))

@@ -14,7 +14,7 @@ from panda3d.core import TextNode
 
 from config import (AIR_VISION_MULT, COMM_RADIUS_FACTOR, COUNTRIES,
                     RAIL_LEG_MULT, RAIL_TRAIN_SPEED,
-                    GLOBE_RADIUS, LIFT_AIR, LIFT_GROUND,
+                    GLOBE_RADIUS, LIFT_AIR, LIFT_GROUND, LIFT_RING,
                     NIGHT_VISION_FACTOR, UNIT_SPEED_FACTOR,
                     UNIT_SPRITE_SCALE, VISION_SCALE)
 from globe import make_surface_ring, orient_to_surface
@@ -735,6 +735,9 @@ class Unit:
         self.sel_ring.reparentTo(self.holder)
         set_marker_layer(self.sel_ring, base + 3)
         self.sel_ring.hide()
+        # the guns' reach: built lazily on first selection
+        self._layer_base = base
+        self.range_ring = None
 
         # range decals (hidden for enemy units); the vision field and the
         # merged comm-net outline are both drawn by the globe shader
@@ -839,12 +842,52 @@ class Unit:
     def set_marker_scale(self, scale):
         pass    # sprites keep a fixed world size at every zoom
 
+    def max_attack_range(self):
+        """The farthest this unit's guns can EVER strike, in world
+        units -- the best case of the gunnery law: most arms are
+        capped by their own DAYTIME eyes; tanks, artillery and
+        warships reach TWICE their eyes when a friend observes the
+        target; aircraft use their airborne eyes (a bomber strikes
+        far shorter than it sees)."""
+        rng = self.stats['range']
+        if self.stats['damage'] <= 0 or rng <= 0:
+            return 0.0
+        day = self.stats['vision'] * VISION_SCALE
+        if self.is_air():
+            day *= AIR_VISION_MULT
+        if (self.stats['domain'] == 'sea'
+                or self.unit_type in self.game.INDIRECT_FIRE):
+            return min(rng, day * 2.0)
+        return min(rng, day)
+
+    def _show_range_ring(self):
+        """A THIN RED CIRCLE at the guns' longest reach, drawn while
+        the unit is selected. Parented to the unit's root (not the
+        scaled holder), so its radius is true world size at every
+        zoom -- and separate from the vision circle, because for the
+        long arms the two are NOT the same ring."""
+        r = self.max_attack_range()
+        if r <= 0.0:
+            return
+        if self.range_ring is None:
+            ring = make_flat_ring('atk_range', r,
+                                  (0.85, 0.18, 0.12, 0.85),
+                                  thickness=1.5, segments=48)
+            ring.reparentTo(self.root)
+            ring.setPos(0, 0, GLOBE_RADIUS * LIFT_RING)
+            set_marker_layer(ring, self._layer_base + 2)
+            self.range_ring = ring
+        self.range_ring.show()
+
     def set_selected(self, sel):
         self.selected = sel
         if sel:
             self.sel_ring.show()
+            self._show_range_ring()
         else:
             self.sel_ring.hide()
+            if self.range_ring is not None:
+                self.range_ring.hide()
 
     # -------------------------------------------------------------- orders
     def clear_orders(self):
