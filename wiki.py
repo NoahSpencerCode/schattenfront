@@ -315,10 +315,11 @@ class WikiFax:
              "Spent building every hull and plate. A piece's bill "
              "rises with its price; infantry cost none."),
             ('granary', "FOOD -- MANPOWER",
-             "%d t raises and feeds a section. Civilians eat "
-             "%.2f t per million souls a day (occupied mouths "
-             "%.1f t)." % (C.FOOD_PER_ENLISTED, C.CIVIL_RATION,
-                           C.OCCUPIED_RATION)),
+             "GROWN BY EVERY TOWN: %d t/ftn base plus its "
+             "agriculture level. %d t raises a section; civilians "
+             "eat %.2f t per million souls a day (occupied mouths "
+             "%.1f t)." % (C.CITY_FOOD_BASE, C.FOOD_PER_ENLISTED,
+                           C.CIVIL_RATION, C.OCCUPIED_RATION)),
         ]
         y = t - 0.070
         for icon_name, head, body in rows:
@@ -326,61 +327,78 @@ class WikiFax:
             self.text(head, (M + 0.105, y), 0.0265, RED_INK)
             self.text(body, (M + 0.105, y - 0.042), 0.0235,
                       INK, wrap=48)
-            y -= 0.165
+            y -= 0.175
         n_dep = {}
         for name, (res, out) in C.DEPOSITS.items():
             n_dep[res] = n_dep.get(res, 0) + 1
-        self.header("DEPOSITS", (M, y - 0.010))
+        self.header("DEPOSITS -- THE WORLD'S ONLY TAPS",
+                    (M, y - 0.010))
         self.bullets([
-            "%d oil fields, %d steel districts and %d granaries "
-            "lie by their real" % (n_dep.get('oil', 0),
-                                   n_dep.get('steel', 0),
-                                   n_dep.get('food', 0)),
-            "  towns. OWN THE TOWN AND ITS DEPOSIT WORKS FOR YOU, "
-            "paying tons into",
-            "  the stockpile each fortnight (cap %d a resource)."
-            % C.RESOURCE_CAP,
-            "The heaviest: Houston %d oil, Pittsburgh %d steel, "
-            "Kiev %d food."
-            % (C.DEPOSITS['Houston'][1], C.DEPOSITS['Pittsburgh'][1],
-               C.DEPOSITS['Kiev'][1]),
-            "Baseline imports trickle in even without conquest: "
-            "%d/%d/%d a fortnight." % (C.BASELINE_IMPORTS['oil'],
-                                       C.BASELINE_IMPORTS['steel'],
-                                       C.BASELINE_IMPORTS['food']),
+            "%d oil fields and %d steel districts lie by their "
+            "real towns, and they" % (n_dep.get('oil', 0),
+                                      n_dep.get('steel', 0)),
+            "  are the ONLY source of oil and steel on Earth: no "
+            "free imports.",
+            "OWN THE TOWN AND ITS DEPOSIT PAYS YOU, steadily, "
+            "every fortnight",
+            "  (stockpile cap %d). No deposit? BUY at the treaty "
+            "table -- or take one." % C.RESOURCE_CAP,
+            "The heaviest: Houston %d oil, Pittsburgh %d steel. "
+            "Food has no deposits"
+            % (C.DEPOSITS['Houston'][1],
+               C.DEPOSITS['Pittsburgh'][1]),
+            "  at all -- the historic farm belts open with "
+            "agriculture pre-levelled.",
         ], M, y - 0.065)
 
     def _page_cities(self):
         t = self.BODY_TOP
         L, M = -1.32, 0.06
-        self.header("THE FORTNIGHT FOCUS", (L, t))
+        self.header("THE MUNICIPAL LEDGER", (L, t))
         self.bullets([
-            "Every town works at ONE directive a fortnight, set "
-            "on its FOCUS sheet:",
+            "Every town keeps THREE PERMANENT TRACKS of %d levels "
+            "-- agriculture," % C.TRACK_MAX_LEVEL,
+            "  the works, the laboratories. One fortnight focus "
+            "buys ONE level,",
+            "  MONEY ALONE (L1-L%d: %s), and the returns are"
+            % (C.TRACK_MAX_LEVEL,
+               ", ".join("$%d" % c for c in C.TRACK_COSTS)),
+            "  EXPONENTIAL -- the deep town beats two shallow "
+            "ones. Levels survive",
+            "  capture: a developed city is worth taking.",
         ], L, t - 0.055)
+        track_rows = [
+            ("AGRICULTURE", "food t/ftn by level: %s (+%d base "
+             "every town)" % ("/".join(
+                 str(v) for v in C.AGRI_FOOD_CUM[1:]),
+                 C.CITY_FOOD_BASE)),
+            ("THE WORKS", "its bases build faster: %s"
+             % "/".join("x%.2f" % v
+                        for v in C.WORKS_SPEED_MULT[1:])),
+            ("THE LABORATORIES", "research focus yields: %s"
+             % "/".join("x%.1f" % v
+                        for v in C.LAB_YIELD_MULT[1:])),
+        ]
+        y = t - 0.300
+        for head, body in track_rows:
+            self.text(head, (L + 0.02, y), 0.0245, INK)
+            self.text(body, (L + 0.36, y), 0.022, INK_FAINT)
+            self.rule(L + 0.02, -0.10, y - 0.017, 0.0014)
+            y -= 0.052
         focus_rows = [
             ("INVEST IN FINANCE", "+%.0f industry health"
              % C.FOCUS_FINANCE_HEAL),
-            ("INVEST IN AGRICULTURE", "+%d food/ftn per level, "
-             "permanent (max %d)" % (C.FOCUS_AGRI_FOOD,
-                                     C.FOCUS_AGRI_MAX)),
-            ("INVEST IN THE STEEL WORKS", "+%d steel/ftn per "
-             "level (max %d; needs a deposit)"
-             % (C.FOCUS_STEEL_OUT, C.FOCUS_STEEL_MAX)),
-            ("FUND THE LABORATORIES", "%.0f research points per "
-             "million souls (min %.0f)"
+            ("RUN THE LABORATORIES", "%.0f RP per million souls "
+             "(min %.0f) x the labs level"
              % (C.FOCUS_RESEARCH_RP_PER_M, C.FOCUS_RESEARCH_RP_MIN)),
-            ("RAISE AN ARMY BASE", "$%d + %d steel, once"
-             % C.BASE_COSTS['army']),
-            ("RAISE AN AIRFORCE BASE", "$%d + %d steel, once"
-             % C.BASE_COSTS['air']),
-            ("RAISE A NAVAL BASE", "$%d + %d steel, once; port "
-             "towns only" % C.BASE_COSTS['naval']),
+            ("RAISE A BASE", "army $%d+%ds, air $%d+%ds, naval "
+             "$%d+%ds; once each"
+             % (C.BASE_COSTS['army'] + C.BASE_COSTS['air']
+                + C.BASE_COSTS['naval'])),
         ]
-        y = t - 0.105
         for head, body in focus_rows:
             self.text(head, (L + 0.02, y), 0.0245, INK)
-            self.text(body, (L + 0.62, y), 0.0235, INK_FAINT)
+            self.text(body, (L + 0.36, y), 0.022, INK_FAINT)
             self.rule(L + 0.02, -0.10, y - 0.017, 0.0014)
             y -= 0.052
         self.header("BASES AND FIELDS", (L, y - 0.030))
@@ -711,11 +729,11 @@ class WikiFax:
         t = self.BODY_TOP
         L, R = -1.32, 1.32
         self.bullets([
-            "Research points come FROM THE TOWNS ALONE: a city "
-            "whose fortnight focus is FUND THE LABORATORIES earns "
-            "%.0f RP per million souls (minimum %.0f). No tithe "
-            "is skimmed from taxes." % (C.FOCUS_RESEARCH_RP_PER_M,
-                                        C.FOCUS_RESEARCH_RP_MIN),
+            "Research points come FROM THE TOWNS ALONE: RUN THE "
+            "LABORATORIES earns %.0f RP per million souls (min "
+            "%.0f), TIMES the labs level (x%s at the top)."
+            % (C.FOCUS_RESEARCH_RP_PER_M, C.FOCUS_RESEARCH_RP_MIN,
+               C.LAB_YIELD_MULT[-1]),
             "A programme opens when every programme wired above "
             "it is delivered. Spending is instant on the RESEARCH "
             "CHART [R].",

@@ -241,6 +241,7 @@ def snapshot(game):
             'focus': getattr(c, 'focus', 'finance'),
             'agri': getattr(c, 'agri_level', 0),
             'works': getattr(c, 'works_level', 0),
+            'labs': getattr(c, 'labs_level', 0),
             'production': [[t, s] for (t, s) in c.production],
         } for c in game.cities],
         'airfields': [{
@@ -438,9 +439,18 @@ def restore(game, data):
             c.pending_tax = row['pending_tax']
             c.industry = row['industry']
             c.draft_pool = row.get('draft', c.draft_rate())
-            c.focus = row.get('focus', 'finance')
-            c.agri_level = row.get('agri', 0)
+            # the focus vocabulary moved with the Municipal Ledger:
+            # an old save's 'steel' town now EXPANDS THE WORKS. An
+            # unrecognized focus silently no-ops forever in
+            # _apply_city_focus, so normalize HERE, the only door.
+            focus = row.get('focus', 'finance')
+            c.focus = {'steel': 'works'}.get(focus, focus)
+            # a breadbasket keeps its birthright: old saves predate
+            # the pre-levelled farm belts, so take the better of
+            # the saved level and the seed
+            c.agri_level = max(row.get('agri', 0), c.agri_level)
             c.works_level = row.get('works', 0)
+            c.labs_level = row.get('labs', 0)
             c.production = [[t, s] for (t, s) in row['production']]
             c.refresh_marker()
         # deposits follow their city's flag

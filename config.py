@@ -80,7 +80,9 @@ RESOURCE_CAP = 999            # national stockpile ceiling per resource
 # a money-limited fortnight thereafter bills roughly one
 # fortnight's deposit income -- materials pinch, never strangle
 STARTING_RESOURCES = {'oil': 400, 'steel': 800, 'food': 260}
-BASELINE_IMPORTS = {'oil': 40, 'steel': 60, 'food': 40}
+# THERE ARE NO FREE IMPORTS. Deposits are the WORLD'S ONLY taps of
+# oil and steel: a nation without a deposit buys at the treaty
+# table or goes without. Food is grown by the towns (below).
 OIL_PER_LB = 1.0 / 1250.0     # tons of oil per lb of stores pumped
                               # into MACHINES (men and rail burn none)
 OIL_PER_SORTIE = 0.6          # aviation spirit per takeoff
@@ -99,16 +101,40 @@ OCCUPIED_RATION = 1.6         # a hostile population eats dearer
 DRAFT_INDUSTRY_GRIND = 0.8    # industry %-points per CONSCRIPTED
                               # section (beyond the rolls), immediate
 
+# THE MUNICIPAL LEDGER: every city keeps three PERMANENT tracks --
+# AGRICULTURE, THE WORKS, THE LABORATORIES -- of five levels each.
+# One fortnight focus buys one level, MONEY ONLY, and the returns
+# are EXPONENTIAL: the deep town always beats two shallow ones, so
+# empires specialize their cities instead of spreading evenly.
+TRACK_MAX_LEVEL = 5
+TRACK_COSTS = (300, 450, 675, 1000, 1500)   # $ to reach L1..L5
+# food a city grows, tons per fortnight, by agriculture level
+# (cumulative: the table IS the output, not an increment)
+CITY_FOOD_BASE = 10           # every town farms this unaided
+AGRI_FOOD_CUM = (0, 4, 12, 28, 60, 124)
+# production speed at THIS town's bases, by works level
+WORKS_SPEED_MULT = (1.0, 1.15, 1.32, 1.52, 1.75, 2.0)
+# the research focus's yield multiplier, by laboratories level
+LAB_YIELD_MULT = (1.0, 1.3, 1.7, 2.2, 2.9, 3.7)
+# THE BREADBASKETS: the historic farm belts open the war with
+# agriculture already levelled -- the black earth is a head start,
+# not a magic dot on the map (these replace the old food deposits)
+BREADBASKETS = {
+    'Kiev': 3, 'Voronezh': 2, 'Odessa': 2, 'Rostov': 2,
+    'St. Louis': 3, 'Kansas City': 3, 'Omaha': 2, 'Minneapolis': 2,
+    'Paris': 1, 'Lyon': 1, 'Bordeaux': 1, 'Bologna': 1,
+    'Budapest': 1, 'Bucharest': 1, 'Konigsberg': 1, 'Munich': 1,
+    'Delhi': 2, 'Calcutta': 2, 'Bangkok': 2, 'Mandalay': 2,
+    'Saigon': 2, 'Nanking': 2, 'Wuhan': 1, 'Sydney': 2,
+    'Nagoya': 1, 'Surabaya': 1,
+}
+
 # THE FORTNIGHT FOCUS: every city works at ONE directive a
-# fortnight. Each pays a different coin -- money, food, steel,
-# science, or capability -- so no directive dominates.
+# fortnight -- heal the industry, buy a track level, run the
+# laboratories, or raise a base.
 FOCUS_FINANCE_HEAL = 5.0      # industry points healed (revenue rises)
-FOCUS_AGRI_FOOD = 2           # +food/ftn per agriculture level
-FOCUS_AGRI_MAX = 5
-FOCUS_STEEL_OUT = 2           # +steel/ftn per works level
-FOCUS_STEEL_MAX = 5           # (only cities WITH a steel deposit)
 FOCUS_RESEARCH_RP_PER_M = 4.0 # research points per million souls
-FOCUS_RESEARCH_RP_MIN = 2.0
+FOCUS_RESEARCH_RP_MIN = 2.0   # (multiplied by the town's LAB level)
 BASE_COSTS = {'army': (400, 10),   # ($, steel) -- one fortnight
               'air': (500, 12),
               'naval': (600, 16)}
@@ -137,23 +163,8 @@ DEPOSITS = {
     'Osaka': ('steel', 60), 'Mukden': ('steel', 60),
     'Liege': ('steel', 40), 'Prague': ('steel', 40),
     'Milan': ('steel', 40),
-    # ---- FOOD: the granaries, the paddies and the prairies.
-    # Deliberately lopsided, as history was: the Ukraine and the
-    # American plains feed empires, Britain must import her bread,
-    # and Japan's rice lies in other men's colonies.
-    'Kiev': ('food', 110), 'Voronezh': ('food', 90),
-    'Odessa': ('food', 80), 'Rostov': ('food', 70),
-    'St. Louis': ('food', 110), 'Kansas City': ('food', 100),
-    'Omaha': ('food', 90), 'Minneapolis': ('food', 80),
-    'Paris': ('food', 60), 'Lyon': ('food', 50),
-    'Bordeaux': ('food', 50), 'Bologna': ('food', 40),
-    'Budapest': ('food', 60), 'Bucharest': ('food', 60),
-    'Konigsberg': ('food', 50), 'Munich': ('food', 40),
-    'Delhi': ('food', 80), 'Calcutta': ('food', 70),
-    'Bangkok': ('food', 90), 'Mandalay': ('food', 80),
-    'Saigon': ('food', 80), 'Nanking': ('food', 70),
-    'Wuhan': ('food', 60), 'Sydney': ('food', 70),
-    'Nagoya': ('food', 40), 'Surabaya': ('food', 50),
+    # (FOOD has no deposits: it is grown by the towns themselves --
+    # see BREADBASKETS above for the pre-levelled farm belts)
 }
 MILES_PER_WU = 132            # one world unit is ~212 km = 132 statute mi
 BORDER_WASH_BAND = 0.022      # frontier ribbon width, radians (~140 km)

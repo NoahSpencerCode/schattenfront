@@ -34,14 +34,16 @@ from panda3d.core import (AmbientLight, AntialiasAttrib, CardMaker,
 from ai import NationAI
 from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     CAPTURE_CLEAR_RANGE,
-                    BASELINE_IMPORTS, DEPOSITS, OIL_PER_LB,
+                    DEPOSITS, OIL_PER_LB,
                     OIL_PER_SORTIE, PLAYABLE, RESOURCES,
                     RESOURCE_CAP, STARTING_RESOURCES,
                     TRADE_PRICES, CIVIL_RATION,
                     FOOD_PER_ENLISTED, OCCUPIED_RATION,
                     DRAFT_INDUSTRY_GRIND,
-                    FOCUS_FINANCE_HEAL, FOCUS_AGRI_FOOD,
-                    FOCUS_AGRI_MAX, FOCUS_STEEL_OUT, FOCUS_STEEL_MAX,
+                    FOCUS_FINANCE_HEAL,
+                    TRACK_MAX_LEVEL, TRACK_COSTS, CITY_FOOD_BASE,
+                    AGRI_FOOD_CUM, WORKS_SPEED_MULT, LAB_YIELD_MULT,
+                    BREADBASKETS,
                     FOCUS_RESEARCH_RP_PER_M, FOCUS_RESEARCH_RP_MIN,
                     BASE_COSTS,
                     short_name,
@@ -130,8 +132,12 @@ class City:
         self.draft_pool = self.draft_rate()
         # the fortnight focus: what the town works at
         self.focus = 'finance'
-        self.agri_level = 0             # permanent food improvements
-        self.works_level = 0            # permanent steel improvements
+        # THE MUNICIPAL LEDGER: three permanent tracks, five levels
+        # each. The breadbaskets open the war with agriculture
+        # already worked -- the black earth is a head start.
+        self.agri_level = BREADBASKETS.get(name, 0)
+        self.works_level = 0            # base production speed
+        self.labs_level = 0             # research focus multiplier
         self.lat, self.lon = lat, lon
         self.pos = latlon_to_vec(lat, lon)
         self.capture_progress = 0.0
@@ -2210,26 +2216,29 @@ class WW2RTSGame(ShowBase):
             tons += (c.population / 1e6) * rate
         return tons
 
+    def city_food_output(self, city):
+        """Tons of food THIS town grows per fortnight: the base
+        every town farms unaided plus its agriculture level's
+        EXPONENTIAL table."""
+        if city.annexing or not city.alive:
+            return 0
+        return CITY_FOOD_BASE + AGRI_FOOD_CUM[city.agri_level]
+
     def _daily_income(self, country):
-        """{res: tons} a power draws in ONE DAY: its deposits and the
-        civilian imports, divided across the fortnight."""
-        out = {res: BASELINE_IMPORTS[res] / float(BUDGET_PERIOD_DAYS)
-               for res in RESOURCES}
+        """{res: tons} a power draws in ONE DAY. There are NO free
+        imports: oil and steel come from DEPOSITS ALONE (the world's
+        only taps -- a nation without one buys at the table), and
+        food is GROWN BY THE TOWNS, base plus agriculture level."""
+        out = {res: 0.0 for res in RESOURCES}
         for dep in self.deposits:
             if dep.city.country == country and dep.city.alive:
                 out[dep.resource] += (dep.output
                                       / float(BUDGET_PERIOD_DAYS))
-        # the LAND ITSELF: agriculture and steel-works levels won by
-        # the fortnight focus are permanent city improvements
         for c in self.cities:
-            if c.country != country or c.annexing:
+            if c.country != country:
                 continue
-            if c.agri_level:
-                out['food'] += (c.agri_level * FOCUS_AGRI_FOOD
-                                / float(BUDGET_PERIOD_DAYS))
-            if c.works_level:
-                out['steel'] += (c.works_level * FOCUS_STEEL_OUT
-                                 / float(BUDGET_PERIOD_DAYS))
+            out['food'] += (self.city_food_output(c)
+                            / float(BUDGET_PERIOD_DAYS))
         return out
 
     def _famine(self, country, short):
@@ -2248,8 +2257,8 @@ class WW2RTSGame(ShowBase):
                 "The granaries are %s short of the day's ration. "
                 "Industry sickens in every town while the shortfall "
                 "stands, and no man can be mustered until the stores "
-                "are made good -- buy grain at the table, or take a "
-                "granary." % B("%d TONS" % max(1, int(short))),
+                "are made good -- buy grain at the table, or set the "
+                "towns farming." % B("%d TONS" % max(1, int(short))),
                 sender="MINISTRY OF FOOD")
 
     def _accrue_resources(self, days=1):
@@ -2282,12 +2291,17 @@ class WW2RTSGame(ShowBase):
         for country in PLAYABLE:
             if country in self.eliminated:
                 continue
-            flows = {res: [('IMPORTS', BASELINE_IMPORTS[res])]
-                     for res in RESOURCES}
+            flows = {res: [] for res in RESOURCES}
             for dep in self.deposits:
                 if dep.city.country == country:
                     flows[dep.resource].append(
                         (dep.city.name.upper(), dep.output))
+            # the farms: every town's food, biggest growers first
+            farms = sorted(((c.name.upper(), self.city_food_output(c))
+                            for c in self.cities
+                            if c.country == country),
+                           key=lambda kv: -kv[1])
+            flows['food'].extend(f for f in farms if f[1] > 0)
             if country == self.player_country:
                 for deal in self.trade_deals:
                     if deal['dir'] == 'in':
@@ -2350,52 +2364,73 @@ class WW2RTSGame(ShowBase):
             self.fax_short("PUMPS DRY -- ENGINES ON RESERVE UNTIL "
                            "OIL FLOWS")
 
-    def steel_city(self, city):
-        """Does the town sit on a steel deposit it works?"""
-        return any(d.city is city and d.resource == 'steel'
-                   for d in self.deposits)
+    TRACK_ATTR ={'agriculture': 'agri_level', 'works': 'works_level',
+                  'laboratories': 'labs_level'}
+    TRACK_WORD = {'agriculture': 'AGRICULTURE',
+                  'works': 'THE WORKS',
+                  'laboratories': 'THE LABORATORIES'}
+
+    def city_track_level(self, city, track):
+        return getattr(city, self.TRACK_ATTR[track], 0)
+
+    def track_upgrade_cost(self, city, track):
+        """$ for the town's NEXT level of the track, or None at the
+        top. MONEY ONLY -- the ledger never bills steel."""
+        lvl = self.city_track_level(city, track)
+        if lvl >= TRACK_MAX_LEVEL:
+            return None
+        return TRACK_COSTS[lvl]
+
+    def _track_gain_word(self, city, track):
+        """What the NEXT level is worth, for the fax and the sheet."""
+        lvl = self.city_track_level(city, track)
+        nxt = min(TRACK_MAX_LEVEL, lvl + 1)
+        if track == 'agriculture':
+            return "+%d T FOOD A FORTNIGHT" % (
+                AGRI_FOOD_CUM[nxt] - AGRI_FOOD_CUM[lvl])
+        if track == 'works':
+            return "BASES BUILD %.0f%% FASTER" % (
+                (WORKS_SPEED_MULT[nxt] - 1.0) * 100)
+        return "RESEARCH FOCUS YIELDS x%.1f" % LAB_YIELD_MULT[nxt]
 
     def _apply_city_focus(self, city):
         """One directive a fortnight. Finance heals industry (and so
-        revenue); agriculture and the steel works buy PERMANENT
-        levels; the laboratories buy research points; a base
-        directive founds the base -- each pays a different coin."""
+        revenue); agriculture, the works and the laboratories buy
+        PERMANENT levels for MONEY ALONE; the research focus runs
+        the labs; a base directive founds the base."""
         f = city.focus
         country = city.country
         if f == 'finance':
             city.industry = min(100.0,
                                 city.industry + FOCUS_FINANCE_HEAL)
             return
-        if f == 'agriculture':
-            if city.agri_level < FOCUS_AGRI_MAX:
-                city.agri_level += 1
-                if country == self.player_country:
-                    self.fax_short(
-                        "%s AGRICULTURE AT LEVEL %d -- +%d FOOD A "
-                        "FORTNIGHT, PERMANENT"
-                        % (city.name.upper(), city.agri_level,
-                           FOCUS_AGRI_FOOD))
-            else:
-                city.focus = 'finance'
-            return
-        if f == 'steel':
-            if not self.steel_city(city):
+        if f in self.TRACK_ATTR:
+            attr = self.TRACK_ATTR[f]
+            lvl = getattr(city, attr, 0)
+            if lvl >= TRACK_MAX_LEVEL:
                 city.focus = 'finance'
                 return
-            if city.works_level < FOCUS_STEEL_MAX:
-                city.works_level += 1
+            cost = TRACK_COSTS[lvl]
+            if self.funds.get(country, 0) < cost:
                 if country == self.player_country:
                     self.fax_short(
-                        "%s STEEL WORKS AT LEVEL %d -- +%d STEEL A "
-                        "FORTNIGHT, PERMANENT"
-                        % (city.name.upper(), city.works_level,
-                           FOCUS_STEEL_OUT))
-            else:
-                city.focus = 'finance'
+                        "%s: %s WAIT -- THE LEVEL WANTS $%d"
+                        % (city.name.upper(), self.TRACK_WORD[f],
+                           cost))
+                return              # keeps trying next fortnight
+            self.funds[country] -= cost
+            gain = self._track_gain_word(city, f)
+            setattr(city, attr, lvl + 1)
+            if country == self.player_country:
+                self.fax_short(
+                    "%s %s AT LEVEL %d -- %s, PERMANENT ($%d PAID)"
+                    % (city.name.upper(), self.TRACK_WORD[f],
+                       lvl + 1, gain, cost))
             return
         if f == 'research':
             rp = max(FOCUS_RESEARCH_RP_MIN,
                      city.population / 1e6 * FOCUS_RESEARCH_RP_PER_M)
+            rp *= LAB_YIELD_MULT[getattr(city, 'labs_level', 0)]
             self.research_points[country] = \
                 self.research_points.get(country, 0.0) + rp
             return
@@ -2426,8 +2461,13 @@ class WW2RTSGame(ShowBase):
             return
 
     def _ai_set_foci(self, country):
-        """The computer power's directives: found the missing bases
-        from the biggest cities first, farm when hungry, then bank."""
+        """The computer power's directives, BY NEED: found the
+        missing bases from the biggest cities first; farm AS MANY
+        towns as the food deficit demands (deepest farms first --
+        the exponential table rewards the specialist); keep the
+        capital's laboratories building, then running; put the
+        works to the best base town when the treasury is fat; heal
+        the sick; bank the rest."""
         towns = [c for c in self.cities
                  if c.country == country and not c.annexing]
         if not towns:
@@ -2445,26 +2485,52 @@ class WW2RTSGame(ShowBase):
                    for h in self.harbors) and \
                 any(c.harbor for c in towns):
             want.append('base_naval')
-        hungry = (self._daily_income(country)['food']
-                  < self.civil_ration(country))
+        # the food ledger: how many tons a fortnight short?
+        deficit = (self.civil_ration(country)
+                   - self._daily_income(country)['food']) \
+            * BUDGET_PERIOD_DAYS
+        # farm candidates: the DEEPEST farms first (a level on a
+        # worked farm pays exponentially more than a fresh field)
+        farmable = sorted(
+            (c for c in towns if c.agri_level < TRACK_MAX_LEVEL),
+            key=lambda c: -c.agri_level)
+        farming = set()
+        for c in farmable:
+            if deficit <= 0:
+                break
+            farming.add(c)
+            deficit -= (AGRI_FOOD_CUM[c.agri_level + 1]
+                        - AGRI_FOOD_CUM[c.agri_level])
+        rich = self.funds.get(country, 0) > 6000
+        # PIN the base directives FIRST, so nothing later in the
+        # loop clobbers them (the old mid-loop naval redirect was
+        # always overwritten when the coastal town came later --
+        # an inland-capitalled AI could NEVER found a naval yard)
+        based = {}
+        for f in want:
+            pool = ([t for t in towns if t.harbor]
+                    if f == 'base_naval' else towns)
+            site = next((t for t in pool if t not in based), None)
+            if site is not None:
+                based[site] = f
+        assigned_works = False
         for c in towns:
-            if want:
-                f = want.pop(0)
-                if f == 'base_naval' and not c.harbor:
-                    coastal = next((t for t in towns if t.harbor),
-                                   None)
-                    if coastal is not None:
-                        coastal.focus = f
-                    continue
-                c.focus = f
-            elif hungry and c.agri_level < FOCUS_AGRI_MAX:
+            if c in based:
+                c.focus = based[c]
+            elif c in farming:
                 c.focus = 'agriculture'
-                hungry = False
-            elif self.steel_city(c) and \
-                    c.works_level < FOCUS_STEEL_MAX:
-                c.focus = 'steel'
             elif c.capital:
-                c.focus = 'research'
+                # the capital is the research town: build its labs
+                # while money is easy, then run them forever
+                if rich and c.labs_level < 3:
+                    c.focus = 'laboratories'
+                else:
+                    c.focus = 'research'
+            elif (rich and not assigned_works
+                    and c.works_level < TRACK_MAX_LEVEL
+                    and self.base_of_city(c, 'army') is not None):
+                c.focus = 'works'
+                assigned_works = True
             else:
                 c.focus = 'finance'
 
@@ -2773,9 +2839,10 @@ class WW2RTSGame(ShowBase):
         if focus != city.focus:
             city.focus = focus
             words = {'finance': "INVEST IN FINANCE",
-                     'agriculture': "INVEST IN AGRICULTURE",
-                     'steel': "INVEST IN THE STEEL WORKS",
-                     'research': "FUND THE LABORATORIES",
+                     'agriculture': "WORK THE LAND",
+                     'works': "EXPAND THE WORKS",
+                     'laboratories': "BUILD THE LABORATORIES",
+                     'research': "RUN THE LABORATORIES",
                      'base_army': "RAISE AN ARMY BASE",
                      'base_air': "RAISE AN AIRFORCE BASE",
                      'base_naval': "RAISE A NAVAL BASE"}
@@ -2887,7 +2954,9 @@ class WW2RTSGame(ShowBase):
                  'food': self._mat_spent[me]['food']}
         data = {}
         for res in RESOURCES:
-            income = [('IMPORTS', BASELINE_IMPORTS[res])]
+            # NO IMPORTS LINE: the deposits are the world's only
+            # taps of oil and steel, and the towns grow the food
+            income = []
             for t in self.trade_deals:
                 if t['dir'] == 'in' and t['res'] == res:
                     income.append(('TREATY: %s'
@@ -2895,17 +2964,20 @@ class WW2RTSGame(ShowBase):
                                    t['amount']))
             foreign = []
             for dep in self.deposits:
+                if dep.resource != res:
+                    continue
                 if dep.city.country == me:
                     income.append((dep.city.name.upper(), dep.output))
-                elif dep.resource == res:
+                else:
                     foreign.append((dep.city.name.upper(),
                                     short_name(dep.city.country)
                                     .upper(), dep.output))
-            income = [(n, v) for n, v in income
-                      if n == 'IMPORTS' or any(
-                          d.city.name.upper() == n
-                          and d.resource == res
-                          for d in self.deposits)]
+            if res == 'food':
+                farms = sorted(
+                    ((c.name.upper(), self.city_food_output(c))
+                     for c in self.cities if c.country == me),
+                    key=lambda kv: -kv[1])
+                income.extend(f for f in farms if f[1] > 0)
             foreign.sort(key=lambda t: -t[2])
             data[res] = {
                 'stock': int(stock[res]),
@@ -2927,13 +2999,13 @@ class WW2RTSGame(ShowBase):
         data['pump_lbs'] = self._pump_lbs.get(me, 0.0)
         data['pump_oil'] = self._oil_spent.get(me, 0.0)
         eaten = self.civil_ration(me)
+        grown = self._daily_income(me)['food']
         data['ration'] = (
-            "THE RATION: %d TONS A DAY FEEDS %.1f MILLION SOULS -- "
-            "AND %d TONS RAISES ONE SECTION"
-            % (int(round(eaten)),
-               sum(c.population for c in self.cities
-                   if c.country == me) / 1e6,
-               FOOD_PER_ENLISTED))
+            "THE FOOD LEDGER: THE TOWNS GROW %d T A DAY, THE "
+            "MOUTHS EAT %d -- NET %+d T A DAY (%d T RAISES A "
+            "SECTION)"
+            % (int(round(grown)), int(round(eaten)),
+               int(round(grown - eaten)), FOOD_PER_ENLISTED))
         data['trade'] = [
             ("%s %d %s %s %s ($%d/FTN)"
              % ("IMPORTING" if t['dir'] == 'in' else "EXPORTING",
@@ -6503,11 +6575,25 @@ void main() {
                 getattr(self, 'selected_armypost', None) is st:
             self._refresh_selection_ui()
 
+    def _works_rate(self, st):
+        """THE WORKS TRACK PAYS HERE: production at a town's bases
+        runs faster by its works level. A RATE at the tick -- never
+        a discount baked into the entry -- so the factory report's
+        arithmetic stays truthful, a level raised mid-build speeds
+        the work already on the line, and relocated work takes the
+        NEW site's rate (whose city may be None: engineer fields)."""
+        city = getattr(st, 'city', None)
+        if city is None:
+            return 1.0
+        return WORKS_SPEED_MULT[getattr(city, 'works_level', 0)]
+
     def _tick_production(self, dt):
         for city in self.cities:
             if not city.production:
                 continue
-            city.production[0][1] -= dt * self.game_speed
+            city.production[0][1] -= (dt * self.game_speed
+                                      * WORKS_SPEED_MULT[
+                                          city.works_level])
             if city.production[0][1] <= 0:
                 unit_type, _ = city.production.pop(0)
                 self._deliver_vehicle(unit_type, city.country,
@@ -6532,7 +6618,8 @@ void main() {
         for f in self.airfields:
             if not f.production:
                 continue
-            f.production[0][1] -= dt * self.game_speed
+            f.production[0][1] -= (dt * self.game_speed
+                                   * self._works_rate(f))
             if f.production[0][1] > 0:
                 continue
             unit_type, _ = f.production.pop(0)
@@ -6542,7 +6629,8 @@ void main() {
         for h in self.harbors:
             if not h.production:
                 continue
-            h.production[0][1] -= dt * self.game_speed
+            h.production[0][1] -= (dt * self.game_speed
+                                   * self._works_rate(h))
             if h.production[0][1] > 0:
                 continue
             unit_type, _ = h.production.pop(0)
@@ -6553,7 +6641,8 @@ void main() {
         for p_ in self.armyposts:
             if not p_.production:
                 continue
-            p_.production[0][1] -= dt * self.game_speed
+            p_.production[0][1] -= (dt * self.game_speed
+                                    * self._works_rate(p_))
             if p_.production[0][1] > 0:
                 continue
             unit_type, _ = p_.production.pop(0)
@@ -6994,6 +7083,10 @@ void main() {
         city.pending_tax = None
         city.tax_rate = TAX_DEFAULT
         city.production = []
+        # the old owner's directive dies with the flag: a track
+        # focus now BILLS THE TREASURY, and a captured town must
+        # not carry a standing purchase its new owner never made
+        city.focus = 'finance'
         city.refresh_marker()
         self._update_borders()
         for ai in self._nation_ais.values():
@@ -8722,8 +8815,9 @@ void main() {
         if city.pending_tax is not None:
             tax += " (%d%% NEXT)" % city.pending_tax
         focus_words = {
-            'finance': 'FINANCE', 'agriculture': 'AGRICULTURE',
-            'steel': 'STEEL WORKS', 'research': 'THE LABORATORIES',
+            'finance': 'FINANCE', 'agriculture': 'THE LAND',
+            'works': 'THE WORKS', 'laboratories': 'BUILDING LABS',
+            'research': 'RUNNING THE LABS',
             'base_army': 'RAISING AN ARMY BASE',
             'base_air': 'RAISING AN AIR BASE',
             'base_naval': 'RAISING A NAVAL BASE'}

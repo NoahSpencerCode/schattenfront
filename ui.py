@@ -2330,13 +2330,16 @@ class DraftFax:
 
 
 class CityFocusFax:
-    """The FORTNIGHT FOCUS for one city: pick the directive the town
-    works at, with this city's own numbers beside every choice."""
+    """THE CITY LEDGER: the town's three permanent tracks with
+    their level pips, its food balance, and the one directive it
+    works at this fortnight -- picked here."""
 
     def __init__(self, base, city, on_transmit, on_discard):
-        from config import (FOCUS_FINANCE_HEAL, FOCUS_AGRI_FOOD,
-                            FOCUS_AGRI_MAX, FOCUS_STEEL_OUT,
-                            FOCUS_STEEL_MAX, FOCUS_RESEARCH_RP_PER_M,
+        from config import (FOCUS_FINANCE_HEAL, TRACK_MAX_LEVEL,
+                            AGRI_FOOD_CUM, WORKS_SPEED_MULT,
+                            LAB_YIELD_MULT, CIVIL_RATION,
+                            OCCUPIED_RATION, BUDGET_PERIOD_DAYS,
+                            FOCUS_RESEARCH_RP_PER_M,
                             FOCUS_RESEARCH_RP_MIN, BASE_COSTS)
         self.base = base
         self.city = city
@@ -2347,26 +2350,38 @@ class CityFocusFax:
         f = base.hud_font
 
         rp = max(FOCUS_RESEARCH_RP_MIN,
-                 city.population / 1e6 * FOCUS_RESEARCH_RP_PER_M)
+                 city.population / 1e6 * FOCUS_RESEARCH_RP_PER_M) \
+            * LAB_YIELD_MULT[city.labs_level]
         heal_rev = int(city.gross_product() * FOCUS_FINANCE_HEAL
                        / 100.0 * city.tax_rate / 100.0)
+
+        def track_note(track, table, unit_word):
+            lvl = g.city_track_level(city, track)
+            cost = g.track_upgrade_cost(city, track)
+            if cost is None:
+                return "AT THE TOP -- LEVEL %d" % lvl, False
+            return ("NEXT: %s -- $%d, ONE FORTNIGHT"
+                    % (g._track_gain_word(city, track), cost)), True
+
+        agri_note, agri_ok = track_note('agriculture', AGRI_FOOD_CUM,
+                                        'T FOOD')
+        works_note, works_ok = track_note('works', WORKS_SPEED_MULT,
+                                          '')
+        labs_note, labs_ok = track_note('laboratories',
+                                        LAB_YIELD_MULT, '')
         rows = [
             ('finance', "INVEST IN FINANCE",
              "+%.0f INDUSTRY -- REVENUE RISES ~$%d/FTN"
-             % (FOCUS_FINANCE_HEAL, heal_rev), True),
-            ('agriculture', "INVEST IN AGRICULTURE",
-             "+1 LEVEL (%d/%d): +%d FOOD A FORTNIGHT, PERMANENT"
-             % (city.agri_level, FOCUS_AGRI_MAX, FOCUS_AGRI_FOOD),
-             city.agri_level < FOCUS_AGRI_MAX),
-            ('steel', "INVEST IN THE STEEL WORKS",
-             ("+1 LEVEL (%d/%d): +%d STEEL A FORTNIGHT, PERMANENT"
-              % (city.works_level, FOCUS_STEEL_MAX, FOCUS_STEEL_OUT))
-             if g.steel_city(city) else
-             "NO STEEL DEPOSIT AT THIS TOWN",
-             g.steel_city(city)
-             and city.works_level < FOCUS_STEEL_MAX),
-            ('research', "FUND THE LABORATORIES",
-             "+%.0f RESEARCH POINTS EACH FORTNIGHT" % rp, True),
+             % (FOCUS_FINANCE_HEAL, heal_rev), True, None),
+            ('agriculture', "WORK THE LAND", agri_note, agri_ok,
+             city.agri_level),
+            ('works', "EXPAND THE WORKS", works_note, works_ok,
+             city.works_level),
+            ('laboratories', "BUILD THE LABORATORIES", labs_note,
+             labs_ok, city.labs_level),
+            ('research', "RUN THE LABORATORIES",
+             "+%.0f RESEARCH POINTS EACH FORTNIGHT (x%.1f LABS)"
+             % (rp, LAB_YIELD_MULT[city.labs_level]), True, None),
         ]
         for kind, label in (('army', "RAISE AN ARMY BASE"),
                             ('air', "RAISE AN AIRFORCE BASE"),
@@ -2379,47 +2394,72 @@ class CityFocusFax:
                     if kind == 'naval' and not city.harbor else
                     "$%d + %d STEEL -- ONE FORTNIGHT, ONCE ONLY"
                     % (cost, steel))
-            rows.append(('base_%s' % kind, label, note, possible))
+            rows.append(('base_%s' % kind, label, note, possible,
+                         None))
         self.rows = rows
 
         sheet = FormSheet(
-            base, "FORTNIGHT FOCUS -- %s" % city.name.upper(),
+            base, "CITY LEDGER -- %s" % city.name.upper(),
             half_w=1.30, half_h=0.92,
             from_line="THE TOWN CLERK, %s" % city.name.upper(),
             re_line="THE TOWN WORKS AT ONE DIRECTIVE A FORTNIGHT")
         self.sheet = sheet
         self.frame = sheet.frame
 
-        # the directive table: DIRECTIVE | EFFECT | STATUS
-        cx_d, cx_e, cx_s = -1.22, -0.30, 1.00
-        sheet.header("DIRECTIVE", (cx_d, sheet.body_top))
-        sheet.header("EFFECT AT THIS TOWN", (cx_e, sheet.body_top))
-        sheet.header("STATUS", (cx_s + 0.10, sheet.body_top, ),
-                     0.032)
-        sheet.rule(cx_d, 1.22, sheet.body_top - 0.022, 0.0022)
-        sheet.vrule(-0.36, -0.62, sheet.body_top - 0.022, 0.0016,
-                    INK_FAINT)
-        sheet.vrule(0.94, -0.62, sheet.body_top - 0.022, 0.0016,
-                    INK_FAINT)
+        # THE FOOD BALANCE: what this town grows against what it eats
+        grows = g.city_food_output(city)
+        ration = OCCUPIED_RATION if city.annexing else CIVIL_RATION
+        eats = (city.population / 1e6) * ration * BUDGET_PERIOD_DAYS
+        bal = grows - eats
+        sheet.text(
+            "THE TOWN GROWS %d T OF FOOD A FORTNIGHT AND ITS "
+            "MOUTHS EAT %d -- NET %+d T"
+            % (grows, int(round(eats)), int(round(bal))),
+            (0, sheet.body_top + 0.006), 0.026,
+            (GREEN_INK if bal >= 0 else (0.62, 0.14, 0.10, 1.0)),
+            TextNode.ACenter)
+
+        # the directive table: DIRECTIVE | LEVEL | EFFECT | STATUS
+        cx_d, cx_p, cx_e, cx_s = -1.22, -0.34, 0.02, 1.02
+        top = sheet.body_top - 0.052
+        sheet.header("DIRECTIVE", (cx_d, top))
+        sheet.header("LEVEL", (cx_p, top))
+        sheet.header("EFFECT AT THIS TOWN", (cx_e, top))
+        sheet.header("STATUS", (cx_s + 0.08, top), 0.032)
+        sheet.rule(cx_d, 1.22, top - 0.022, 0.0022)
+        table_bot = top - 0.062 - 8 * 0.0705 + 0.028
+        sheet.vrule(-0.38, table_bot, top - 0.022, 0.0016, INK_FAINT)
+        sheet.vrule(-0.02, table_bot, top - 0.022, 0.0016, INK_FAINT)
+        sheet.vrule(0.96, table_bot, top - 0.022, 0.0016, INK_FAINT)
 
         self.marks = {}
-        y = sheet.body_top - 0.090
-        row_h = 0.128
-        for key, label, note, possible in rows:
+        y = top - 0.062
+        row_h = 0.0705
+        for key, label, note, possible, level in rows:
             if possible:
                 pill_button(self.frame, label, self._pick,
                             extraArgs=[key],
-                            pos=(-0.80, 0, y), hw=0.40, hh=0.040,
-                            text_scale=0.030, font=f)
+                            pos=(-0.81, 0, y), hw=0.39, hh=0.030,
+                            text_scale=0.026, font=f)
             else:
-                tn, _ = sheet.text(label, (-0.80, y - 0.012), 0.030,
-                                   INK_FAINT, TextNode.ACenter)
-            sheet.text(note, (cx_e, y - 0.012), 0.026, INK_FAINT)
-            mk, _ = sheet.text("", (cx_s + 0.11, y - 0.012), 0.028,
+                sheet.text(label, (-0.81, y - 0.010), 0.026,
+                           INK_FAINT, TextNode.ACenter)
+            if level is not None:
+                from config import TRACK_MAX_LEVEL as _TM
+                for k in range(_TM):
+                    filled = (k < level)
+                    sq = DirectFrame(
+                        parent=self.frame,
+                        frameColor=(INK if filled else
+                                    (INK[0], INK[1], INK[2], 0.15)),
+                        frameSize=(-0.012, 0.012, -0.012, 0.012),
+                        pos=(cx_p + 0.02 + k * 0.055, 0, y))
+            sheet.text(note, (cx_e, y - 0.010), 0.023, INK_FAINT)
+            mk, _ = sheet.text("", (cx_s + 0.09, y - 0.010), 0.026,
                                GREEN_INK, TextNode.ACenter)
             self.marks[key] = mk
             y -= row_h
-            sheet.rule(cx_d, 1.22, y + row_h - 0.066, 0.0014,
+            sheet.rule(cx_d, 1.22, y + row_h - 0.042, 0.0012,
                        (INK[0], INK[1], INK[2], 0.25))
 
         self._refresh()
@@ -2859,8 +2899,10 @@ class TechFax:
         labs = [x for x in g.cities
                 if x.country == c and x.focus == 'research'
                 and not x.annexing]
+        from config import LAB_YIELD_MULT as _LYM
         yield_rp = sum(max(FOCUS_RESEARCH_RP_MIN,
                            x.population / 1e6 * FOCUS_RESEARCH_RP_PER_M)
+                       * _LYM[getattr(x, 'labs_level', 0)]
                        for x in labs)
 
         top = self.sheet.body_top
