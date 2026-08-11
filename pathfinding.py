@@ -927,6 +927,24 @@ class MovementPlanner:
                         return rr, cc
         return None
 
+    def _pull_water(self, pts):
+        """STRING-PULL a sea route: every waypoint a clear water run
+        can skip is dropped, so the column sails the straight reach
+        and turns only where land actually forces it. The raster
+        repairs walk cell by cell and HUG THE COAST without this --
+        a ship rounding a cape crawled the shoreline half the way."""
+        out = [pts[0]]
+        i = 0
+        while i < len(pts) - 1:
+            j = len(pts) - 1
+            while j > i + 1:
+                if self.segment_water_ok(pts[i], pts[j]):
+                    break
+                j -= 1
+            out.append(pts[j])
+            i = j
+        return out
+
     def plan_sea(self, start_vec, goal_vec):
         if self._sea_grid is None:
             self._build_sea_grid()
@@ -936,7 +954,9 @@ class MovementPlanner:
             fine = self._refine_grid_once(start_vec, goal_vec, 1.2,
                                           120000, want_water=True)
             if fine is not None:
-                return [(Vec3(v), 1.0) for v in fine]
+                pulled = self._pull_water([Vec3(start_vec)]
+                                          + [Vec3(v) for v in fine])
+                return [(Vec3(v), 1.0) for v in pulled[1:]]
         s_lat, s_lon = vec_to_latlon(start_vec)
         g_lat, g_lon = vec_to_latlon(goal_vec)
         start = self._nearest_water_cell(*self._cell_of(s_lat, s_lon))
@@ -1028,6 +1048,9 @@ class MovementPlanner:
                 repaired.append(b)
             else:
                 repaired.extend(self._refine_hop(a, b))
+        # the repairs hug the coast: pull the whole finished route
+        # taut so only the forced corners survive
+        repaired = self._pull_water(repaired)
         result = [(v, 1.0) for v in repaired[1:]]
         if len(self._sea_route_cache) > 48:
             self._sea_route_cache.clear()

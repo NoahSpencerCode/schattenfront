@@ -146,6 +146,7 @@ def snapshot(game):
     for u in units:
         row = {
             'type': u.unit_type, 'country': u.country,
+            'station': bool(getattr(u, 'is_supply_station', False)),
             'pos': _vec(u.pos), 'hp': u.hp, 'supply': u.supply,
             'flown': getattr(u, '_flown', 0.0),
         }
@@ -568,6 +569,13 @@ def restore(game, data):
         for row in data['units']:
             u = Unit(g, row['type'], row['country'], _v3(row['pos']))
             u.hp = row['hp']
+            if row.get('station'):
+                u.is_supply_station = True
+                from game import _ShipCache
+                u._cache_face = _ShipCache(u)
+                from models import _icon_texture
+                u.counter.setTexture(_icon_texture(
+                    g.loader, 'supply_station', 'unit', u.country))
             u.supply = row['supply']
             u._flown = row.get('flown', 0.0)
             g.units.append(u)

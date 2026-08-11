@@ -496,7 +496,11 @@ class WikiFax:
             "  The frontier binds the lorries too: no errand "
             "runs through a closed country.",
             "SUPPLY SHIPS feed warships, carriers' air stock and "
-            "columns ashore.",
+            "columns ashore --",
+            "  or ANCHOR as a floating supply station: a port that "
+            "floats, stored",
+            "  into and drawn from by the chain. At anchor she "
+            "cannot make way.",
             "Hand-over happens within %.0f mi." %
             _mi(C.SUPPLY_TRANSFER_RANGE),
         ], L, t - 0.485)
@@ -700,7 +704,10 @@ class WikiFax:
                                           * C.VISION_SCALE
                                           * C.AIR_VISION_MULT))
             if ut not in tech.BASE_UNITS:
-                notes.append("RESEARCH")
+                notes.append("RESEARCH (USA AND JAPAN SAIL THEIRS "
+                             "FROM DAY ONE)"
+                             if ut == 'aircraft_carrier'
+                             else "RESEARCH")
             self.text("; ".join(notes) if notes else "--",
                       (0.52, y), 0.0215, INK_FAINT)
             self.rule(L, R, y - row_h / 2.0 + 0.012, 0.0012)

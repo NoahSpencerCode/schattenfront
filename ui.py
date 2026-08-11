@@ -359,6 +359,10 @@ class TopBar:
             right = self.base.getAspectRatio()
         except Exception:
             right = 4.0 / 3.0
+        # the strip PLATE runs wall to wall whatever the window --
+        # an ultrawide screen used to see it end mid-air at x=2
+        w = max(2.0, right)
+        self.frame['frameSize'] = (-w, w, -0.155, 0.0)
         self.content.setScale(min(1.0, right / self.LAYOUT_HALF))
 
     def set_stats(self, stats):
@@ -533,27 +537,44 @@ class BottomBar:
             b.destroy()
         self.buttons = []
 
-    def add_buttons(self, entries):
+    def add_buttons(self, entries, actions=(), big=False):
         """entries: (label, command, extraArgs[, icon_path[, selected
         [, tip[, dim]]]]).  Every control is a SQUARE console key
         bearing an icon; the full name rides a hover tooltip and a
         short label (an hp readout, a cost) prints as a caption under
         the icon.  A truthy 'selected' draws a white halo.  A truthy
         'dim' greys the whole key out -- not ready (no crew, still on
-        the ways); the tooltip still explains why. Two rows of 16."""
+        the ways); the tooltip still explains why.
+        ORDERS AND ROSTER NEVER MIX: 'actions' keys stand from the
+        LEFT edge, 'entries' (the units) muster from the RIGHT.
+        big=True (base and transport menus) wears keys 30% larger."""
         self.clear_buttons()
         self.set_hint('')
-        per_row = 16
-        side = 0.050
-        for i, entry in enumerate(entries[:32]):
+        per_row = 12 if big else 16
+        side = 0.065 if big else 0.050
+        pitch = 0.146 if big else 0.112
+        placed = []
+        for i, entry in enumerate(tuple(actions)[:per_row]):
+            placed.append((i, 0, entry))
+        n_act = len(placed)
+        ents = list(entries)[:32]
+        idx, row_i = 0, 0
+        while idx < len(ents) and row_i < 2:
+            room = per_row - (n_act if row_i == 0 else 0)
+            take = min(room, len(ents) - idx)
+            start_col = per_row - take
+            for k in range(take):
+                placed.append((start_col + k, row_i, ents[idx + k]))
+            idx += take
+            row_i += 1
+        for col, row, entry in placed:
             label, command, args = entry[0], entry[1], entry[2]
             icon = entry[3] if len(entry) > 3 else None
             selected = entry[4] if len(entry) > 4 else False
             tip = entry[5] if len(entry) > 5 else label
             dim = entry[6] if len(entry) > 6 else False
-            row, col = divmod(i, per_row)
-            x = -1.19 + col * 0.112
-            y = 0.166 - row * 0.112
+            x = -1.19 + col * pitch
+            y = 0.166 - row * pitch
             if selected:
                 # white halo behind the key = selected indicator
                 border = DirectFrame(parent=self.frame,
@@ -568,10 +589,17 @@ class BottomBar:
                               font=self.base.hud_font)
             if icon:
                 # a captioned key rides its icon high to clear the
-                # chip; a bare key wears the icon dead centre
+                # chip; a bare key wears the icon dead centre. A
+                # FIELD SPRITE (arm B) rides like a map counter:
+                # turned 45 degrees and blown up to fill the key
+                sprite = '/units/' in str(icon).replace('\\\\', '/')
                 pic_z = 0.012 if (label and len(label) <= 8) else 0.0
                 pic = OnscreenImage(image=icon, parent=btn,
-                                    scale=0.044, pos=(0, 0, pic_z))
+                                    scale=(side * 0.92 if sprite
+                                           else 0.044 * side / 0.050),
+                                    pos=(0, 0, pic_z))
+                if sprite:
+                    pic.setR(45)
                 pic.setTransparency(True)
                 crisp_image(pic)
                 if label and len(label) <= 8:
@@ -2007,15 +2035,25 @@ class BudgetFax:
                 sheet.rule(x, x + 1.16, y - 0.016, 0.0022, INK_FAINT)
                 continue
             ut, stats, available = row[1], row[2], row[3]
-            ic = DirectFrame(parent=self.frame, relief=None,
-                             frameColor=(0, 0, 0, 0),
-                             image=unit_ui_icon(ut),
-                             image_scale=0.026,
-                             frameSize=(-0.027, 0.027, -0.027, 0.027),
-                             pos=(x + 0.024, 0, y + 0.009))
+            ipath = unit_ui_icon(ut)
+            sprite = '/units/' in str(ipath).replace('\\\\', '/')
+            ic = DirectButton(parent=self.frame, relief=None,
+                              frameColor=(0, 0, 0, 0),
+                              image=ipath,
+                              image_scale=0.036,
+                              frameSize=(-0.038, 0.038,
+                                         -0.038, 0.038),
+                              pos=(x + 0.028, 0, y + 0.009),
+                              command=self.game.open_unit_briefing,
+                              extraArgs=[ut])
+            if sprite:
+                ic['image_hpr'] = (0, 0, 45)
             ic.setTransparency(True)
             crisp_image(ic)
-            sheet.text(stats['label'][:24], (x + 0.06, y), 0.028)
+            add_tooltip(ic, "%s -- CLICK FOR THE SERVICE BRIEFING"
+                        % stats['label'].upper(),
+                        font=self.base.hud_font)
+            sheet.text(stats['label'][:24], (x + 0.075, y), 0.028)
             mat = self.mat_costs.get(ut, {})
             cost_s = "$%d" % stats['cost']
             if mat.get('steel'):

@@ -670,6 +670,7 @@ class Unit:
         self.alive = True
         self.visible_to_player = False
         self.in_contact = True            # inside a friendly comm circle
+        self.is_supply_station = False    # riding at anchor as a depot
 
         # aircraft: where the machine is parked / where the flight ends
         self.based_at = None              # Airfield or carrier Unit
@@ -904,6 +905,14 @@ class Unit:
         self.plan_pending = None
 
     def give_order(self, order, queue=False):
+        if self.is_supply_station:
+            # SHE IS A STATION: no order moves her until the anchor
+            # comes up (auto errands stay silent)
+            if (self.game and not order.get('auto')
+                    and self.country == self.game.player_country):
+                self.game.fax_short("SHE RIDES AT ANCHOR -- WEIGH "
+                                    "ANCHOR TO MAKE WAY")
+            return
         if not queue:
             self.clear_orders()
             # a DIRECT order from the hand outranks every standing

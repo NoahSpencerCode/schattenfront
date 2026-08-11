@@ -750,5 +750,9 @@
 "units/heavy_cruiser.png": {
 "h": "24ece4578d8151ff81383d30e698462d",
 "v": 17
+},
+"units/supply_station.png": {
+"h": "b5fa2312d59e14c28a650b36f7464204",
+"v": 17
 }
 }

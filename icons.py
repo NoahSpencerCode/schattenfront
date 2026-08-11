@@ -437,6 +437,21 @@ def _draw_info_button(d, ink):
     d.rectangle([35, 70, 61, 77], fill=col)                   # serif base
 
 
+def _draw_anchor_button(d, ink):
+    """Parchment button bearing an ANCHOR: a supply ship rides at
+    anchor as a floating supply station."""
+    d.rounded_rectangle([5, 5, 90, 90], radius=22,
+                        fill=(216, 205, 168, 255),
+                        outline=(54, 44, 34, 255), width=6)
+    col = (44, 35, 26, 255)
+    d.ellipse([41, 16, 55, 30], outline=col, width=5)      # the ring
+    d.rounded_rectangle([44, 30, 52, 66], radius=3, fill=col)  # shank
+    d.rectangle([32, 36, 64, 42], fill=col)                # the stock
+    d.arc([26, 44, 70, 82], start=20, end=160, fill=col, width=6)
+    d.polygon([(26, 62), (34, 66), (28, 72)], fill=col)    # flukes
+    d.polygon([(70, 62), (62, 66), (68, 72)], fill=col)
+
+
 def _draw_menu_button(d, ink):
     """Parchment button bearing the three-bar stack: opens the FIELD
     ORDERS menu from the top bar (the same menu ESC summons)."""
@@ -902,6 +917,7 @@ _DRAWERS = {
     'harbor': _draw_harbor,
     'factory_button': _draw_factory_button,
     'menu_button': _draw_menu_button,
+    'anchor_button': _draw_anchor_button,
     'tax_button': _draw_tax_button,
     'depot': _draw_depot,
     'bunker': _draw_bunker,
@@ -1465,6 +1481,9 @@ _TOP_DOWN = {
     'airforce_command': _tu_air_command,
     'transport_air': _tu_transport_air,
     'supply_ship': _tu_supply_ship,
+    # the FLOATING SUPPLY STATION wears the ship's own art for now
+    # (a proper anchored sprite is on the artist's list)
+    'supply_station': _tu_supply_ship,
     'artillery': _tu_artillery,
     'heavy_tank': _tu_heavy_tank,
     'heavy_bomber': _tu_heavy_bomber,

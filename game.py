@@ -270,6 +270,37 @@ ROAD_CHUNK_HP = 120.0
 ROAD_SECTION_LEN = 0.45         # world units per section (ends trim)
 
 
+class _ShipCache:
+    """An anchored supply ship wearing a depot's interface: the
+    cache-exchange loop reads .stock/.STOCK_CAP/.pos/.country, and
+    the adapter is LONG-LIVED (made once at anchoring) so the
+    drew-from identity guard holds between ticks."""
+    __slots__ = ('u',)
+
+    def __init__(self, u):
+        self.u = u
+
+    @property
+    def stock(self):
+        return self.u.supply
+
+    @stock.setter
+    def stock(self, v):
+        self.u.supply = v
+
+    @property
+    def STOCK_CAP(self):
+        return self.u.stats['supply_cap']
+
+    @property
+    def pos(self):
+        return self.u.pos
+
+    @property
+    def country(self):
+        return self.u.country
+
+
 class RoadSection:
     """One consistent-length stretch of roadway: its own geometry,
     its own hit points. Bomb it out and exactly THIS section vanishes
@@ -391,7 +422,7 @@ class WW2RTSGame(ShowBase):
         # on sheets and keys, arm B the units' own top-down field
         # sprites. Flipped from Settings, kept on file.
         self.unit_sprites_ui = bool(
-            self.settings.get('unit_sprites_ui', False))
+            self.settings.get('unit_sprites_ui', True))
 
         # (window size is clamped to the display in main.py before the
         # window opens; the old setMaximized request here was a no-op --
@@ -1358,6 +1389,14 @@ class WW2RTSGame(ShowBase):
             navy_seat = coastal[0] if coastal else None
         if navy_seat is not None:
             self._found_base(navy_seat, 'naval', announce=False)
+        if faction == 'usa':
+            # A TWO-OCEAN NATION: a second full base set stands at
+            # Los Angeles -- no other power opens with two of each
+            la_c = next((c for c in towns
+                         if c.name == 'Los Angeles'), None)
+            if la_c is not None:
+                for kind in ('army', 'air', 'naval'):
+                    self._found_base(la_c, kind, announce=False)
         for i, ut in enumerate(STARTING_PARK):
             u = self.spawn_unit(ut, faction, army_seat.lat,
                                 army_seat.lon, jitter=0.25,
@@ -1738,6 +1777,19 @@ class WW2RTSGame(ShowBase):
         ('supply_truck', 2), ('transport_truck', 2),
         ('fighter', 2),
     )
+    # THE CARRIER POWERS open navy-first: the flat-top and a heavier
+    # screen put to sea, and the garage thins to pay for it
+    NAVY_OPENING_SLATE = (
+        ('army_command', 1), ('naval_command', 1),
+        ('airforce_command', 1),
+        ('aircraft_carrier', 1),
+        ('supply_ship', 3), ('destroyer_sea_sea', 3),
+        ('destroyer_aa', 1), ('battleship', 1),
+        ('personnel_transport', 2),
+        ('aa_artillery', 1), ('tank', 1),
+        ('supply_truck', 2), ('transport_truck', 1),
+        ('fighter', 2),
+    )
 
     def _default_budget_counts(self, country, funds):
         """The opening appropriation, deliberately modest: a command
@@ -1748,7 +1800,10 @@ class WW2RTSGame(ShowBase):
         allowed = unlocked_units(country, self.researched[country])
         counts = {}
         spent = 0
-        for ut, n in self.OPENING_SLATE:
+        slate = (self.NAVY_OPENING_SLATE
+                 if country in ('usa', 'japan')
+                 else self.OPENING_SLATE)
+        for ut, n in slate:
             if ut not in allowed or ut not in NATION_UNIT_STATS[country]:
                 continue
             if UNIT_TYPES[ut]['domain'] == 'sea' and not has_harbor:
@@ -5255,6 +5310,33 @@ class WW2RTSGame(ShowBase):
             B(self._grid_ref(bridge.lat, bridge.lon)),
             sender="ENGINEER CORPS")
 
+    def toggle_supply_station(self, u):
+        """A supply ship rides at anchor as a FLOATING SUPPLY
+        STATION: she cannot make way, and the chain treats her as a
+        port that floats -- carriers dump into her and draw from
+        her, and she issues to everything in sight as she always
+        did. Weigh anchor and she is a ship again."""
+        if (u.unit_type != 'supply_ship' or not u.alive
+                or u.country != self.player_country):
+            return
+        u.is_supply_station = not getattr(u, 'is_supply_station',
+                                          False)
+        if u.is_supply_station:
+            u.clear_orders()
+            u.path = []
+            if not hasattr(u, '_cache_face'):
+                u._cache_face = _ShipCache(u)
+            art = 'supply_station'
+            self.fax_short("SHE RIDES AT ANCHOR -- A FLOATING "
+                           "SUPPLY STATION ON THE CHAIN")
+        else:
+            art = 'supply_ship'
+            self.fax_short("ANCHOR AWEIGH -- SHE MAKES WAY AGAIN")
+        from models import _icon_texture
+        u.counter.setTexture(
+            _icon_texture(self.loader, art, 'unit', u.country))
+        self._refresh_selection_ui()
+
     def _decommission_clicked(self, st):
         """A struck work is GONE: the key wants a second click
         within five seconds before the charge goes in."""
@@ -6174,6 +6256,7 @@ void main() {
         for u in self.units:
             if (not u.alive or u.carried_by
                     or getattr(u, 'deployed', False)
+                    or getattr(u, 'is_supply_station', False)
                     or self.is_parked(u)
                     or u.current_order or u.order_queue or u.path
                     or getattr(u, 'plan_pending', None)):
@@ -6238,8 +6321,14 @@ void main() {
                     push = (nrt * math.cos(ang)
                             + nrt.cross(Vec3(u.pos)) * math.sin(ang))
                 push.normalize()
-                nxt = Vec3(u.pos) + push * ((want - gap) * 0.8
-                                            / GLOBE_RADIUS)
+                # AT MARCHING PACE, NOT BY TELEPORT: the ease-aside
+                # is capped at the ground the man could actually
+                # cover in one sweep period, so a pile flows apart
+                # instead of popping
+                pace = (u.stats['speed'] * UNIT_SPEED_FACTOR
+                        * self.game_speed * 0.4)
+                shove = min((want - gap) * 0.8, max(pace, 1e-5))
+                nxt = Vec3(u.pos) + push * (shove / GLOBE_RADIUS)
                 nxt.normalize()
                 la, lo = vec_to_latlon(nxt)
                 if u.stats['domain'] == 'land':
@@ -6298,11 +6387,16 @@ void main() {
         # 2) the caches -- depots inland, HARBOURS on the coast: the
         # carriers of either element exchange with them, nearby units
         # draw; a chain can therefore cross an ocean quay to quay
-        for d in list(self.depots) + list(self.harbors):
+        stations = [u2._cache_face for u2 in units
+                    if u2.alive and not u2.carried_by
+                    and getattr(u2, 'is_supply_station', False)]
+        for d in list(self.depots) + list(self.harbors) + stations:
             d_cap = d.STOCK_CAP
             for u in units:
                 if not u.alive or u.carried_by or u.country != d.country:
                     continue
+                if isinstance(d, _ShipCache) and u is d.u:
+                    continue        # she does not pump to herself
                 if u.dist_to(d.pos) > self._cache_reach(d):
                     continue
                 cap = u.stats['supply_cap']
@@ -6431,8 +6525,11 @@ void main() {
     @staticmethod
     def _cache_reach(d):
         """Exchange radius: a quay serves across the waterline, a
-        depot only its own yard."""
-        return 0.35 if isinstance(d, Harbor) else 0.2
+        depot only its own yard. A floating supply station is a
+        quay that happens to float."""
+        if isinstance(d, (Harbor, _ShipCache)):
+            return 0.35
+        return 0.2
 
     def _move_cost_lbs(self, u, d_wu):
         """Stores burnt driving d_wu world units (halfway between
@@ -8583,9 +8680,9 @@ void main() {
                 "ENEMY FIRE STRIKES AT ONE QUARTER WITHIN THE "
                 "WALLS; NO VEHICLE PASSES THE PERIMETER"
                 % (int(b.hp), int(b.max_hp), sheltered))
-            bar.add_buttons([self._decommission_entry(b)]
-                            if b.country == self.player_country
-                            else [])
+            bar.add_buttons([], actions=(
+                [self._decommission_entry(b)]
+                if b.country == self.player_country else []))
             bar.set_hint("INFANTRY WITHIN THE PERIMETER FIGHT "
                          "UNDER COVER")
             return
@@ -8715,13 +8812,16 @@ void main() {
                                         "FIELD"))
                     entries += [("%d/%d" % (int(p.hp), p.max_hp),
                                  self._noop, [],
-                                 get_icon_path(p.unit_type, 'dark'),
+                                 unit_ui_icon(p.unit_type, p.country),
                                  False,
                                  "%s -- STRENGTH %d/%d" %
                                  (p.stats['label'].upper(),
                                   int(p.hp), p.max_hp))
                                 for p in u.cargo]
-                    bar.add_buttons(entries)
+                    bar.add_buttons(entries[1:] if u.cargo
+                                    else entries,
+                                    actions=entries[:1] if u.cargo
+                                    else (), big=True)
                     bar.set_hint(
                         "RMB PLOTS WAYPOINTS -- ENTER FLIES THE LIFT -- "
                         "RMB LAND UNITS ONTO THE FIELD TO BOARD")
@@ -8772,7 +8872,7 @@ void main() {
             bar.set_info("STRENGTH %d/%d%s" % (int(u.hp), u.max_hp, extra))
             if u.unit_type == 'submarine':
                 down = getattr(u, 'submerged', False)
-                bar.add_buttons([
+                bar.add_buttons([], actions=[
                     ("", self.toggle_submerge, [u],
                      get_icon_path('surface_button' if down
                                    else 'submerge_button', 'dark'),
@@ -8786,7 +8886,7 @@ void main() {
                 return
             if u.unit_type == 'blimp':
                 up = getattr(u, 'deployed', False)
-                bar.add_buttons([
+                bar.add_buttons([], actions=[
                     ("", self.toggle_blimp, [u],
                      get_icon_path('blimp_lower_button' if up
                                    else 'blimp_raise_button', 'dark'),
@@ -8798,22 +8898,39 @@ void main() {
                              "ANY AIRCRAFT -- WINCH DOWN TO MOVE THE "
                              "STATION")
                 return
+            if u.unit_type == 'supply_ship':
+                anchored = getattr(u, 'is_supply_station', False)
+                bar.add_buttons([], actions=[
+                    ("", self.toggle_supply_station, [u],
+                     get_icon_path('anchor_button', 'dark'), anchored,
+                     "WEIGH ANCHOR -- SHE MAKES WAY AGAIN" if anchored
+                     else "ANCHOR AS A FLOATING SUPPLY STATION -- "
+                          "SHE CANNOT MOVE, AND THE CHAIN TREATS "
+                          "HER AS A PORT")])
+                bar.set_hint(
+                    "A STATION AT ANCHOR STORES AND ISSUES LIKE A "
+                    "QUAY -- CARRIERS DUMP INTO HER AND DRAW FROM "
+                    "HER" if anchored else
+                    "SUPPLY SHIPS FEED EVERYTHING IN SIGHT -- OR "
+                    "ANCHOR ONE AS A FLOATING STATION ON THE CHAIN")
+                return
             if u.cargo:
                 entries = [("%d/%d" % (int(p.hp), p.max_hp),
                             self._noop, [],
-                            get_icon_path(p.unit_type, 'dark'), False,
+                            unit_ui_icon(p.unit_type, p.country),
+                            False,
                             "%s -- STRENGTH %d/%d" %
                             (p.stats['label'].upper(),
                              int(p.hp), p.max_hp))
                            for p in u.cargo]
                 para = u.stats.get('paradrop')
-                entries.insert(0, (
+                acts = [(
                     "", self._arm_unload, [],
                     get_icon_path('paradrop_button' if para
                                   else 'unload_button', 'dark'), False,
                     "%s -- ARM, THEN RMB THE SITE" %
-                    ("PARADROP" if para else "UNLOAD")))
-                bar.add_buttons(entries)
+                    ("PARADROP" if para else "UNLOAD"))]
+                bar.add_buttons(entries, actions=acts, big=True)
         else:
             counts = {}
             for u in self.selected:
@@ -8848,12 +8965,12 @@ void main() {
             "SUPPLIED BY THE CITY -- NEW VEHICLES ROLL OUT THE "
             "GATE THE MOMENT THEY ARE FINISHED")
 
-    def _paged_entries(self, entries, page_attr):
+    def _paged_entries(self, entries, page_attr, per=14):
         """A menu holding more keys than one row carries: slice into
         pages, with < and > keys at the ends of the visible run. A
-        page never wraps to a second row: 14 entries plus the two
-        arrows fill exactly the row of 16."""
-        per = 14
+        page never wraps to a second row: the default 14 entries
+        plus the two arrows fill exactly the row of 16 (big-key
+        menus pass a smaller page)."""
         n = len(entries)
         if n <= per:
             return entries
@@ -8894,7 +9011,8 @@ void main() {
                             (info['label'].upper(),
                              max(0, int(t_left))), True))
         bar.add_buttons(self._paged_entries(entries,
-                                                '_station_page'))
+                                            '_station_page', per=10),
+                        big=True)
         bar.set_hint(hint)
 
     def _unload_parked(self, transport):
@@ -8950,7 +9068,7 @@ void main() {
         if wing or garrison:
             entries = [("%d/%d" % (int(p.hp), p.max_hp),
                         self._select_embarked, [p],
-                        get_icon_path(p.unit_type, 'dark'),
+                        unit_ui_icon(p.unit_type, p.country),
                         p in self.selected,
                         "%s -- STRENGTH %d/%d" %
                         (p.stats['label'].upper(), int(p.hp), p.max_hp))
@@ -8958,7 +9076,7 @@ void main() {
             # section two: the land garrison stored on the field
             entries += [("%d/%d" % (int(u.hp), u.max_hp),
                          self._select_garrison, [u],
-                         get_icon_path(u.unit_type, 'dark'),
+                         unit_ui_icon(u.unit_type, u.country),
                          u in self.garrison_sel,
                          "%s (STORED) -- STRENGTH %d/%d" %
                          (u.stats['label'].upper(), int(u.hp), u.max_hp))
@@ -8967,12 +9085,15 @@ void main() {
                        if p in self.selected and p.sortie_plan]
             # an engineer-built field the player owns carries the
             # STRIKE key (a BASE is the city's and stands)
+            acts = []
             if (not is_carrier
                     and base.country == self.player_country
                     and not getattr(base, 'is_base', False)):
-                entries.append(self._decommission_entry(base))
+                acts.append(self._decommission_entry(base))
             bar.add_buttons(self._paged_entries(entries,
-                                                '_roster_page'))
+                                                '_roster_page',
+                                                per=9),
+                            actions=acts, big=True)
             n = sum(1 for p in wing if p in self.selected)
             if planned:
                 lead = planned[0]
@@ -9014,9 +9135,9 @@ void main() {
                      ("{:,}".format(int(depot.stock)),
                       "{:,}".format(int(_CAP)), pct,
                       COUNTRIES[depot.country]['name'].upper()))
-        bar.add_buttons([self._decommission_entry(depot)]
-                        if depot.country == self.player_country
-                        else [])
+        bar.add_buttons([], actions=(
+            [self._decommission_entry(depot)]
+            if depot.country == self.player_country else []))
         bar.set_hint("JOBLESS LORRIES DUMP STORES HERE; LORRIES ON A "
                      "CALL DRAW FROM IT -- SITE DEPOTS FORWARD TO "
                      "STAGE THE CHAIN")

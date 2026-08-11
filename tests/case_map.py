@@ -1,6 +1,8 @@
-"""The map: one base of each type per power, each standing on the
-map's own station site so the spur road already drawn there serves
-it -- and NO spur drawn to a site nobody built on."""
+"""The map: one base of each type per power (the USA, a two-ocean
+nation, opens with TWO -- the second full set at Los Angeles), each
+standing on the map's own station site so the spur road already
+drawn there serves it -- and NO spur drawn to a site nobody built
+on."""
 from harness import boot, check, finish
 from utils import angle_between, latlon_to_vec
 from config import GLOBE_RADIUS, PLAYABLE
@@ -12,9 +14,17 @@ for nat in PLAYABLE:
     army = [p for p in g.armyposts if p.country == nat]
     air = [a for a in g.airfields if a.country == nat and a.is_base]
     navy = [h for h in g.harbors if h.country == nat and h.is_base]
-    check(len(army) == 1 and len(air) == 1 and len(navy) == 1,
-          "%s opens with one of each base (%d/%d/%d)"
-          % (nat, len(army), len(air), len(navy)))
+    want = 2 if nat == 'usa' else 1
+    check(len(army) == want and len(air) == want
+          and len(navy) == want,
+          "%s opens with %d of each base (%d/%d/%d)"
+          % (nat, want, len(army), len(air), len(navy)))
+    if nat == 'usa':
+        la = [b for b in army + air + navy
+              if b.city and b.city.name == 'Los Angeles']
+        check(len(la) == 3,
+              "the second American set stands at Los Angeles (%d)"
+              % len(la))
 
 # --- nothing else stands: PORTS and AIRFIELDS are the engineers'
 check(not [h for h in g.harbors if not h.is_base],
@@ -22,10 +32,14 @@ check(not [h for h in g.harbors if not h.is_base],
 check(not [a for a in g.airfields if not a.is_base],
       "no AIRFIELD stands at the bell")
 
-# --- every base stands on the map's OWN site (which has a spur)
+# --- every base stands on the map's OWN site (which has a spur);
+# a town the map drew no site for (Los Angeles' second set) lays
+# its spur by the map's own rule instead, checked by the road test
 for b in g.armyposts + g.airfields + g.harbors:
     kind = ('army' if b in g.armyposts else
             'air' if b in g.airfields else 'naval')
+    if b.city and b.city.name == 'Los Angeles':
+        continue
     check(g.base_site(b.city, kind)[2],
           "%s stands on the map's station site" % b.name)
 
