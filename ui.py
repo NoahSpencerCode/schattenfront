@@ -2151,7 +2151,7 @@ class BriefingFax:
     HALF_W = HALF_H * 8.5 / 11.0
     MARGIN_X = 0.06
 
-    def __init__(self, base, title, lines, on_close):
+    def __init__(self, base, title, lines, on_close, icon_ut=None):
         self.base = base
         self.on_close = on_close
         f = base.hud_font
@@ -2162,6 +2162,20 @@ class BriefingFax:
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
                     frameSize=(-W, W, H - 0.02, H))
+        if icon_ut:
+            # THE SUBJECT'S OWN MARK, large, on the sheet's shoulder
+            ipath = unit_ui_icon(icon_ut)
+            sprite = '/units/' in str(ipath).replace('\\\\', '/')
+            ic = DirectFrame(parent=self.frame, relief=None,
+                             frameColor=(0, 0, 0, 0),
+                             image=ipath, image_scale=0.155,
+                             frameSize=(-0.16, 0.16, -0.16, 0.16),
+                             pos=(W - 0.24, 0, H - 0.30),
+                             state=DGG.DISABLED)
+            if sprite:
+                ic['image_hpr'] = (0, 0, 45)
+            ic.setTransparency(True)
+            crisp_image(ic)
 
         def measure(txt):
             tn = TextNode('m')
@@ -3076,14 +3090,18 @@ class TechFax:
             shown = [u for u in node['unlocks']
                      if u != 'radar_station']
             for k, u in enumerate(shown[:3]):
+                ipath = unit_ui_icon(u)
+                sprite = '/units/' in str(ipath).replace('\\\\', '/')
                 ic = DirectFrame(
                     parent=self.frame, relief=None,
                     frameColor=(0, 0, 0, 0),
-                    image=get_icon_path(u, 'dark'),
-                    image_scale=0.026,
+                    image=ipath,
+                    image_scale=0.030 if sprite else 0.026,
                     frameSize=(-0.026, 0.026, -0.026, 0.026),
                     pos=(cx - self.CARD_W + 0.045 + k * 0.058,
                          0, cy - 0.042))
+                if sprite:
+                    ic['image_hpr'] = (0, 0, 45)
                 ic.setTransparency(True)
                 crisp_image(ic)
                 if not (done or avail):

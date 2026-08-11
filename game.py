@@ -185,19 +185,35 @@ class City:
     def show_capture_banner(self, need):
         txt = ">CAPTURE< (-%d)" % need
         if self.cap_np is None:
+            # A REAL KEY, not bare ink: the banner wears the same
+            # red pill as SCRAMBLE, floating over the town's name
+            from icons import button_assets
+            from panda3d.core import CardMaker
+            root = self.label.attachNewNode('capture_banner')
+            root.setPos(0, 0, 1.42)
+            root.setTransparency(TransparencyAttrib.MAlpha)
+            (imgs, phw, phh) = button_assets('red', 1.9, 0.44,
+                                             corner=0.42)
+            cm = CardMaker('cap_pill')
+            cm.setFrame(-phw, phw, -phh, phh)
+            pill = root.attachNewNode(cm.generate())
+            tex = self.game.loader.loadTexture(imgs[0])
+            tex.setMinfilter(SamplerState.FT_linear_mipmap_linear)
+            pill.setTexture(tex)
             tn = TextNode('capture_%s' % self.name)
             tn.setAlign(TextNode.ACenter)
             if self.game.hud_font:
                 tn.setFont(self.game.hud_font)
-            tn.setTextColor(0.95, 0.25, 0.15, 0.9)
-            tn.setShadow(0.06, 0.06)
-            tn.setShadowColor(0.05, 0.02, 0.02, 0.85)
+            tn.setTextColor(0.97, 0.90, 0.80, 1.0)
+            tn.setShadow(0.05, 0.05)
+            tn.setShadowColor(0.10, 0.03, 0.02, 0.9)
             self.cap_tn = tn
-            self.cap_np = self.label.attachNewNode(tn)
-            self.cap_np.setPos(0, 0, 1.35)
-            self.cap_np.setScale(0.72)
-            self.cap_np.setTransparency(TransparencyAttrib.MAlpha)
-            set_marker_layer(self.cap_np, LAYER_STRUCT + 4)
+            txt_np = root.attachNewNode(tn)
+            txt_np.setScale(0.62)
+            txt_np.setPos(0, 0, -0.20)
+            self.cap_np = root
+            set_marker_layer(pill, LAYER_STRUCT + 4)
+            set_marker_layer(txt_np, LAYER_STRUCT + 5)
         if txt != self._cap_txt:
             self.cap_tn.setText(txt)
             self._cap_txt = txt
@@ -1582,8 +1598,13 @@ class WW2RTSGame(ShowBase):
         b = pill_button(self.a2dRightCenter, '', self._idle_clicked,
                         extraArgs=[ut], pos=(-0.075, 0, 0.40),
                         hw=0.048, hh=0.048, corner=0.30)
-        pic = OnscreenImage(image=unit_ui_icon(ut),
-                            parent=b, scale=0.032, pos=(0, 0, 0.004))
+        ipath = unit_ui_icon(ut)
+        sprite = '/units/' in str(ipath).replace('\\\\', '/')
+        pic = OnscreenImage(image=ipath, parent=b,
+                            scale=(0.048 * 0.92 if sprite else 0.032),
+                            pos=(0, 0, 0.004))
+        if sprite:
+            pic.setR(45)
         pic.setTransparency(True)
         crisp_image(pic)
         tn = TextNode('idle_' + ut)
@@ -1783,9 +1804,9 @@ class WW2RTSGame(ShowBase):
         ('army_command', 1), ('naval_command', 1),
         ('airforce_command', 1),
         ('aircraft_carrier', 1),
-        ('supply_ship', 3), ('destroyer_sea_sea', 3),
+        ('supply_ship', 4), ('destroyer_sea_sea', 3),
         ('destroyer_aa', 1), ('battleship', 1),
-        ('personnel_transport', 2),
+        ('personnel_transport', 4),
         ('aa_artillery', 1), ('tank', 1),
         ('supply_truck', 2), ('transport_truck', 1),
         ('fighter', 2),
@@ -1803,6 +1824,10 @@ class WW2RTSGame(ShowBase):
         slate = (self.NAVY_OPENING_SLATE
                  if country in ('usa', 'japan')
                  else self.OPENING_SLATE)
+        if country == 'britain':
+            # the EMPIRE moves by sea: more landing ships at the bell
+            slate = tuple((ut, 4 if ut == 'personnel_transport'
+                           else n) for ut, n in slate)
         for ut, n in slate:
             if ut not in allowed or ut not in NATION_UNIT_STATS[country]:
                 continue
@@ -2824,11 +2849,11 @@ class WW2RTSGame(ShowBase):
 
     def _flash_capture_banners(self):
         t = globalClock.getFrameTime()
-        a = 0.62 + 0.30 * math.sin(t * 3.5)
+        a = 0.72 + 0.24 * math.sin(t * 3.5)
         for city in self.cities:
             if (city.cap_np is not None
                     and not city.cap_np.isHidden()):
-                city.cap_tn.setTextColor(0.95, 0.25, 0.15, a)
+                city.cap_np.setAlphaScale(a)
 
     def _click_capture_banner(self, mpos):
         """A click on a flying >CAPTURE< banner runs the flag up."""
@@ -3736,6 +3761,34 @@ class WW2RTSGame(ShowBase):
         # an unload/paradrop order is armed: this click sites the drop
         if self.unload_mode:
             self.unload_mode = False
+            owner = self._landing_refused(ground)
+            if owner is not None:
+                from config import short_name
+                self.fax_short("%s FRONTIER CLOSED -- NO LANDING "
+                               "WITHOUT PASSAGE OR WAR"
+                               % short_name(owner).upper())
+                return
+            # THE INVASION LINE: several sea lifts put ashore in a
+            # LINE ABREAST along the coast, each ship its own berth,
+            # not one pile on one beach
+            sea_lift = [u for u in own_selected
+                        if u.cargo and u.stats['domain'] == 'sea']
+            spread = {}
+            if len(sea_lift) > 1:
+                center = Vec3(0, 0, 0)
+                for u in sea_lift:
+                    center += Vec3(u.pos)
+                center.normalize()
+                lateral = Vec3(ground).cross(center)
+                if lateral.lengthSquared() < 1e-12:
+                    lateral = north_tangent(Vec3(ground))
+                lateral.normalize()
+                spacing = 0.12 / GLOBE_RADIUS
+                for i, u in enumerate(sea_lift):
+                    k = i - (len(sea_lift) - 1) / 2.0
+                    gi = Vec3(ground) + lateral * (k * spacing)
+                    gi.normalize()
+                    spread[u] = gi
             for u in own_selected:
                 if not u.cargo:
                     continue
@@ -3744,7 +3797,8 @@ class WW2RTSGame(ShowBase):
                         GLOBE_RADIUS < 0.6):
                     self._unload_cargo(u)      # unload on the apron
                 else:
-                    u.give_order({'kind': 'unload', 'goal': Vec3(ground)},
+                    u.give_order({'kind': 'unload',
+                                  'goal': spread.get(u, Vec3(ground))},
                                  queue=shift)
             self.fax_short("DISEMBARKATION ORDERED")
             self._refresh_selection_ui()
@@ -4439,9 +4493,12 @@ class WW2RTSGame(ShowBase):
             # THE FRONTIER: a column ordered across a foreign border
             # without a right of passage is turned back by their
             # guards -- buy the right at the table, or declare war
-            if order.get('kind') == 'move' and order.get('goal') \
-                    is not None:
-                owner = self.passage_refused(unit, order['goal'])
+            if order.get('kind') in ('move', 'unload') \
+                    and order.get('goal') is not None:
+                owner = (self._landing_refused(order['goal'])
+                         if order['kind'] == 'unload'
+                         else self.passage_refused(unit,
+                                                   order['goal']))
                 if owner is not None:
                     try:
                         unit.order_queue.remove(order)
@@ -8696,7 +8753,7 @@ void main() {
                               (city.name.upper(), tag))
                 self._set_city_info(city)
                 if not city.annexing:
-                    bar.add_buttons([
+                    bar.add_buttons([], actions=[
                         ("", self.open_tax_fax, [city],
                          get_icon_path('tax_button', 'dark'), False,
                          "TAX DECREE -- SET THE CITY'S RATE"),
@@ -8710,7 +8767,7 @@ void main() {
                          get_icon_path('factory_button', 'dark'),
                          False,
                          "FORTNIGHT FOCUS -- WHAT THE TOWN WORKS "
-                         "AT")])
+                         "AT")], big=True)
                     bar.set_hint("SET THE CITY'S TAX RATE -- IT BINDS "
                                  "FROM THE NEXT FORTNIGHT")
                 else:
@@ -8939,6 +8996,20 @@ void main() {
                                 for lbl, n in sorted(counts.items()))
             bar.set_title("TASK FORCE -- %d UNITS" % len(self.selected))
             bar.set_info(summary)
+            # a task force with loaded holds keeps its UNLOAD key: a
+            # fleet lands TOGETHER, each ship berthing down the coast
+            lifts = [u for u in self.selected
+                     if u.country == self.player_country and u.cargo]
+            if lifts:
+                para = all(u.stats.get('paradrop') for u in lifts)
+                bar.add_buttons([], actions=[(
+                    "", self._arm_unload, [],
+                    get_icon_path('paradrop_button' if para
+                                  else 'unload_button', 'dark'),
+                    False,
+                    "%s ALL HOLDS -- ARM, THEN RMB THE SITE; SHIPS "
+                    "BERTH IN A LINE DOWN THE COAST" %
+                    ("PARADROP" if para else "UNLOAD"))], big=True)
         bar.set_hint(CONTROLS_HINT)
 
     def _refresh_carrier_ui(self, carrier):
@@ -9291,7 +9362,7 @@ void main() {
         title = "*** UNIT BRIEFING -- %s ***" % s['label'].upper()
         self.briefing_fax = BriefingFax(
             self, title, self._unit_briefing_lines(unit_type),
-            self._close_briefing)
+            self._close_briefing, icon_ut=unit_type)
 
     def _unit_briefing_lines(self, unit_type):
         from config import COMM_RADIUS_FACTOR
@@ -9342,6 +9413,37 @@ void main() {
         if self.briefing_fax:
             self.briefing_fax.destroy()
             self.briefing_fax = None
+
+    def _landing_refused(self, goal, country=None):
+        """Troops may not be PUT ASHORE in a country that has not
+        granted passage -- a landing is a march that starts wet.
+        War or a treaty opens the beach; wilderness is nobody's.
+        A beach standing inside the disc of an OPEN power's town is
+        landable even where a closed neighbour's flag flies nearer:
+        the Pomeranian coast is German ground though Copenhagen
+        stands closest, and a man may always step onto his own."""
+        country = country or self.player_country
+
+        def opens(owner):
+            return (owner in (None, 'neutral', country)
+                    or self.at_war(country, owner)
+                    or self.allied(country, owner)
+                    or self.has_right(country, owner, 'passage'))
+        owner = self.territory_of(goal)
+        if opens(owner):
+            return None
+        # the border strip: only an open town standing nearly AS
+        # CLOSE as the owner's contests the beach -- a distant disc
+        # must not open the whole neighbourhood
+        owner_d = min(angle_between(goal, c.pos) * GLOBE_RADIUS
+                      for c in self.cities
+                      if c.country == owner)
+        for c in self.cities:
+            d = angle_between(goal, c.pos) * GLOBE_RADIUS
+            if (d < 1.8 and d < owner_d + 0.35
+                    and c.country != owner and opens(c.country)):
+                return None
+        return owner
 
     def _arm_unload(self):
         if any(u.cargo for u in self.selected
