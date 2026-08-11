@@ -437,6 +437,17 @@ def _draw_info_button(d, ink):
     d.rectangle([35, 70, 61, 77], fill=col)                   # serif base
 
 
+def _draw_menu_button(d, ink):
+    """Parchment button bearing the three-bar stack: opens the FIELD
+    ORDERS menu from the top bar (the same menu ESC summons)."""
+    d.rounded_rectangle([5, 5, 90, 90], radius=22,
+                        fill=(216, 205, 168, 255),
+                        outline=(54, 44, 34, 255), width=6)
+    col = (44, 35, 26, 255)
+    for y in (30, 44, 58):
+        d.rounded_rectangle([24, y, 72, y + 8], radius=4, fill=col)
+
+
 def _pill_button(d, top, bot, edge=(54, 44, 34, 255), glow=None,
                  y0=26.0, y1=70.0, r=11.0):
     """Shared physical-button pill: smooth vertical shade hugging the
@@ -890,6 +901,7 @@ _DRAWERS = {
     'airfield': _draw_airfield,
     'harbor': _draw_harbor,
     'factory_button': _draw_factory_button,
+    'menu_button': _draw_menu_button,
     'tax_button': _draw_tax_button,
     'depot': _draw_depot,
     'bunker': _draw_bunker,
@@ -2255,6 +2267,23 @@ def ui_folder(name):
             or name in ('road_build', 'rail_build')):
         return 'buttons'
     return 'pictograms'
+
+
+def unit_ui_icon(unit_type, nation=None):
+    """A/B EXPERIMENT (Settings: UNIT MARKS). The mark a unit wears
+    on SHEETS AND KEYS -- arm A the ink pictogram, arm B the unit's
+    own top-down field sprite, the same mark it wears on the map
+    (national art where a nation fields its own). Reads the live
+    setting so a flipped switch redraws on the next sheet opened."""
+    try:
+        sprites = getattr(base, 'unit_sprites_ui', False)
+        if nation is None:
+            nation = getattr(base, 'player_country', None)
+    except NameError:
+        sprites = False
+    if sprites:
+        return get_icon_path(unit_type, 'unit', nation)
+    return get_icon_path(unit_type, 'dark')
 
 
 def get_icon_path(unit_type, variant='dark', nation=None):

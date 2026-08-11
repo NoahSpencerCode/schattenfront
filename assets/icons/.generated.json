@@ -23,6 +23,10 @@
 "h": "e59cb7253b70438dd9fb127b92d53c80",
 "v": 17
 },
+"buttons/menu_button.png": {
+"h": "5e1125495a745da6adc750eb1fa9490f",
+"v": 17
+},
 "buttons/panel_button.png": {
 "h": "270d4229532203c8e58fdcec38129f8d",
 "v": 17
@@ -67,12 +71,20 @@
 "h": "195d0988e0306e9d0a8a78d99ef79e69",
 "v": 17
 },
+"flags/argentina.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
+"v": 2
+},
 "flags/australia.png": {
 "h": "4f5aaeb0d0395f975584deefbc31ce79",
 "v": 1
 },
 "flags/belgium.png": {
 "h": "0df27960b115e77c22b228abc1fb531a",
+"v": 2
+},
+"flags/brazil.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
 "v": 2
 },
 "flags/brit_med.png": {
@@ -167,6 +179,18 @@
 "h": "71e0a0b2497888a3b77268c55ff5f57d",
 "v": 1
 },
+"flags/spain.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
+"v": 2
+},
+"flags/sweden.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
+"v": 2
+},
+"flags/turkey.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
+"v": 2
+},
 "flags/usa.png": {
 "h": "342575b62993f48c5e00f4cc922f8573",
 "v": 1
@@ -257,6 +281,10 @@
 },
 "keys/panel_hover_a6_00_r0_42.png": {
 "h": "f9033a431ac884793abefd8e964451f3",
+"v": 3
+},
+"keys/panel_hover_a6_25_r0_42.png": {
+"h": "2a1621b10a49f5cfb584d5a518c8a4be",
 "v": 3
 },
 "keys/panel_hover_a6_50_r0_42.png": {
@@ -371,6 +399,10 @@
 "h": "a5fd9607e552796bd7cbfac768748d79",
 "v": 3
 },
+"keys/panel_press_a6_25_r0_42.png": {
+"h": "eabc467b91aeb4f80bcd9ca7b49fad0c",
+"v": 3
+},
 "keys/panel_press_a6_50_r0_42.png": {
 "h": "178287f4f674702d4f4680e870a4ed99",
 "v": 3
@@ -481,6 +513,10 @@
 },
 "keys/panel_ready_a6_00_r0_42.png": {
 "h": "f28de8bf70dc5025768136035982ad87",
+"v": 3
+},
+"keys/panel_ready_a6_25_r0_42.png": {
+"h": "52a553b1327a655c63dc286fc3d282c2",
 "v": 3
 },
 "keys/panel_ready_a6_50_r0_42.png": {

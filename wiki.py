@@ -19,7 +19,7 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from panda3d.core import TextNode
 
 import config as C
-from icons import get_icon_path
+from icons import get_icon_path, unit_ui_icon
 from ui import (FormSheet, pill_button, crisp_image, INK, INK_FAINT,
                 RED_INK, GREEN_INK, KEY_LIGHT)
 from units import UNIT_TYPES, BRANCH_OF, FIRE_SUPPLY_FACTOR
@@ -160,10 +160,11 @@ class WikiFax:
                            frameSize=(x - thick / 2.0,
                                       x + thick / 2.0, z0, z1))
 
-    def icon(self, name, pos, scale=0.028):
+    def icon(self, name, pos, scale=0.028, unit=False):
         ic = DirectFrame(parent=self._content, relief=None,
                          frameColor=(0, 0, 0, 0),
-                         image=get_icon_path(name, 'dark'),
+                         image=(unit_ui_icon(name) if unit
+                                else get_icon_path(name, 'dark')),
                          image_scale=scale,
                          frameSize=(-scale, scale, -scale, scale),
                          pos=(pos[0], 0, pos[1]))
@@ -445,13 +446,17 @@ class WikiFax:
             "airfield -- and",
             "  its mouths: the occupied eat %.1f t per million a "
             "day." % C.OCCUPIED_RATION,
+            "A town ready to fall flies a flashing >CAPTURE< "
+            "banner over its name,",
+            "  with the garrison bill. CLICK THE BANNER to run "
+            "the flag up.",
         ], M, t - 0.345)
-        self.header("SELECTING A TOWN", (M, t - 0.660))
+        self.header("SELECTING A TOWN", (M, t - 0.755))
         self.bullets([
             "Click the town MARK or its printed NAME. Towns "
             "outrank counters on",
             "  the click, but only inside the letters themselves.",
-        ], M, t - 0.715)
+        ], M, t - 0.810)
 
     def _page_supply(self):
         t = self.BODY_TOP
@@ -641,7 +646,8 @@ class WikiFax:
         row_h = (y + 0.66) / max(1, len(rows))
         row_h = min(0.105, row_h)
         for ut, s in rows:
-            self.icon(ut, (L + 0.045, y + 0.006), 0.030)
+            self.icon(ut, (L + 0.045, y + 0.006), 0.030,
+                      unit=True)
             self.text(s['label'], (L + 0.10, y), 0.0245)
             if ut == 'infantry':
                 # never bought: the budget sells no Enlisted -- they
@@ -841,6 +847,7 @@ class WikiFax:
         inst = [
             ('RIGHT OF PASSAGE', 'passage'),
             ('USE OF THE SUPPLY NET', 'supply'),
+            ('USE OF THE WIRELESS NET', 'comms'),
             ('PACT OF NON-AGGRESSION', 'nonaggression'),
             ('PACT OF ALLIANCE', 'alliance'),
             ('AN END TO THE WAR', 'peace'),
@@ -860,6 +867,11 @@ class WikiFax:
                   "border -- and the router plots no course "
                   "through a closed country.",
                   (M, y - 0.020), 0.023, INK, wrap=56)
+        self.text("WAR TEARS UP THE PAPERS: every right and "
+                  "standing arrangement with a belligerent dies "
+                  "with the declaration -- however the war "
+                  "arrived.",
+                  (M, y - 0.155), 0.023, INK, wrap=56)
 
     def _page_controls(self):
         t = self.BODY_TOP
@@ -877,6 +889,8 @@ class WikiFax:
             ("SPACE", "Pause the war."),
             ("= / -", "Game speed up / down."),
             ("ESC", "Field orders menu; closes any open sheet."),
+            ("MENU KEY", "The three-bar key, top left of the bar: "
+             "FIELD ORDERS, same as ESC."),
         ]
         right = [
             ("B", "The BUDGET MANIFEST."),
@@ -889,6 +903,9 @@ class WikiFax:
             ("CITY CLICK", "The town's mark or its NAME selects "
              "it; its keys open tax, draft and focus sheets."),
             ("[i] KEY", "The selected unit's service briefing."),
+            ("WORKS CLICK", "A selected bunker, depot or engineer "
+             "airfield carries a STRIKE key: two clicks "
+             "decommission it."),
         ]
         self.header("IN THE FIELD", (L, t))
         y = t - 0.060

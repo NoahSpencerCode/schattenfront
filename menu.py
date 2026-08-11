@@ -629,6 +629,24 @@ class MenuScreen:
                    (0, -0.12), 0.032, INK_FAINT)
         paper_text("ARE EXCHANGED.  THE SETTING IS KEPT ON FILE.)",
                    (0, -0.16), 0.032, INK_FAINT)
+        paper_text("-" * 52, (0, -0.24), 0.04)
+        paper_text("FIELD TRIAL -- UNIT MARKS ON SHEETS AND KEYS:",
+                   (0, -0.31), 0.037)
+        paper_text("THE INK PICTOGRAM, OR THE UNIT'S OWN FIELD "
+                   "SPRITE.", (0, -0.36), 0.037)
+        sprites_on = bool(getattr(self.base, 'unit_sprites_ui',
+                                  False))
+        from ui import pill_button as _pill
+        for on, label, x in ((False, '[7] INK PICTOGRAMS', -0.44),
+                             (True, '[8] FIELD SPRITES', 0.44)):
+            btn = _pill(frame, label, self._set_unit_marks,
+                        extraArgs=[on], pos=(x, 0, -0.47),
+                        hw=0.34, hh=0.055, text_scale=0.04,
+                        font=self.base.hud_font,
+                        latched=(on == sprites_on))
+            self.widgets.append(btn)
+            self.base.accept('8' if on else '7',
+                             self._set_unit_marks, [on])
         paper_text("++ MESSAGE ENDS ++", (0, -0.62), 0.035)
         self._button("[B]  BACK", (0, -0.92), self.show_main, width=0.3,
                      scale=0.04)
@@ -647,6 +665,15 @@ class MenuScreen:
         if hasattr(self.base, 'set_antialias'):
             self.base.set_antialias(samples)
         self.show_settings()            # refresh the IN EFFECT stamp
+
+    def _set_unit_marks(self, sprites):
+        """The A/B trial switch: pictograms or field sprites on
+        every sheet and key. Kept on file like the optics."""
+        from settings import save_settings
+        self.base.unit_sprites_ui = bool(sprites)
+        self.base.settings['unit_sprites_ui'] = bool(sprites)
+        save_settings(self.base.settings)
+        self.show_settings()            # relatch the pills
 
     def _pick(self, country):
         self.on_start_game(country)

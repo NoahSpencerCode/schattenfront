@@ -26,6 +26,7 @@ HORIZON = 8
 BASE = {
     'passage': 900,        # march my columns across your country
     'supply': 1400,        # water them at your towns and quays
+    'comms': 1100,         # my columns under your wireless net
     'nonaggression': 1200,  # no war between us for a year
     'alliance': 3600,      # your wars are my wars
     'peace': 2000,         # the guns fall silent
@@ -38,6 +39,7 @@ KIND_LABEL = {
     'res_ftn': 'CARGO EACH FORTNIGHT',
     'passage': 'RIGHT OF PASSAGE',
     'supply': 'USE OF OUR SUPPLY NET',
+    'comms': 'USE OF OUR WIRELESS NET',
     'nonaggression': 'PACT OF NON-AGGRESSION',
     'alliance': 'PACT OF ALLIANCE',
     'peace': 'AN END TO THE WAR',

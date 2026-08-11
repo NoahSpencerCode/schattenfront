@@ -1082,9 +1082,17 @@ class Unit:
                 out = out + spin * 0.35
                 out.normalize()
                 import math as _m
-                newpos = (Vec3(b.pos) * _m.cos(wall_ang)
-                          + out * _m.sin(wall_ang))
-                newpos.normalize()
+                slid = (Vec3(b.pos) * _m.cos(wall_ang)
+                        + out * _m.sin(wall_ang))
+                slid.normalize()
+                # NO TELEPORTING OFF THE WORKS: the rim point is
+                # where the column is HEADED, reached at its own
+                # pace -- snapping straight to it flung any vehicle
+                # near the perimeter across the map in one frame
+                jump = angle_between(self.pos, slid)
+                if jump > step and jump > 1e-9:
+                    slid = slerp(self.pos, slid, step / jump)
+                newpos = slid
                 # a goal INSIDE the wall can never be reached by a
                 # vehicle: the rim IS arrival, or it stalls forever
                 arrived = (angle_between(Vec3(target), Vec3(b.pos))

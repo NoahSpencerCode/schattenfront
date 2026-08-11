@@ -15,7 +15,7 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from panda3d.core import (SamplerState, TextNode, TexturePool,
                           Plane, PlaneNode, Point3, Vec3)
 
-from icons import get_icon_path, sheet_texture
+from icons import get_icon_path, sheet_texture, unit_ui_icon
 
 
 def sheet_tex(kind):
@@ -194,7 +194,8 @@ class TopBar:
     RESOURCE_COLS = ('OIL', 'STEEL', 'FOOD')
 
     def __init__(self, base, on_budget, on_factory=None,
-                 on_resources=None, on_tech=None, on_diplomacy=None):
+                 on_resources=None, on_tech=None, on_diplomacy=None,
+                 on_menu=None):
         self.base = base
         self.frame = DirectFrame(parent=base.a2dTopCenter,
                                  frameColor=(1, 1, 1, 0.92),
@@ -222,9 +223,13 @@ class TopBar:
             self.content, "BUDGET", on_budget, pos=(1.44, 0, -0.068),
             hw=0.155, hh=0.037, text_scale=0.034, font=base.hud_font)
         # war-industries report, beside the budget: a proper console
-        # key, not a bare pictogram floating on the panel
+        # key, not a bare pictogram floating on the panel. The rank
+        # of report keys is CENTRED on the strip (the bar spans
+        # 0..-0.155) and stands a clear margin off the budget key --
+        # flush against it the whole corner read as one squashed lump
+        KEY_Z = -0.0775
         self.factory_btn = pill_button(
-            self.content, '', on_factory, pos=(1.645, 0, -0.062),
+            self.content, '', on_factory, pos=(1.70, 0, KEY_Z),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('factory_button',
                                                 'dark'),
@@ -236,7 +241,7 @@ class TopBar:
                     "REPORT", font=base.hud_font, dy=-0.105)
         # the quartermaster's ledger, beside the factory key
         self.resource_btn = pill_button(
-            self.content, '', on_resources, pos=(1.755, 0, -0.062),
+            self.content, '', on_resources, pos=(1.81, 0, KEY_Z),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('resource_button',
                                                 'dark'),
@@ -249,7 +254,7 @@ class TopBar:
                     dy=-0.105)
         # the research chart, beside the ledger
         self.tech_btn = pill_button(
-            self.content, '', on_tech, pos=(1.865, 0, -0.062),
+            self.content, '', on_tech, pos=(1.92, 0, KEY_Z),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('research_button',
                                                 'dark'),
@@ -262,7 +267,7 @@ class TopBar:
         # the Foreign Office ledger, last in the rank (moved up from
         # the right screen edge to sit with its fellow report keys)
         self.diplo_btn = pill_button(
-            self.content, '', on_diplomacy, pos=(1.975, 0, -0.062),
+            self.content, '', on_diplomacy, pos=(2.03, 0, KEY_Z),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('diplomacy_button',
                                                 'dark'),
@@ -272,6 +277,19 @@ class TopBar:
         crisp_image(pic)
         add_tooltip(self.diplo_btn, "DIPLOMACY LEDGER -- WARS, "
                     "PACTS AND PEACE", font=base.hud_font, dy=-0.105)
+        # the three-bar stack, far LEFT of the strip: the same FIELD
+        # ORDERS menu ESC summons, for the hand on the mouse
+        self.menu_btn = pill_button(
+            self.content, '', on_menu, pos=(-1.72, 0, KEY_Z),
+            hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
+        pic = OnscreenImage(image=get_icon_path('menu_button',
+                                                'dark'),
+                            parent=self.menu_btn, scale=0.034,
+                            pos=(0, 0, 0))
+        pic.setTransparency(True)
+        crisp_image(pic)
+        add_tooltip(self.menu_btn, "FIELD ORDERS -- SAVE, RESUME, "
+                    "STAND DOWN [ESC]", font=base.hud_font, dy=-0.105)
         # fourteen dots: the days of the running fortnight
         self.day_dots = []
         for i in range(14):
@@ -329,7 +347,7 @@ class TopBar:
         elif not on and not self.factory_pip.isHidden():
             self.factory_pip.hide()
 
-    LAYOUT_HALF = 2.04          # the half-width the rank is drawn at
+    LAYOUT_HALF = 2.09          # the half-width the rank is drawn at
 
     def _fit_to_screen(self):
         """The strip is drawn for a wide window; a narrower one
@@ -461,6 +479,10 @@ class BottomBar:
         self._info_np.setX(x)
         self._signal_np.setX(x)
         self._hint_np.setX(x)
+        # SCRAMBLE floats centred over the VISIBLE bar: anchored at
+        # x=0 it drifted right when the facsimile claimed the bar's
+        # left edge
+        self.scramble_btn.setX((left + 1.35) / 2.0)
 
     def show_info(self, command, args):
         self.info_btn['command'] = command
@@ -859,6 +881,8 @@ class DiplomacyLedger:
                    "WITHOUT A DECLARATION OF WAR",
         'supply': "OUR COLUMNS MAY WATER AND RESUPPLY AT THEIR "
                   "TOWNS AND QUAYS",
+        'comms': "THEIR WIRELESS NET AND LAND LINES KEEP OUR "
+                 "COLUMNS IN CONTACT ON THEIR GROUND",
         'nonaggression': "NEITHER POWER MAY DECLARE WAR ON THE "
                          "OTHER WHILE IT STANDS",
         'alliance': "THEIR WARS BECOME OURS AND OURS THEIRS -- "
@@ -958,6 +982,7 @@ class DiplomacyLedger:
                          '%s EACH FORTNIGHT' % res.upper(), 10))
         rows += [('passage', 'RIGHT OF PASSAGE', 0),
                  ('supply', 'USE OF THE SUPPLY NET', 0),
+                 ('comms', 'USE OF THE WIRELESS NET', 0),
                  ('nonaggression', 'PACT OF NON-AGGRESSION', 0),
                  ('alliance', 'PACT OF ALLIANCE', 0)]
         if g.at_war(me, nat):
@@ -998,7 +1023,7 @@ class DiplomacyLedger:
                     # a right already signed is never sold twice --
                     # and the sheet says which WAY it runs, so a
                     # frontier we opened to them reads WE GRANTED
-                    if kind in ('passage', 'supply',
+                    if kind in ('passage', 'supply', 'comms',
                                 'nonaggression'):
                         to_us, to_them = g.right_between(nat, kind)
                         held = to_us if side == 'ask' else to_them
@@ -1160,40 +1185,64 @@ class DiplomacyLedger:
             self._text("ALL QUIET ON EVERY FRONT", (wx, 0.42),
                        0.026, color=INK_FAINT,
                        align=TextNode.ACenter)
-        for i, (a, b) in enumerate(wars[:7]):
-            wy = 0.42 - i * 0.155
+        # the battle-board SCROLLS once the fronts outgrow it: every
+        # war is on file, not the first seven and a count of shame
+        from direct.gui.DirectScrolledFrame import DirectScrolledFrame
+        row_h = 0.155
+        view_h = 1.115
+        need_h = max(view_h, len(wars) * row_h + 0.04)
+        board = DirectScrolledFrame(
+            parent=self.frame, relief=None,
+            frameColor=(0, 0, 0, 0),
+            frameSize=(-0.218, 0.218, -view_h, 0.0),
+            canvasSize=(-0.19, 0.16, -need_h, 0.0),
+            pos=(wx, 0, 0.505), state=DGG.NORMAL,
+            autoHideScrollBars=True,
+            scrollBarWidth=0.026,
+            verticalScroll_relief=DGG.FLAT,
+            verticalScroll_frameColor=(0.45, 0.40, 0.33, 0.35),
+            verticalScroll_thumb_relief=DGG.FLAT,
+            verticalScroll_thumb_frameColor=(0.45, 0.40, 0.33, 0.9),
+            verticalScroll_incButton_relief=None,
+            verticalScroll_decButton_relief=None,
+            horizontalScroll_relief=None)
+        board.horizontalScroll.hide()
+        self.widgets.append(board)
+        canvas = board.getCanvas()
+        for i, (a, b) in enumerate(wars):
+            wy = -0.085 - i * row_h
             for nat, dx in ((a, -0.115), (b, 0.115)):
-                chip = DirectFrame(parent=self.frame, relief=None,
+                chip = DirectFrame(parent=canvas, relief=None,
                                    frameColor=(0, 0, 0, 0),
                                    image=flag_texture(nat),
                                    image_scale=(0.050, 1, 0.0333),
                                    frameSize=(-0.05, 0.05,
                                               -0.034, 0.034),
-                                   pos=(wx + dx, 0, wy))
+                                   pos=(dx, 0, wy),
+                                   state=DGG.DISABLED)
                 chip.setTransparency(True)
                 crisp_image(chip)
-                self.widgets.append(chip)
-            swords = DirectFrame(parent=self.frame, relief=None,
+            swords = DirectFrame(parent=canvas, relief=None,
                                  frameColor=(0, 0, 0, 0),
                                  image=get_icon_path('crossed_swords',
                                                      'dark'),
                                  image_scale=0.036,
                                  frameSize=(-0.04, 0.04,
                                             -0.04, 0.04),
-                                 pos=(wx, 0, wy))
+                                 pos=(0, 0, wy),
+                                 state=DGG.DISABLED)
             swords.setTransparency(True)
             crisp_image(swords)
-            self.widgets.append(swords)
-            self._text("%s v %s" % (short_name(a).upper(),
-                                    short_name(b).upper()),
-                       (wx, wy - 0.070), 0.021,
-                       color=INK_FAINT, align=TextNode.ACenter)
-        if len(wars) > 7:
-            self._text("AND %d MORE FRONTS AFLAME"
-                       % (len(wars) - 7),
-                       (wx, 0.42 - 7 * 0.155), 0.023,
-                       color=(0.62, 0.14, 0.10, 1),
-                       align=TextNode.ACenter)
+            tn = TextNode('war_row')
+            tn.setText("%s v %s" % (short_name(a).upper(),
+                                    short_name(b).upper()))
+            tn.setAlign(TextNode.ACenter)
+            if g.hud_font:
+                tn.setFont(g.hud_font)
+            tn.setTextColor(*INK_FAINT)
+            np_ = canvas.attachNewNode(tn)
+            np_.setScale(0.021)
+            np_.setPos(0, 0, wy - 0.070)
         self._text("CLICK A NATION FOR ITS DOSSIER -- WAR, PACTS "
                    "AND TERMS ARE OFFERED THERE",
                    (-0.12, -0.628), 0.024, color=INK_FAINT,
@@ -1268,7 +1317,8 @@ class DiplomacyLedger:
         import deals as _d
         g = self.game
         out = []
-        for kind in ('passage', 'supply', 'nonaggression'):
+        for kind in ('passage', 'supply', 'comms',
+                     'nonaggression'):
             to_us, to_them = g.right_between(nat, kind)
             label = _d.KIND_LABEL[kind]
             if kind == 'nonaggression':
@@ -1959,7 +2009,7 @@ class BudgetFax:
             ut, stats, available = row[1], row[2], row[3]
             ic = DirectFrame(parent=self.frame, relief=None,
                              frameColor=(0, 0, 0, 0),
-                             image=get_icon_path(ut, 'dark'),
+                             image=unit_ui_icon(ut),
                              image_scale=0.026,
                              frameSize=(-0.027, 0.027, -0.027, 0.027),
                              pos=(x + 0.024, 0, y + 0.009))

@@ -70,7 +70,7 @@ from menu import MenuScreen
 from settings import load_settings, save_settings
 from tech import (TECH_BRANCHES, unlocked_units, radar_unlocked,
                   NODES, available_nodes, node_name, normalize)
-from icons import get_icon_path
+from icons import get_icon_path, unit_ui_icon
 from models import (make_bridge_marker, make_flag_quad,
                     make_flat_ring, make_icon_quad,
                     make_hit_flash_template, set_marker_layer,
@@ -175,7 +175,38 @@ class City:
         set_marker_layer(self.label, LAYER_STRUCT + 4)
         self.title_flag = None
         self._flag_country = None
+        # the capture banner: >CAPTURE< (-N) flown over the name when
+        # the garrison on the square suffices -- built lazily
+        self.cap_np = None
+        self.cap_tn = None
+        self._cap_txt = None
         self.refresh_marker()
+
+    def show_capture_banner(self, need):
+        txt = ">CAPTURE< (-%d)" % need
+        if self.cap_np is None:
+            tn = TextNode('capture_%s' % self.name)
+            tn.setAlign(TextNode.ACenter)
+            if self.game.hud_font:
+                tn.setFont(self.game.hud_font)
+            tn.setTextColor(0.95, 0.25, 0.15, 0.9)
+            tn.setShadow(0.06, 0.06)
+            tn.setShadowColor(0.05, 0.02, 0.02, 0.85)
+            self.cap_tn = tn
+            self.cap_np = self.label.attachNewNode(tn)
+            self.cap_np.setPos(0, 0, 1.35)
+            self.cap_np.setScale(0.72)
+            self.cap_np.setTransparency(TransparencyAttrib.MAlpha)
+            set_marker_layer(self.cap_np, LAYER_STRUCT + 4)
+        if txt != self._cap_txt:
+            self.cap_tn.setText(txt)
+            self._cap_txt = txt
+        if self.cap_np.isHidden():
+            self.cap_np.show()
+
+    def hide_capture_banner(self):
+        if self.cap_np is not None and not self.cap_np.isHidden():
+            self.cap_np.hide()
 
     def refresh_marker(self):
         # the city itself is sketched onto the map texture; ownership
@@ -356,6 +387,11 @@ class WW2RTSGame(ShowBase):
         self.settings = load_settings()
         self.aa_samples = int(self.settings.get('antialias', 4))
         self._apply_aa_attrib()
+        # A/B EXPERIMENT -- UNIT MARKS: arm A wears ink pictograms
+        # on sheets and keys, arm B the units' own top-down field
+        # sprites. Flipped from Settings, kept on file.
+        self.unit_sprites_ui = bool(
+            self.settings.get('unit_sprites_ui', False))
 
         # (window size is clamped to the display in main.py before the
         # window opens; the old setMaximized request here was a no-op --
@@ -1074,6 +1110,7 @@ class WW2RTSGame(ShowBase):
         self.trade_deals = []
         # rights won at the table: [{'with','kind','until'}]
         # kinds: 'passage' (march across their country),
+        # 'comms' (their wireless net reports for our columns),
         # 'supply' (water at their towns), 'nonaggression'
         self.rights = []
         self._mat_spent = {c: {'steel': 0, 'food': 0}
@@ -1104,7 +1141,8 @@ class WW2RTSGame(ShowBase):
                               self.open_factory_report,
                               on_resources=self.open_resources_report,
                               on_tech=self.open_tech_tree,
-                              on_diplomacy=self.open_diplomacy)
+                              on_diplomacy=self.open_diplomacy,
+                              on_menu=self._toggle_field_orders)
         self.bottom_bar = BottomBar(self)
         self.bottom_bar.set_title("ALL QUIET")
         self.bottom_bar.set_hint(CONTROLS_HINT)
@@ -1505,7 +1543,7 @@ class WW2RTSGame(ShowBase):
         b = pill_button(self.a2dRightCenter, '', self._idle_clicked,
                         extraArgs=[ut], pos=(-0.075, 0, 0.40),
                         hw=0.048, hh=0.048, corner=0.30)
-        pic = OnscreenImage(image=get_icon_path(ut, 'dark'),
+        pic = OnscreenImage(image=unit_ui_icon(ut),
                             parent=b, scale=0.032, pos=(0, 0, 0.004))
         pic.setTransparency(True)
         crisp_image(pic)
@@ -1655,6 +1693,16 @@ class WW2RTSGame(ShowBase):
             self.pause_frame.destroy()
             self.pause_frame = None
         self.is_paused = False
+
+    def _toggle_field_orders(self):
+        """The top bar's three-bar key: the same FIELD ORDERS menu
+        ESC summons, opened and closed by mouse."""
+        if self.game_state != 'playing':
+            return
+        if self.pause_frame:
+            self._close_pause_menu()
+        else:
+            self._open_pause_menu()
 
     def toggle_pause(self):
         if self.game_state == 'playing' and not self.pause_frame:
@@ -1881,6 +1929,7 @@ class WW2RTSGame(ShowBase):
             'nonaggression': not at_war,
             'passage': not at_war,
             'supply': not at_war and st >= 20,
+            'comms': not at_war,
             'funds_once': st >= 25,
             'funds_ftn': True,
             'res_once': True,
@@ -2061,7 +2110,8 @@ class WW2RTSGame(ShowBase):
                      'amount': tok['amount'], 'price': 0,
                      'dir': 'out' if giver == me else 'in',
                      'gift': True})
-            elif k in ('passage', 'supply', 'nonaggression'):
+            elif k in ('passage', 'supply', 'comms',
+                       'nonaggression'):
                 # a pact of non-aggression binds both; a right of
                 # passage or supply runs only the way it was signed
                 d = ('mutual' if k == 'nonaggression'
@@ -2694,7 +2744,52 @@ class WW2RTSGame(ShowBase):
 
     def _capture_clicked(self, city):
         if self.attempt_capture(city, self.player_country):
+            city.hide_capture_banner()
             self._select_city(city)     # reopen as our own municipality
+
+    def _tick_capture_banners(self):
+        """A town ready to fall flies its own banner over the name:
+        >CAPTURE< and the garrison bill, gently flashing. The banner
+        IS the button -- clicking it runs the flag up."""
+        me = self.player_country
+        if not me:
+            return
+        for city in self.cities:
+            need = 0
+            ok = (city.country != me and not city.annexing
+                  and self.at_war(me, city.country))
+            if ok:
+                need = city.required_infantry()
+                ok = (len(self._capture_garrison(city, me)) >= need
+                      and not self.enemies_near_city(city, me))
+            if ok:
+                city.show_capture_banner(need)
+            else:
+                city.hide_capture_banner()
+
+    def _flash_capture_banners(self):
+        t = globalClock.getFrameTime()
+        a = 0.62 + 0.30 * math.sin(t * 3.5)
+        for city in self.cities:
+            if (city.cap_np is not None
+                    and not city.cap_np.isHidden()):
+                city.cap_tn.setTextColor(0.95, 0.25, 0.15, a)
+
+    def _click_capture_banner(self, mpos):
+        """A click on a flying >CAPTURE< banner runs the flag up."""
+        for city in self.cities:
+            if city.cap_np is None or city.cap_np.isHidden():
+                continue
+            if not self._facing_camera(city.pos):
+                continue
+            sp = self.screen_pos(city.cap_np.getPos(self.render))
+            if sp is None:
+                continue
+            if (abs(mpos.x - sp.x) < 0.085
+                    and abs(mpos.y - sp.y) < 0.035):
+                self._capture_clicked(city)
+                return True
+        return False
 
     def draft_ceiling(self, city):
         """How many sections the town can raise RIGHT NOW: everyone
@@ -2921,7 +3016,7 @@ class WW2RTSGame(ShowBase):
             if done >= total:
                 progress = 1.0
             by_branch[UNIT_TYPES[ut]['domain']].append(
-                (s['label'].upper(), get_icon_path(ut, 'dark'),
+                (s['label'].upper(), unit_ui_icon(ut),
                  done, total, 0.0 if progress is None else progress))
         for rows in by_branch.values():
             rows.sort(key=lambda r: r[0])
@@ -3260,6 +3355,10 @@ class WW2RTSGame(ShowBase):
 
     def _click_select(self, mpos, shift):
         if shift and self._strike_waypoint(mpos):
+            return
+        # THE BANNER OUTRANKS EVERYTHING: a flying >CAPTURE< is the
+        # order it advertises
+        if not shift and self._click_capture_banner(mpos):
             return
         # THE TOWN COMES FIRST: its mark and its name outrank the
         # counters standing on it
@@ -5156,6 +5255,65 @@ class WW2RTSGame(ShowBase):
             B(self._grid_ref(bridge.lat, bridge.lon)),
             sender="ENGINEER CORPS")
 
+    def _decommission_clicked(self, st):
+        """A struck work is GONE: the key wants a second click
+        within five seconds before the charge goes in."""
+        arm = getattr(self, '_decom_arm', None)
+        now = globalClock.getFrameTime()
+        if arm is not None and arm[0] is st and now - arm[1] < 5.0:
+            self._decom_arm = None
+            self._decommission(st)
+        else:
+            self._decom_arm = (st, now)
+            self.fax_short("DECOMMISSION %s? CLICK THE KEY AGAIN "
+                           "TO CONFIRM" % st.name.upper())
+
+    def _decommission(self, st):
+        """The party strikes its own works off the map: bunker,
+        depot or engineer-built airfield (a BASE is the city's and
+        stands). An airfield must stand EMPTY first -- decommission
+        is a survey decision, not a way to burn your own wings."""
+        from structures import Airfield, Depot, Bunker
+        if isinstance(st, Airfield):
+            occupied = (getattr(st, 'production', None)
+                        or getattr(st, 'garrison', None)
+                        or any(u.alive and u.based_at is st
+                               for u in self.units))
+            if occupied:
+                self.fax_short("THE FIELD IS IN USE -- FLY THE "
+                               "WINGS OUT AND EMPTY THE LINE FIRST")
+                return
+            if self.selected_airfield is st:
+                self._select_airfield(None)
+            if st in self.airfields:
+                self.airfields.remove(st)
+            st.cleanup()
+            self._build_road_overlay()      # its spur goes with it
+        elif isinstance(st, Depot):
+            if self.selected_depot is st:
+                self._select_depot(None)
+            if st in self.depots:
+                self.depots.remove(st)
+            st.cleanup()
+        elif isinstance(st, Bunker):
+            if self.selected_bunker is st:
+                self._select_bunker(None)
+            if st in self.bunkers:
+                self.bunkers.remove(st)
+            st.cleanup()
+        else:
+            return
+        self.fax_short("%s DECOMMISSIONED -- THE GROUND IS CLEAR"
+                       % st.name.upper())
+        self._refresh_selection_ui()
+
+    def _decommission_entry(self, st):
+        """The red STRIKE key a selected work carries on its bar."""
+        return ("STRIKE", self._decommission_clicked, [st],
+                get_icon_path('demolish_button', 'dark'), False,
+                "DECOMMISSION THE WORKS -- CLICK TWICE; THE GROUND "
+                "IS CLEARED FOR GOOD", False)
+
     # =============================================== engineering works
     # works are paid for in SUPPLY from the engineer's own stores --
     # the treasury never sees an engineering bill
@@ -6930,6 +7088,36 @@ void main() {
             ws.setdefault(a, set()).add(b)
             ws.setdefault(b, set()).add(a)
         self._war_sets = ws
+        # WAR TEARS UP THE PAPERS: no right, pact or standing
+        # arrangement survives between belligerents -- however the
+        # war arrived (a declaration, or a bloc dragging an ally
+        # in). Runs here because EVERY road to war passes this way,
+        # and the sweep is idempotent.
+        me = self.player_country
+        foes = ws.get(me, ()) if me else ()
+        if foes:
+            dead_r = [r for r in self.rights if r['with'] in foes]
+            dead_t = [t for t in self.trade_deals
+                      if t.get('with') in foes]
+            if dead_r or dead_t:
+                for r in dead_r:
+                    self.rights.remove(r)
+                for t in dead_t:
+                    self.trade_deals.remove(t)
+                if (getattr(self, 'fax', None)
+                        and not getattr(self, '_loading_save',
+                                        False)):
+                    from config import short_name
+                    torn = sorted({short_name(x['with'])
+                                   for x in dead_r}
+                                  | {short_name(x['with'])
+                                     for x in dead_t})
+                    self.fax.post(
+                        "AGREEMENTS TORN UP",
+                        "War voids every right, pact and standing "
+                        "arrangement with %s." %
+                        B(", ".join(n.upper() for n in torn)),
+                        sender="FOREIGN OFFICE")
 
     def allied(self, a, b):
         return b in self.alliances.get(a, ())
@@ -7499,14 +7687,21 @@ void main() {
         """One pass: who is on the wireless net, and who can see whom."""
         player = self.player_country
 
-        # communication sources: command units' circles + city land lines
+        # communication sources: command units' circles + city land
+        # lines -- OURS, and every power that shares its wireless
+        # net with us (allies do; USE OF THE WIRELESS NET is bought
+        # at the table like passage)
+        friendly = {player} | {nat for nat in COUNTRIES
+                               if nat != player
+                               and self.has_right(player, nat,
+                                                  'comms')}
         comm_sources = [(c.pos, CITY_COMM_RADIUS) for c in self.cities
-                        if c.country == player and not c.annexing]
+                        if c.country in friendly and not c.annexing]
         comm_sources += [(r.pos, 2.0) for r in self.radars
-                         if r.country == player]
+                         if r.country in friendly]
         for u in self.units:
-            if (u.alive and u.country == player and not u.carried_by
-                    and u.stats.get('comm')):
+            if (u.alive and u.country in friendly
+                    and not u.carried_by and u.stats.get('comm')):
                 comm_sources.append((u.pos, u.comm_range()))
         # the map draws one merged outline around the whole wireless net
         if self.globe:
@@ -8388,7 +8583,9 @@ void main() {
                 "ENEMY FIRE STRIKES AT ONE QUARTER WITHIN THE "
                 "WALLS; NO VEHICLE PASSES THE PERIMETER"
                 % (int(b.hp), int(b.max_hp), sheltered))
-            bar.add_buttons([])
+            bar.add_buttons([self._decommission_entry(b)]
+                            if b.country == self.player_country
+                            else [])
             bar.set_hint("INFANTRY WITHIN THE PERIMETER FIGHT "
                          "UNDER COVER")
             return
@@ -8450,11 +8647,12 @@ void main() {
                             "CLEAR THE FIELD BEFORE THE FLAG CAN "
                             "RISE" % foes)
                     else:
-                        bar.show_capture(self._capture_clicked,
-                                         [city])
+                        # the order lives on the map now: the town
+                        # flies its >CAPTURE< banner over the name
                         bar.set_hint("THE GARRISON STANDS READY -- "
-                                     "CAPTURING COSTS %d ENLISTED"
-                                     % need)
+                                     "CLICK THE TOWN'S >CAPTURE< "
+                                     "BANNER; THE FLAG COSTS %d "
+                                     "ENLISTED" % need)
                 else:
                     bar.set_hint("MARCH %d ENLISTED ONTO THE CITY TO "
                                  "TAKE IT (1 PER MILLION SOULS)" % need)
@@ -8691,7 +8889,7 @@ void main() {
         for ut, t_left in st.production:
             info = stats_for(ut, st.country)
             entries.append(("%ds" % max(0, int(t_left)), self._noop,
-                            [], get_icon_path(ut, 'dark'), False,
+                            [], unit_ui_icon(ut, st.country), False,
                             "%s -- %d S TO DELIVERY" %
                             (info['label'].upper(),
                              max(0, int(t_left))), True))
@@ -8767,6 +8965,12 @@ void main() {
                         for u in garrison]
             planned = [p for p in wing
                        if p in self.selected and p.sortie_plan]
+            # an engineer-built field the player owns carries the
+            # STRIKE key (a BASE is the city's and stands)
+            if (not is_carrier
+                    and base.country == self.player_country
+                    and not getattr(base, 'is_base', False)):
+                entries.append(self._decommission_entry(base))
             bar.add_buttons(self._paged_entries(entries,
                                                 '_roster_page'))
             n = sum(1 for p in wing if p in self.selected)
@@ -8810,6 +9014,9 @@ void main() {
                      ("{:,}".format(int(depot.stock)),
                       "{:,}".format(int(_CAP)), pct,
                       COUNTRIES[depot.country]['name'].upper()))
+        bar.add_buttons([self._decommission_entry(depot)]
+                        if depot.country == self.player_country
+                        else [])
         bar.set_hint("JOBLESS LORRIES DUMP STORES HERE; LORRIES ON A "
                      "CALL DRAW FROM IT -- SITE DEPOTS FORWARD TO "
                      "STAGE THE CHAIN")
@@ -9277,4 +9484,11 @@ void main() {
             self._city_ui_timer = 1.0
             if self.selected_city and self.bottom_bar:
                 self._set_city_info(self.selected_city)
+        if self.game_state == 'playing':
+            self._cap_banner_timer = getattr(self, '_cap_banner_timer',
+                                             0.0) - dt
+            if self._cap_banner_timer <= 0:
+                self._cap_banner_timer = 1.0
+                self._tick_capture_banners()
+            self._flash_capture_banners()
         return Task.cont

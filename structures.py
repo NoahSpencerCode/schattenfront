@@ -18,7 +18,12 @@ AIRFIELD_STOCK_CAP = 6000.0     # lbs of aviation supply
 AIRFIELD_HP = 260.0             # demolishable, like bridges
 DEPOT_STOCK_CAP = 20000.0
 HARBOR_STOCK_CAP = 24000.0
-BUNKER_RADIUS = 0.2             # infantry sheltered within this range
+BUNKER_RADIUS = 0.05            # infantry sheltered within this range
+                                # -- the WALL matches the drawn works
+                                # (holder scale 0.042): the old 0.2wu
+                                # perimeter was five times the
+                                # pictogram and threw every passing
+                                # lorry into fits
 BUNKER_HP = 220.0               # field works take a pounding first
 SORTIE_COST = 600.0             # lbs per aircraft takeoff
 
