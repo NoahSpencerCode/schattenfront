@@ -126,7 +126,7 @@ spread = min(angle_between(a, b) * GLOBE_RADIUS
              for i, a in enumerate(goals) for b in goals[i + 1:])
 check(spread > 0.01, "and they stand apart (%.3fwu)" % spread)
 
-# --- A TOWN IS PICKED BY ITS MARK OR ITS NAME -- AND NOTHING ELSE
+# --- A TOWN IS PICKED BY ITS CIVIC ICON -- AND NOTHING ELSE
 from panda3d.core import Point2
 berlin = next(c for c in g.cities if c.name == 'Berlin')
 g.cam_lat = g.cam_lat_target = berlin.lat
@@ -142,13 +142,14 @@ g._click_select(sp, False)
 check(sentry in g.selected and g.selected_city is None,
       "a counter near town is picked, not the town")
 g.clear_selection()
-sp = g.screen_pos(berlin.label_pos * GLOBE_RADIUS)
-g._click_select(Point2(sp.x, sp.y + 0.02), False)
-check(g.selected_city is berlin, "the NAME still picks the town")
+sp = g.screen_pos(berlin.icon_np.getPos(g.render))
+g._click_select(Point2(sp), False)
+check(g.selected_city is berlin, "the CIVIC ICON picks the town")
 g.clear_selection()
-sp = g.screen_pos(berlin.pos * GLOBE_RADIUS)
-g._click_select(sp, False)
-check(g.selected_city is berlin, "and so does the MARK")
+sp = g.screen_pos(berlin.label_pos * GLOBE_RADIUS)
+g._click_select(Point2(sp.x + 0.10, sp.y + 0.02), False)
+check(g.selected_city is not berlin,
+      "the letters no longer answer the click")
 g.clear_selection()
 
 # --- A THREATENED TOWN DEFENDS ITSELF

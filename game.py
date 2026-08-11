@@ -175,6 +175,17 @@ class City:
         set_marker_layer(self.label, LAYER_STRUCT + 4)
         self.title_flag = None
         self._flag_country = None
+        # THE CIVIC KEY: the town is picked by this ICON, standing
+        # left of the name as the standard stands right. Hover
+        # glows it; the click opens the municipality.
+        self.icon_np = make_icon_quad(game.loader, 'city', 'dark',
+                                      half=0.62, flat=False)
+        self.icon_np.reparentTo(self.label)
+        self.icon_np.setPos(-(self.label_tn.getWidth() * 0.5 + 0.72),
+                            0, 0.26)
+        self.icon_np.setLightOff()
+        self.icon_np.setColorScale(0.95, 0.92, 0.84, 0.95)
+        set_marker_layer(self.icon_np, LAYER_STRUCT + 4)
         # the capture banner: >CAPTURE< (-N) flown over the name when
         # the garrison on the square suffices -- built lazily
         self.cap_np = None
@@ -3384,54 +3395,55 @@ class WW2RTSGame(ShowBase):
         else:
             self._click_select(mpos, shift)
 
-    def _pick_city(self, mpos):
-        """A town is picked by its MARK or by its NAME -- and by
-        NOTHING ELSE. The name's hitbox is the rectangle the letters
-        actually cover on the map (it was a circle as wide as the
-        whole name in EVERY direction, which swallowed every counter
-        standing near town), and the mark's is a tight ring on the
-        civic centre."""
+    def _screen_per_wu(self):
+        """Screen units per world unit at the camera's altitude."""
         import math as _m
         alt = max(0.05, self.cam_dist - GLOBE_RADIUS)
         try:
             fov_v = _m.radians(self.camLens.getFov()[1])
-            per_wu = 1.0 / (alt * _m.tan(fov_v / 2.0))
+            return 1.0 / (alt * _m.tan(fov_v / 2.0))
         except Exception:
-            per_wu = None
-        try:
-            aspect = max(0.5, self.getAspectRatio())
-        except Exception:
-            aspect = 16.0 / 9.0
+            return None
+
+    def _pick_city(self, mpos):
+        """A town is picked by its CIVIC ICON -- the little city
+        mark standing left of the name -- and by NOTHING ELSE: the
+        letters, the centre mark and the ground all belong to the
+        counters standing there now. Every flag's town answers the
+        same key (your own opens its municipality, a foreign one
+        its intelligence view)."""
+        per_wu = self._screen_per_wu()
         best, best_d = None, None
         for c in self.cities:
-            if (c.country != self.player_country
-                    or not self._facing_camera(c.pos)):
+            if not self._facing_camera(c.pos):
                 continue
-            d = None
-            # the civic-centre mark: a unit-sized ring, no more
-            sp = self.screen_pos(c.pos * GLOBE_RADIUS)
-            if sp is not None:
-                r = CLICK_RADIUS * 1.2
-                if per_wu is not None:
-                    r = max(r, 0.022 * per_wu)
-                dm = (mpos - sp).length()
-                if dm <= r:
-                    d = dm
-            # the NAME: the letters run sideways from the anchor and
-            # stand up from the baseline; the camera holds north-up,
-            # so a screen-space rectangle covers them faithfully
-            sp = self.screen_pos(c.label_pos * GLOBE_RADIUS)
-            if sp is not None and per_wu is not None:
-                half_w = (c.label_tn.getWidth() * 0.5 + 0.4) * 0.05
-                sw = half_w * 1.1 * per_wu / aspect
-                sh = 0.040 * 1.1 * per_wu
-                cy = sp.y + 0.025 * per_wu    # baseline -> mid-letter
-                if abs(mpos.x - sp.x) <= sw and abs(mpos.y - cy) <= sh:
-                    dn = (mpos - sp).length()
-                    d = dn if d is None else min(d, dn)
-            if d is not None and (best_d is None or d < best_d):
+            sp = self.screen_pos(c.icon_np.getPos(self.render))
+            if sp is None:
+                continue
+            r = CLICK_RADIUS * 1.2
+            if per_wu is not None:
+                r = max(r, 0.034 * per_wu)
+            d = (mpos - sp).length()
+            if d <= r and (best_d is None or d < best_d):
                 best, best_d = c, d
         return best
+
+    def _tick_city_icon_hover(self):
+        """The civic key glows under the cursor -- the town saying
+        it will answer the click."""
+        mw = self.mouseWatcherNode
+        if (self.game_state != 'playing' or mw is None
+                or not mw.hasMouse()):
+            return
+        hov = self._pick_city(Point2(mw.getMouse()))
+        old = getattr(self, '_city_hover', None)
+        if hov is old:
+            return
+        if old is not None and old.icon_np is not None:
+            old.icon_np.setColorScale(0.95, 0.92, 0.84, 0.95)
+        if hov is not None and hov.icon_np is not None:
+            hov.icon_np.setColorScale(1.65, 1.5, 0.95, 1.0)
+        self._city_hover = hov
 
     def _click_select(self, mpos, shift):
         if shift and self._strike_waypoint(mpos):
@@ -3548,16 +3560,6 @@ class WW2RTSGame(ShowBase):
             self.selected = [foe]
             foe.set_selected(True)
             self._refresh_selection_ui()
-            return
-        # any other city (enemy or neutral): selectable for an intel view
-        other_cities = [(c, c.label_pos * GLOBE_RADIUS)
-                        for c in self.cities
-                        if c.country != self.player_country
-                        and self._facing_camera(c.pos)]
-        ocity = self._pick_object(mpos, other_cities, radius=CLICK_RADIUS * 1.9)
-        if ocity:
-            self.clear_selection()
-            self._select_city(ocity)
             return
         if not shift:
             self.clear_selection()
@@ -9036,12 +9038,12 @@ void main() {
             "SUPPLIED BY THE CITY -- NEW VEHICLES ROLL OUT THE "
             "GATE THE MOMENT THEY ARE FINISHED")
 
-    def _paged_entries(self, entries, page_attr, per=14):
+    def _paged_entries(self, entries, page_attr, per=10):
         """A menu holding more keys than one row carries: slice into
         pages, with < and > keys at the ends of the visible run. A
         page never wraps to a second row: the default 14 entries
-        plus the two arrows fill exactly the row of 16 (big-key
-        menus pass a smaller page)."""
+        plus the two arrows fill exactly the row of twelve
+        large keys."""
         n = len(entries)
         if n <= per:
             return entries
@@ -9714,4 +9716,5 @@ void main() {
                 self._cap_banner_timer = 1.0
                 self._tick_capture_banners()
             self._flash_capture_banners()
+            self._tick_city_icon_hover()
         return Task.cont

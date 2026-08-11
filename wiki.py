@@ -453,9 +453,10 @@ class WikiFax:
         ], M, t - 0.345)
         self.header("SELECTING A TOWN", (M, t - 0.755))
         self.bullets([
-            "Click the town MARK or its printed NAME. Towns "
-            "outrank counters on",
-            "  the click, but only inside the letters themselves.",
+            "Click the CIVIC ICON standing left of the town's "
+            "name -- it glows",
+            "  under the cursor. The letters and the ground belong "
+            "to the counters.",
         ], M, t - 0.810)
 
     def _page_supply(self):
@@ -910,8 +911,9 @@ class WikiFax:
             ("WHEEL", "Zoom, gliding toward the cursor."),
             ("TOP BAR KEYS", "Factory, resources, research and "
              "diplomacy reports."),
-            ("CITY CLICK", "The town's mark or its NAME selects "
-             "it; its keys open tax, draft and focus sheets."),
+            ("CITY CLICK", "The CIVIC ICON beside the town's name "
+             "selects it (it glows on hover); its keys open tax, "
+             "draft and focus sheets."),
             ("[i] KEY", "The selected unit's service briefing."),
             ("WORKS CLICK", "A selected bunker, depot or engineer "
              "airfield carries a STRIKE key: two clicks "

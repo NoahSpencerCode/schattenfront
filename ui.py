@@ -550,9 +550,11 @@ class BottomBar:
         big=True (base and transport menus) wears keys 30% larger."""
         self.clear_buttons()
         self.set_hint('')
-        per_row = 12 if big else 16
-        side = 0.065 if big else 0.050
-        pitch = 0.146 if big else 0.112
+        # EVERY key on the bar wears the LARGE size now (big= kept
+        # for the callers' sake; it no longer shrinks anything)
+        per_row = 12
+        side = 0.065
+        pitch = 0.146
         placed = []
         for i, entry in enumerate(tuple(actions)[:per_row]):
             placed.append((i, 0, entry))
