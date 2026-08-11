@@ -242,6 +242,10 @@ class WikiFax:
             "mph) and burn no stores" % (C.RAIL_TRAIN_SPEED * 60),
             "  under way. The router prefers rail over road when "
             "both serve.",
+            "THE FRONTIER BINDS THE ROUTE: no course is plotted "
+            "through a country",
+            "  that has not granted passage -- war or a treaty "
+            "opens it.",
             "Rivers stop land columns dead, except at BRIDGES "
             "(%d hp; engineers repair" % C.BRIDGE_HP,
             "  %d hp a second, and can survey new roads, rails "
@@ -249,18 +253,20 @@ class WikiFax:
             "The sea lanes of the world are open: Suez, Panama, "
             "Kiel, the Belts, the",
             "  Bosporus and the narrow straits are all navigable.",
-            "Engineers build works ON SITE: roads, rails, depots, "
-            "bunkers, bridges,",
-            "  radar, ports and airfields -- standing within reach "
-            "of the ground.",
+            "Engineers build depots, bunkers, bridges, radar, "
+            "ports and airfields",
+            "  ON SITE -- and lay roads and rails STRETCH BY "
+            "STRETCH, the party",
+            "  advancing along its own survey as each length of "
+            "way opens.",
         ], M, t - 0.055)
-        self.header("THE MAP IS THE TRUTH", (M, t - 0.545))
+        self.header("THE MAP IS THE TRUTH", (M, t - 0.665))
         self.bullets([
             "Cities, deposits, bases and bridges are printed on "
             "the map itself.",
             "Contour lines are drawn from the same ground the "
             "columns march over.",
-        ], M, t - 0.600)
+        ], M, t - 0.720)
 
     def _page_economy(self):
         t = self.BODY_TOP
@@ -482,6 +488,8 @@ class WikiFax:
             "nearest source,",
             "  full to their station (RMB sets it) or the "
             "neediest friend in sight.",
+            "  The frontier binds the lorries too: no errand "
+            "runs through a closed country.",
             "SUPPLY SHIPS feed warships, carriers' air stock and "
             "columns ashore.",
             "Hand-over happens within %.0f mi." %
@@ -849,7 +857,9 @@ class WikiFax:
             y -= 0.096
         self.text("THE FRONTIER IS REAL: without passage or war, "
                   "your columns and your engineers stop at the "
-                  "border.", (M, y - 0.020), 0.023, INK, wrap=56)
+                  "border -- and the router plots no course "
+                  "through a closed country.",
+                  (M, y - 0.020), 0.023, INK, wrap=56)
 
     def _page_controls(self):
         t = self.BODY_TOP

@@ -1391,7 +1391,12 @@ class WW2RTSGame(ShowBase):
 
     def _update_borders(self):
         """Refresh the Voronoi border shader after any change of
-        ownership (capture or completed annexation)."""
+        ownership (capture or completed annexation) -- and hand the
+        router the same map, so the frontier law rules on current
+        ground."""
+        if getattr(self, 'planner', None) and self.cities:
+            self.planner.update_territory(
+                [(Vec3(c.pos), c.country) for c in self.cities])
         if not self.globe:
             return
         from globe import ANNEX_IDX, NEUTRAL_IDX
@@ -1795,6 +1800,33 @@ class WW2RTSGame(ShowBase):
                 self.has_right(unit.country, owner, 'passage'):
             return None
         return owner
+
+    def closed_frontiers(self, unit):
+        """Every country whose ground this column may not TRANSIT:
+        the same law as passage_refused, applied to the whole route
+        instead of the goal alone, so the router detours around a
+        closed country instead of marching through it. Player land
+        columns only -- the AI keeps no rights ledger, and the sea
+        and the air know no frontier."""
+        if unit.stats['domain'] != 'land' \
+                or unit.country != self.player_country:
+            return frozenset()
+        mover = unit.country
+        banned = set()
+        for owner in {c.country for c in self.cities}:
+            if owner in (mover, 'neutral'):
+                continue
+            if self.at_war(mover, owner):
+                continue        # war opens every frontier
+            if self.allied(mover, owner) or \
+                    self.has_right(mover, owner, 'passage'):
+                continue
+            banned.add(owner)
+        # the ground a column already stands on is never closed to
+        # it: a peace signed with the column deep in-country must
+        # still let it walk home
+        banned.discard(self.territory_of(unit.pos))
+        return frozenset(banned)
 
     # =============================================== the table
     def standing(self, nat):
@@ -4327,19 +4359,29 @@ class WW2RTSGame(ShowBase):
             self._ind_tokens.add(token)
         self._pending_plans += 1
         self._plan_jobs.put((unit, unit.stats['domain'], Vec3(start),
-                             Vec3(goal), token))
+                             Vec3(goal), token,
+                             self.closed_frontiers(unit)))
 
     # ---------------------------------------------- background planning
     def _plan_loop(self):
         """Worker thread: route planning off the main thread so a
         trans-planet order never freezes the game."""
         while True:
-            unit, domain, start, goal, token = self._plan_jobs.get()
+            unit, domain, start, goal, token, banned = \
+                self._plan_jobs.get()
+            frontier = False
             try:
-                path = self.planner.plan(domain, start, goal)
+                path = self.planner.plan(domain, start, goal,
+                                         banned=banned)
+                if path is None and banned:
+                    # was it the frontier that turned the column, or
+                    # the ground itself? An open-borders retry tells
+                    # the refusal slip which law to cite
+                    frontier = self.planner.plan(domain, start,
+                                                 goal) is not None
             except Exception:
                 path = None
-            self._plan_results.append((unit, token, path))
+            self._plan_results.append((unit, token, path, frontier))
             time.sleep(0.002)
 
     def _enqueue_plan(self, unit, goal, silent=False, indicate=False):
@@ -4350,11 +4392,12 @@ class WW2RTSGame(ShowBase):
             self._ind_tokens.add(self._plan_seq)
         self._pending_plans += 1
         self._plan_jobs.put((unit, unit.stats['domain'], Vec3(unit.pos),
-                             Vec3(goal), self._plan_seq))
+                             Vec3(goal), self._plan_seq,
+                             self.closed_frontiers(unit)))
 
     def _drain_plans(self):
         while self._plan_results:
-            unit, token, path = self._plan_results.pop(0)
+            unit, token, path, frontier = self._plan_results.pop(0)
             self._pending_plans = max(0, self._pending_plans - 1)
             self._ind_tokens.discard(token)
             # a pre-planned queued leg: file the route into its order
@@ -4379,8 +4422,17 @@ class WW2RTSGame(ShowBase):
                 # back off so a stranded unit can't churn the planner
                 # (and spam FAXes) every tick
                 unit._route_fail_until = globalClock.getFrameTime() + 20.0
+                # a carrier whose errand found no road releases its
+                # CLAIM, or the customer starves while every other
+                # lorry treats the call as taken
+                if getattr(unit, '_supply_tgt', None) is not None:
+                    unit._supply_tgt = None
+                    unit._depot_haul = False
                 if not getattr(unit, '_plan_silent', False):
-                    self._no_route_fax(unit)
+                    if frontier:
+                        self._frontier_fax(unit)
+                    else:
+                        self._no_route_fax(unit)
                 unit.current_order = None
             else:
                 unit.path = path
@@ -4427,6 +4479,23 @@ class WW2RTSGame(ShowBase):
             "%s: %s. Rivers need bridges; open water needs "
             "transports." % (unit.stats['label'],
                              B("NO PRACTICABLE ROUTE")),
+            sender="MOVEMENT CONTROL")
+
+    def _frontier_fax(self, unit):
+        """The route exists -- but only through a country that has
+        not granted passage, and the router will not plot it."""
+        if unit.country != self.player_country:
+            return
+        now = globalClock.getFrameTime()
+        if now - getattr(self, '_last_refuse_fax', -99.0) < 5.0:
+            return                  # one refusal slip per five seconds
+        self._last_refuse_fax = now
+        self.fax.post(
+            "ORDER REFUSED",
+            "%s: %s. Every road there runs through a closed "
+            "country -- treat for a right of passage, or declare "
+            "war." % (unit.stats['label'],
+                      B("THE FRONTIER TURNS THE COLUMN")),
             sender="MOVEMENT CONTROL")
 
     def order_finished(self, unit, order):
@@ -4483,6 +4552,10 @@ class WW2RTSGame(ShowBase):
             self._approach_target(unit, field)
             return False
         if kind == 'build':
+            if order.get('what') in ('road', 'rail'):
+                # a WAY is laid stretch by stretch, the party
+                # advancing along its own survey
+                return self._tick_way_build(unit, order)
             # the engineers must actually be standing on the site before
             # the first shovel goes in
             near = 0.4 if order.get('what') == 'harbor' else 0.18
@@ -5438,51 +5511,190 @@ class WW2RTSGame(ShowBase):
                                               'road': (-1, -1)},
                                        len(self.bridges)))
             self.planner.notify_bridge_change()
-        elif kind in ('road', 'rail'):
-            # the laid way is EXACTLY a map road (or a main line) --
-            # surveyed by engineers, so its curve is DISCIPLINED; rails
-            # run straighter still. Any river a ROAD crosses gets its
-            # bridge thrown across automatically.
-            is_rail = kind == 'rail'
-            pts = order.get('points') or [site]
-            chain = [order['from']] + list(pts)
-            for a, b in zip(chain[:-1], chain[1:]):
-                if angle_between(a, b) < 1e-7:
-                    continue
-                la1, lo1 = vec_to_latlon(a)
-                la2, lo2 = vec_to_latlon(b)
-                seed = zlib.crc32(("eng:%.3f,%.3f,%.3f,%.3f"
-                                   % (la1, lo1, la2, lo2)).encode())
-                curve = self.world._curved_road_points(
-                    la1, lo1, la2, lo2, seed, passes=5, amp=0.04)
-                if is_rail:
-                    # a surveyed line bends around the water, it
-                    # never runs across it
-                    curve = self.world._dry_the_line(curve)
-                healed = [c for c in self.road_cuts
-                          if any(angle_between(
-                              latlon_to_vec(cla, clo), c)
-                              * GLOBE_RADIUS < self.ROAD_CUT_R
-                              for (cla, clo) in curve[::4])]
-                if healed:
-                    self.road_cuts = [c for c in self.road_cuts
-                                      if c not in healed]
-                    self.planner.clear_road_cuts(self.road_cuts)
-                self._auto_bridge_curve(curve)
-                poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
-                self.planner.add_custom_road(poly, rail=is_rail)
-                store = ('custom_rail_paths' if is_rail
-                         else 'custom_road_paths')
-                if not hasattr(self.world, store):
-                    setattr(self.world, store, [])
-                getattr(self.world, store).append(list(curve))
-            self._build_road_overlay()
         self._apply_marker_scale()
         if country == self.player_country:
             self.fax.post("WORKS COMPLETE",
                           "%s ready at %s." %
                           (B(label), self._grid_ref(lat, lon)),
                           sender="ENGINEER CORPS")
+
+    def _survey_way(self, order):
+        """Survey a road/rail leg ONCE, whole: the drawn line, its
+        slices -- one ROAD_SECTION_LEN stretch of way apiece -- and
+        the moment on the clock at which each stretch stands. All of
+        it deterministic (seeded curve, dried line), so a mid-build
+        save resumes on the same ground: the finished stretches come
+        back with the world's own stores, and the saved countdown
+        alone says how many stood."""
+        is_rail = order.get('what') == 'rail'
+        pts = order.get('points') or [order['site']]
+        chain = [order['from']] + list(pts)
+        curve = []
+        for a, b in zip(chain[:-1], chain[1:]):
+            if angle_between(a, b) < 1e-7:
+                continue
+            la1, lo1 = vec_to_latlon(a)
+            la2, lo2 = vec_to_latlon(b)
+            seed = zlib.crc32(("eng:%.3f,%.3f,%.3f,%.3f"
+                               % (la1, lo1, la2, lo2)).encode())
+            leg = self.world._curved_road_points(
+                la1, lo1, la2, lo2, seed, passes=5, amp=0.04)
+            if is_rail:
+                # a surveyed line bends around the water, it never
+                # runs across it
+                leg = self._rail_around_water(leg)
+            curve.extend(leg if not curve else leg[1:])
+        if len(curve) < 2:
+            return None
+        vecs = [latlon_to_vec(la, lo) for (la, lo) in curve]
+        arc = [0.0]
+        for va, vb in zip(vecs[:-1], vecs[1:]):
+            arc.append(arc[-1] + angle_between(va, vb) * GLOBE_RADIUS)
+        total_len = arc[-1]
+        if total_len <= 1e-9:
+            return None
+        n = max(1, int(round(total_len / ROAD_SECTION_LEN)))
+        cuts = [0]
+        for k in range(1, n):
+            want = total_len * k / n
+            idx = next(i2 for i2, s in enumerate(arc) if s >= want)
+            if idx <= cuts[-1]:
+                idx = min(len(curve) - 1, cuts[-1] + 1)
+            cuts.append(idx)
+        cuts.append(len(curve) - 1)
+        return {
+            'slices': [curve[i0:i1 + 1]
+                       for i0, i1 in zip(cuts[:-1], cuts[1:])],
+            'vslices': [vecs[i0:i1 + 1]
+                        for i0, i1 in zip(cuts[:-1], cuts[1:])],
+            'stands': [vecs[i0] for i0 in cuts[:-1]],
+            # stretch k stands when the countdown falls to its share
+            'thresh': [float(self.BUILD_WORKS[order['what']][2])
+                       * (1.0 - arc[i1] / total_len)
+                       for i1 in cuts[1:]],
+        }
+
+    def _tick_way_build(self, unit, order):
+        """A way is laid ONE STRETCH AT A TIME: the party stands at
+        the working end, a stretch of road (or line) opens when its
+        share of the clock is worked off, and the party advances
+        along the fresh ground to the next -- the construction
+        crawls up the survey instead of appearing whole at the last
+        second. Returns True when the whole leg stands."""
+        ws = order.get('_ws')
+        if ws is None:
+            ws = self._survey_way(order)
+            if ws is None:
+                return True     # a degenerate survey: nothing to lay
+            ws['i'] = sum(1 for th in ws['thresh']
+                          if order['t'] <= th + 1e-9)
+            order['_ws'] = ws   # transient working state: never saved
+        if ws['i'] >= len(ws['slices']):
+            return True
+        stand = ws['stands'][ws['i']]
+        if unit.dist_to(stand) >= 0.18:
+            # march to the working end (or stay the march under way)
+            if unit.path or getattr(unit, 'plan_pending', None):
+                return False
+            if not self._replan_ready(unit):
+                return False
+            self._enqueue_plan(unit, self._legal_goal(unit, stand))
+            return False
+        order['t'] -= globalClock.getDt() * self.game_speed
+        is_rail = order.get('what') == 'rail'
+        first = ws['i']
+        while (ws['i'] < len(ws['slices'])
+               and order['t'] <= ws['thresh'][ws['i']] + 1e-9):
+            # at high game speed one frame may finish several
+            # stretches: lay them all
+            self._lay_way_slice(ws['slices'][ws['i']], is_rail)
+            ws['i'] += 1
+        if ws['i'] == first:
+            return False
+        # the party walks EVERY stretch laid this frame to the new
+        # working end -- along the survey, never a beeline across
+        # country. The order stays open for the walk (completion
+        # clears the path, and the LAST stretch deserves walking out
+        # too); the next path-empty tick files a finished leg above
+        walk = []
+        for s in ws['vslices'][first:ws['i']]:
+            walk.extend(s if not walk else s[1:])
+        unit.path = [(Vec3(v), 1.0) for v in walk[1:]]
+        if ws['i'] < len(ws['slices']):
+            order['site'] = Vec3(ws['stands'][ws['i']])
+        else:
+            order['site'] = Vec3(walk[-1])
+            if unit.country == self.player_country:
+                la, lo = vec_to_latlon(walk[-1])
+                self.fax.post(
+                    "WORKS COMPLETE",
+                    "%s ready at %s." %
+                    (B(self.BUILD_WORKS[order['what']][0]),
+                     self._grid_ref(la, lo)),
+                    sender="ENGINEER CORPS")
+        return False
+
+    def _lay_way_slice(self, curve, is_rail):
+        """One stretch of surveyed way becomes REAL: bridges thrown
+        where it crosses water, bombed cuts under it healed, the
+        router taught the new ground, the world's stores extended.
+        The caller redraws the overlay."""
+        healed = [c for c in self.road_cuts
+                  if any(angle_between(
+                      latlon_to_vec(cla, clo), c)
+                      * GLOBE_RADIUS < self.ROAD_CUT_R
+                      for (cla, clo) in curve[::4])]
+        if healed:
+            self.road_cuts = [c for c in self.road_cuts
+                              if c not in healed]
+            self.planner.clear_road_cuts(self.road_cuts)
+        self._auto_bridge_curve(curve)
+        poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
+        self.planner.add_custom_road(poly, rail=is_rail)
+        store = ('custom_rail_paths' if is_rail
+                 else 'custom_road_paths')
+        if not hasattr(self.world, store):
+            setattr(self.world, store, [])
+        getattr(self.world, store).append(list(curve))
+        self._append_way_overlay(curve, is_rail)
+
+    def _append_way_overlay(self, curve, rail):
+        """Draw ONE fresh stretch into the standing overlay. The
+        full rebuild costs a quarter second of frame -- paying it
+        per laid stretch froze the game all through a build. New
+        sections are INSERTED at the canonical rebuild position
+        (road ways ahead of the first rail section), and each laid
+        stretch is its own stored path, so the section list stays
+        IDENTICAL to what a restore-time rebuild produces -- the
+        save's index-aligned section state depends on that."""
+        grp = getattr(self, '_custom_road_group', None)
+        if grp is None or grp.isEmpty():
+            self._build_road_overlay()
+            return
+        pts = list(curve[::3])
+        if curve and (not pts or pts[-1] != curve[-1]):
+            pts.append(curve[-1])
+        poly = [latlon_to_vec(la, lo) for (la, lo) in pts]
+        if len(poly) < 2:
+            return
+        kind = 'rail' if rail else 'road'
+        at = len(self.road_sections)
+        if not rail:
+            at = next((i for i, s in enumerate(self.road_sections)
+                       if getattr(s, 'kind', 'road') == 'rail'),
+                      len(self.road_sections))
+        for sec_pts in self._split_sections(poly, ROAD_SECTION_LEN):
+            mid = sec_pts[len(sec_pts) // 2]
+            if any(angle_between(mid, c) * GLOBE_RADIUS
+                   < self.ROAD_CUT_R for c in self.road_cuts):
+                continue        # laid straight into a bombed zone
+            sec = RoadSection(self, sec_pts)
+            sec.kind = kind
+            sec.node = (self._draw_road_section(sec_pts)
+                        if kind == 'road'
+                        else self._draw_rail_section(sec_pts))
+            self.road_sections.insert(at, sec)
+            at += 1
 
     def _rail_around_water(self, curve):
         """A MAIN LINE TAKES A SMOOTH DETOUR ROUND THE WATER.

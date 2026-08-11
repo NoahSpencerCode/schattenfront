@@ -56,10 +56,113 @@ class MovementPlanner:
         # river-crossing verdicts for static node pairs; valid until the
         # set of intact bridges changes
         self._river_ok_cache = {}
+        # THE FRONTIER LAW: who holds what ground. Set by the game
+        # whenever ownership changes; None until then (routing is
+        # frontier-blind without it, as in a bare test rig).
+        # _terr is ONE atomically-swapped tuple (vecs, names, cos)
+        # so a reader never pairs new towns with old owners, and
+        # _inval_gen guards every cache install: the planner worker
+        # may be mid-rebuild when the main thread invalidates, and
+        # an unguarded install would resurrect the stale tables.
+        self._terr = None
+        self._edge_owners = None       # per-static-edge owner sets
+        self._inval_gen = 0
 
     def notify_bridge_change(self):
         self._river_ok_cache.clear()
+        self._inval_gen += 1
         self._adj_cache = None
+
+    # ------------------------------------------------- the frontier law
+    TERRITORY_R = 1.8       # wu -- the same discs Game.territory_of rules
+
+    def update_territory(self, entries):
+        """The map of who holds what ground, for the frontier law:
+        the router plots no course through a country that has not
+        granted passage. entries = [(town unit vector, country)] --
+        the same 1.8wu discs Game.territory_of() rules by."""
+        names = [c for _, c in entries]
+        old = self._terr
+        if old is not None and old[1] == names:
+            return      # no flag changed hands: keep the caches warm
+        self._terr = (np.array([[v.x, v.y, v.z]
+                                for v, _ in entries]),
+                      names,
+                      math.cos(self.TERRITORY_R / GLOBE_RADIUS))
+        self._inval_gen += 1
+        self._edge_owners = None
+        self._adj_cache = None
+
+    def _owners_of_np(self, arr, terr=None):
+        """Owner index per point ((P,3) unit vectors); -1 = nobody's
+        ground. The nearest town inside the disc holds the point."""
+        terr = terr or self._terr
+        with np.errstate(all='ignore'):
+            # macOS Accelerate raises spurious FPE flags in matmul
+            # on perfectly finite data -- same guard as plan_land's
+            dots = arr @ terr[0].T
+        best = np.argmax(dots, axis=1)
+        ok = dots[np.arange(len(arr)), best] >= terr[2]
+        return np.where(ok, best, -1)
+
+    def _arc_owners(self, va, vb):
+        """Every country whose ground the great-circle run touches,
+        sampled at half the territory radius so no disc can be
+        crossed unseen. None when no territory map is loaded."""
+        terr = self._terr
+        if terr is None:
+            return None
+        pts = [va]
+        n = int(angle_between(va, vb) * GLOBE_RADIUS
+                / (self.TERRITORY_R * 0.5))
+        for k in range(1, n + 1):
+            pts.append(slerp(va, vb, k / (n + 1.0)))
+        pts.append(vb)
+        arr = np.array([[p.x, p.y, p.z] for p in pts])
+        idx = self._owners_of_np(arr, terr)
+        return frozenset(terr[1][int(x)]
+                         for x in set(idx.tolist()) if int(x) >= 0)
+
+    def _ensure_edge_owners(self):
+        """Owner sets per static edge (endpoints, the drawn geometry
+        of road edges, and interior samples of long off-road hops).
+        Incremental: newly laid ways only append edges, so only the
+        tail is surveyed; a change of ownership resets the lot.
+        Copy-on-write with a generation-gated install: this runs on
+        the planner worker while the main thread lays roads and
+        turns flags, and must neither misalign nor resurrect."""
+        terr = self._terr
+        if terr is None:
+            return None
+        gen0 = self._inval_gen
+        edges = self._static_edges
+        eo = self._edge_owners
+        eo = [] if (eo is None or len(eo) > len(edges)) else list(eo)
+        tail = list(edges[len(eo):])
+        if not tail:
+            return eo
+        step = self.TERRITORY_R * 0.5
+        pts, spans = [], []
+        for (i, j, _c, _flag, _gate, geom) in tail:
+            va, vb = self._nodes[i][0], self._nodes[j][0]
+            s0 = len(pts)
+            pts.append(va)
+            if geom:
+                pts.extend(geom[::3])
+            else:
+                n = int(angle_between(va, vb) * GLOBE_RADIUS / step)
+                for k in range(1, n + 1):
+                    pts.append(slerp(va, vb, k / (n + 1.0)))
+            pts.append(vb)
+            spans.append((s0, len(pts)))
+        arr = np.array([[p.x, p.y, p.z] for p in pts])
+        idx = self._owners_of_np(arr, terr)
+        for (s0, s1) in spans:
+            o = set(int(x) for x in idx[s0:s1] if x >= 0)
+            eo.append(frozenset(terr[1][x] for x in o) or None)
+        if self._inval_gen == gen0:
+            self._edge_owners = eo
+        return eo
 
     def add_custom_road(self, poly, rail=False):
         """Engineer-built road (or RAILROAD, with rail=True): the
@@ -145,6 +248,7 @@ class MovementPlanner:
             edges.append((prev, nn, seg_len / rate, flag, gate, geom))
             prev, prev_i = nn, idx
             k += 1
+        self._inval_gen += 1
         self._adj_cache = None
 
     def _stitch(self, nodes, edges, P):
@@ -569,11 +673,13 @@ class MovementPlanner:
         if not hasattr(self, 'road_cuts'):
             self.road_cuts = []
         self.road_cuts.append(Vec3(pos))
+        self._inval_gen += 1
         self._adj_cache = None
 
     def clear_road_cuts(self, remaining):
         """Engineers relaid road over some cuts: keep the rest."""
         self.road_cuts = [Vec3(c) for c in remaining]
+        self._inval_gen += 1
         self._adj_cache = None
 
     ROAD_CUT_R = 0.30
@@ -604,8 +710,11 @@ class MovementPlanner:
             return True
         return True  # off-road rivers are re-checked lazily during A*
 
-    def plan_land(self, start_vec, goal_vec):
-        """A* over the land graph. Returns [(vec, speed_mult), ...] or None."""
+    def plan_land(self, start_vec, goal_vec, banned=frozenset()):
+        """A* over the land graph. Returns [(vec, speed_mult), ...]
+        or None. banned: countries whose ground the column may not
+        transit (the frontier law) -- edges touching their territory
+        are closed to this plan."""
         if self._static_edges is None:
             self._build_land_graph()
         nodes = list(self._nodes)
@@ -617,24 +726,40 @@ class MovementPlanner:
         # adjacency: the static half is built ONCE and reused by every
         # plan (rebuilt only when a bridge changes or a road is laid);
         # each query adds just its start/goal links in a tiny overlay
-        if self._adj_cache is None:
+        static_adj = self._adj_cache
+        if static_adj is None:
+            # the rebuild runs on the planner worker while the main
+            # thread lays roads and turns flags: enumerate a BOUNDED
+            # range so the owner list can't misalign with a growing
+            # edge list, and install only if nothing was invalidated
+            # meanwhile -- an unguarded install would resurrect
+            # stale ownership (or a dead bridge) over a fresh map
+            gen0 = self._inval_gen
+            eo = self._ensure_edge_owners()
+            edges = self._static_edges
+            n_e = len(edges) if eo is None else min(len(edges),
+                                                    len(eo))
             cache = {}
-            for k, e in enumerate(self._static_edges):
+            for k in range(n_e):
                 if k % 4096 == 0:
                     time.sleep(0.0005)  # one-time build; frames first
+                e = edges[k]
                 if self._land_edges_usable(e):
+                    own = eo[k] if eo else None
                     cache.setdefault(e[0], []).append(
-                        (e[1], e[2], e[3], e[5], True))
+                        (e[1], e[2], e[3], e[5], True, own))
                     cache.setdefault(e[1], []).append(
-                        (e[0], e[2], e[3], e[5], False))
-            self._adj_cache = cache
-        static_adj = self._adj_cache
+                        (e[0], e[2], e[3], e[5], False, own))
+            if self._inval_gen == gen0:
+                self._adj_cache = cache
+            static_adj = cache
         extra = {}
 
-        def add(i, j, cost, is_road, geom=None):
-            extra.setdefault(i, []).append((j, cost, is_road, geom, True))
+        def add(i, j, cost, is_road, geom=None, own=None):
+            extra.setdefault(i, []).append((j, cost, is_road, geom,
+                                            True, own))
             extra.setdefault(j, []).append((i, cost, is_road, geom,
-                                            False))
+                                            False, own))
         # dynamic edges: start/goal to their nearest nodes (and each
         # other). The candidate search is VECTORIZED: the old per-node
         # Python loop held the GIL for tens of ms per plan and froze
@@ -672,7 +797,12 @@ class MovementPlanner:
                     nodes[j][1], nodes[j][2])
                 if fac is None:
                     continue        # a wall of rock between them
-                add(dyn, j, math.radians(ang) * GLOBE_RADIUS * fac, False)
+                own = (self._arc_owners(nodes[dyn][0], nodes[j][0])
+                       if banned else None)
+                if banned and own and (own & banned):
+                    continue        # the link crosses a closed frontier
+                add(dyn, j, math.radians(ang) * GLOBE_RADIUS * fac,
+                    False, own=own)
                 linked += 1
 
         # river checks: persistent cache for static pairs, per-call
@@ -712,9 +842,11 @@ class MovementPlanner:
             neigh = static_adj.get(cur, [])
             if cur in extra:
                 neigh = neigh + extra[cur]
-            for (nxt, cost, is_road, geom, fwd) in neigh:
+            for (nxt, cost, is_road, geom, fwd, own) in neigh:
                 if nxt in seen:
                     continue
+                if banned and own and (own & banned):
+                    continue    # no course through a closed country
                 if not is_road:
                     rm = river_mult(cur, nxt)
                     if rm is None:
@@ -730,7 +862,7 @@ class MovementPlanner:
         if goal_i not in prev and start_i != goal_i:
             # graph couldn't connect them: try a fine mask-accurate A*
             # (coastal walks, lake shores — as accurate as the map)
-            return self._refine_land(start_vec, goal_vec)
+            return self._refine_land(start_vec, goal_vec, banned)
         # reconstruct -- splicing each road edge\'s dense curve back
         # in, so the column marches the exact ribbon that is drawn
         path = []
@@ -915,7 +1047,7 @@ class MovementPlanner:
                 return out
         return [b_vec]      # nowhere to go (canal transit): allow it
 
-    def _refine_land(self, a_vec, b_vec):
+    def _refine_land(self, a_vec, b_vec, banned=frozenset()):
         """Mask-accurate land fallback when the node graph can't connect
         two points (coastal walks, lake shores).  Rivers still apply."""
         if math.degrees(angle_between(a_vec, b_vec)) > 15.0:
@@ -930,6 +1062,27 @@ class MovementPlanner:
                     if not self.segment_river_ok(prev, v):
                         return None
                     prev = v
+                # and the frontier law binds the raster walk too: a
+                # refined route through closed ground is no route.
+                # Sample the RUNS between waypoints, not just the
+                # corners -- a long straight can cross a disc whole
+                terr = self._terr
+                if banned and terr is not None:
+                    hop = self.TERRITORY_R * 0.5
+                    pts2, prev = [Vec3(a_vec)], a_vec
+                    for v in out:
+                        n2 = int(angle_between(prev, v)
+                                 * GLOBE_RADIUS / hop)
+                        for k2 in range(1, n2 + 1):
+                            pts2.append(slerp(prev, v,
+                                              k2 / (n2 + 1.0)))
+                        pts2.append(Vec3(v))
+                        prev = v
+                    arr = np.array([[v.x, v.y, v.z] for v in pts2])
+                    idx = self._owners_of_np(arr, terr)
+                    if any(terr[1][int(x)] in banned
+                           for x in set(idx.tolist()) if int(x) >= 0):
+                        return None
                 return [(Vec3(v), 1.0) for v in out]
         return None
 
@@ -1059,10 +1212,13 @@ class MovementPlanner:
         return out
 
     # -------------------------------------------------------------- public
-    def plan(self, domain, start_vec, goal_vec):
-        """Returns [(unit_vec, speed_mult), ...] or None if unreachable."""
+    def plan(self, domain, start_vec, goal_vec, banned=None):
+        """Returns [(unit_vec, speed_mult), ...] or None if unreachable.
+        banned: countries closed to this column (land only -- the
+        passage law never binds the sea or the air)."""
         if domain == 'air':
             return [(Vec3(goal_vec), 1.0)]
         if domain == 'sea':
             return self.plan_sea(start_vec, goal_vec)
-        return self.plan_land(start_vec, goal_vec)
+        return self.plan_land(start_vec, goal_vec,
+                              banned or frozenset())
