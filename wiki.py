@@ -527,7 +527,11 @@ class WikiFax:
         self.bullets([
             "Every pound of stores issued to a MACHINE draws oil: "
             "one ton moves",
-            "  1,250 lbs. Men and the railways draw none.",
+            "  1,250 lbs. Men and the railways draw none -- and "
+            "the CHAIN ITSELF",
+            "  (lorries, ships, stations) hands pounds on free: "
+            "the pound is",
+            "  charged ONCE, at the final issue.",
             "No oil, no issue: the machine keeps its stores but "
             "the pumps stop.",
             "The STRATEGIC RESOURCES ledger (top bar) shows "
@@ -535,13 +539,13 @@ class WikiFax:
             "  the fortnight's spend and the whole supply net "
             "live.",
         ], M, t - 0.385)
-        self.header("FOOD IS MANPOWER", (M, t - 0.660))
+        self.header("FOOD IS MANPOWER", (M, t - 0.750))
         self.bullets([
             "Rations are drawn when towns muster men and daily "
             "for every soul",
             "  the flag covers. A blockaded island starves before "
             "it surrenders.",
-        ], M, t - 0.715)
+        ], M, t - 0.805)
 
     def _page_combat(self):
         t = self.BODY_TOP

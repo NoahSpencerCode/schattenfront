@@ -2502,7 +2502,16 @@ class WW2RTSGame(ShowBase):
         rail burn none, and per-unit supply law is untouched. A dry
         stockpile stops feeding engines -- the transfer is refused
         and the despatch says so."""
-        if lbs <= 0 or unit.unit_type == 'infantry':
+        if lbs <= 0 or unit.unit_type == 'infantry' \
+                or unit.stats.get('supply_carrier'):
+            # THE POUND IS CHARGED ONCE, AT THE FINAL ISSUE: a
+            # lorry, a supply ship or a floating station is the
+            # CHAIN, not the customer -- pumping every hand the
+            # pound passed through charged it twice on a depot run
+            # and, with a tender working a floating station, spun a
+            # draw-and-rescue LOOP that drained a stockpile at
+            # seven tons of oil a second while the stores went
+            # nowhere at all
             return lbs
         stock = self.resources.get(unit.country)
         if stock is None:               # NPC garrisons keep no books
@@ -6565,7 +6574,12 @@ void main() {
                     # a fellow carrier is a casualty, not a customer: it
                     # is topped up only when nearly dry, and only to a
                     # working reserve, so a stranded column gets legs
-                    # back without supply sloshing between lorries
+                    # back without supply sloshing between lorries.
+                    # A FLOATING STATION IS NEVER A CASUALTY -- her
+                    # stock is the cache the chain itself manages,
+                    # and "rescuing" her respun the draw loop
+                    if getattr(u, 'is_supply_station', False):
+                        continue
                     if src_sea != (u.stats['domain'] == 'sea'):
                         continue
                     if u.supply >= cap_u * 0.3:
