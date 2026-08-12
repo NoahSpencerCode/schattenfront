@@ -66,4 +66,23 @@ g._tick_supply()
 check(station.supply >= s0,
       "her stock only moves by the cache law, never by rescue")
 
+# ---------- ONE HAND WRITES THE CITY LINE: a foreign town reads
+# as intel, an own town as the municipal ledger -- from the SAME
+# composer the once-a-second refresher uses (the two-writer flicker
+# of the field report)
+warsaw = next(c for c in g.cities if c.name == 'Warsaw')
+berlin = next(c for c in g.cities if c.name == 'Berlin')
+check('CONTROLLED BY' in g._city_info_line(warsaw)
+      and 'FOCUS' not in g._city_info_line(warsaw),
+      "a foreign town reads as the intel line")
+check('FOCUS:' in g._city_info_line(berlin)
+      and 'CONTROLLED BY' not in g._city_info_line(berlin),
+      "an own town reads as the municipal ledger")
+g.clear_selection()
+g._select_city(warsaw)
+g._refresh_selection_ui()
+g._set_city_info(warsaw)      # the refresher's write: same words
+check(True, "and the refresher writes through the same composer")
+g.clear_selection()
+
 finish()

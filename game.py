@@ -8863,13 +8863,7 @@ void main() {
                               (city.name.upper(), tag,
                                COUNTRIES[city.country]['adjective'].upper()))
                 at_war = self.at_war(self.player_country, city.country)
-                bar.set_info(
-                    "POPULATION %s   %sCONTROLLED BY %s   %s" %
-                    ("{:,}".format(city.population),
-                     "PORT   " if city.harbor else "",
-                     COUNTRIES[city.country]['name'].upper(),
-                     ("CAPTURE: %d/%d ENLISTED ON THE CITY"
-                      % (have, need)) if at_war else "AT PEACE"))
+                self._set_city_info(city)
                 if not at_war:
                     bar.set_hint("NO STATE OF WAR EXISTS -- ONLY A "
                                  "DECLARATION FROM THE DIPLOMACY "
@@ -9574,9 +9568,24 @@ void main() {
         self.roster_base = base
         self._refresh_selection_ui()
 
-    def _set_city_info(self, city):
-        queue = ", ".join("%s %ds" % (UNIT_TYPES[t]['icon'], s)
-                          for t, s in city.production[:4])
+    def _city_info_line(self, city):
+        """ONE composer for the white line under a town's title.
+        It was written by TWO hands -- the click's view printed a
+        foreign town's intel line, then the once-a-second refresher
+        stamped the municipal ledger over it, and the next refresh
+        flipped it back: the stats appeared to switch between two
+        different readings once a second."""
+        if city.country != self.player_country:
+            need = city.required_infantry()
+            have = len(self._capture_garrison(city,
+                                              self.player_country))
+            at_war = self.at_war(self.player_country, city.country)
+            return ("POPULATION %s   %sCONTROLLED BY %s   %s" %
+                    ("{:,}".format(city.population),
+                     "PORT   " if city.harbor else "",
+                     COUNTRIES[city.country]['name'].upper(),
+                     ("CAPTURE: %d/%d ENLISTED ON THE CITY"
+                      % (have, need)) if at_war else "AT PEACE"))
         tax = "%d%%" % city.tax_rate
         if city.pending_tax is not None:
             tax += " (%d%% NEXT)" % city.pending_tax
@@ -9587,12 +9596,14 @@ void main() {
             'base_army': 'RAISING AN ARMY BASE',
             'base_air': 'RAISING AN AIR BASE',
             'base_naval': 'RAISING A NAVAL BASE'}
-        self.bottom_bar.set_info(
-            "POP %s%s   INDUSTRY %.0f%%   TAX %s   FOCUS: %s" %
-            ("{:,}".format(city.population),
-             "   PORT" if city.harbor else "",
-             city.industry, tax,
-             focus_words.get(city.focus, city.focus.upper())))
+        return ("POP %s%s   INDUSTRY %.0f%%   TAX %s   FOCUS: %s" %
+                ("{:,}".format(city.population),
+                 "   PORT" if city.harbor else "",
+                 city.industry, tax,
+                 focus_words.get(city.focus, city.focus.upper())))
+
+    def _set_city_info(self, city):
+        self.bottom_bar.set_info(self._city_info_line(city))
 
     def _tick_top_bar(self):
         if not self.top_bar:
