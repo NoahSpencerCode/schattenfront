@@ -178,13 +178,14 @@ class City:
         # THE CIVIC KEY: the town is picked by this ICON, standing
         # left of the name as the standard stands right. Hover
         # glows it; the click opens the municipality.
-        self.icon_np = make_icon_quad(game.loader, 'city', 'dark',
+        self.icon_np = make_icon_quad(game.loader, 'city_pick',
+                                      'dark',
                                       half=0.62, flat=False)
         self.icon_np.reparentTo(self.label)
         self.icon_np.setPos(-(self.label_tn.getWidth() * 0.5 + 0.72),
                             0, 0.26)
         self.icon_np.setLightOff()
-        self.icon_np.setColorScale(0.95, 0.92, 0.84, 0.95)
+        self.icon_np.setColorScale(1.0, 1.0, 1.0, 0.96)
         set_marker_layer(self.icon_np, LAYER_STRUCT + 4)
         # the capture banner: >CAPTURE< (-N) flown over the name when
         # the garrison on the square suffices -- built lazily
@@ -220,8 +221,8 @@ class City:
             tn.setShadowColor(0.10, 0.03, 0.02, 0.9)
             self.cap_tn = tn
             txt_np = root.attachNewNode(tn)
-            txt_np.setScale(0.62)
-            txt_np.setPos(0, 0, -0.20)
+            txt_np.setScale(0.40)
+            txt_np.setPos(0, 0, -0.135)
             self.cap_np = root
             set_marker_layer(pill, LAYER_STRUCT + 4)
             set_marker_layer(txt_np, LAYER_STRUCT + 5)
@@ -4726,12 +4727,45 @@ class WW2RTSGame(ShowBase):
                     and not self.at_war(unit.country, target.country)):
                 unit.attack_target = None
                 return True     # peace overtook the order: stand down
-            if unit.dist_to(target.pos) > \
-                    self.effective_fire_range(unit, target):
+            d = unit.dist_to(target.pos)
+            if d > self.effective_fire_range(unit, target):
+                if unit.path or getattr(unit, 'plan_pending', None):
+                    return False
+                if (unit.stats['domain'] == 'sea'
+                        and d <= unit.stats['range']
+                        and order.get('_shore_hold')):
+                    return False    # riding station for an observer
                 if not self._replan_ready(unit):
                     return False
+                if (unit.stats['domain'] == 'sea'
+                        and d <= unit.stats['range']
+                        and order.get('_approached')):
+                    # SHE CANNOT WORK CLOSER: the water ends here,
+                    # and the gunnery law wants a FRIENDLY EYE on
+                    # the target before the guns reach past her
+                    # own. Hold station and say so, once -- the
+                    # silent standoff read as a ship refusing to
+                    # fire. The moment an observer sees the target
+                    # she opens fire from right here.
+                    order['_shore_hold'] = True
+                    if unit.country == self.player_country:
+                        self.fax.post(
+                            "GUNNERY -- OBSERVER WANTED",
+                            "%s holds station: the shore target "
+                            "lies beyond her own eyes. Her guns "
+                            "reach %s with a friendly observer on "
+                            "the target -- land a party or fly a "
+                            "patrol." % (unit.stats['label'],
+                                         B("TWICE THEIR EYES")),
+                            sender="FLEET GUNNERY")
+                    return False
+                order['_approached'] = True
                 self._approach_target(unit, target)
-                return not unit.path
+                # the plot is ASYNC: judging it by the still-empty
+                # path completed the order before the route landed,
+                # and the chase survived only by a cooldown race. A
+                # failed plot cancels through the drain instead.
+                return False
             return False
         if kind == 'board':
             transport = order['target']
@@ -5442,6 +5476,28 @@ class WW2RTSGame(ShowBase):
             if st in self.bunkers:
                 self.bunkers.remove(st)
             st.cleanup()
+        elif isinstance(st, Harbor):
+            if getattr(st, 'production', None):
+                self.fax_short("HULLS STAND ON THE WAYS -- EMPTY "
+                               "THE LINE FIRST")
+                return
+            if self.selected_harbor is st:
+                self._select_harbor(None)
+            if st in self.harbors:
+                self.harbors.remove(st)
+            st.cleanup()
+            self._build_road_overlay()
+        elif isinstance(st, ArmyPost):
+            if getattr(st, 'production', None):
+                self.fax_short("VEHICLES STAND ON THE LINE -- EMPTY "
+                               "IT FIRST")
+                return
+            if self.selected_armypost is st:
+                self._select_armypost(None)
+            if st in self.armyposts:
+                self.armyposts.remove(st)
+            st.cleanup()
+            self._build_road_overlay()
         else:
             return
         self.fax_short("%s DECOMMISSIONED -- THE GROUND IS CLEAR"
@@ -8769,7 +8825,17 @@ void main() {
                          get_icon_path('factory_button', 'dark'),
                          False,
                          "FORTNIGHT FOCUS -- WHAT THE TOWN WORKS "
-                         "AT")], big=True)
+                         "AT")] + [
+                        ("", self._decommission_clicked, [b_st],
+                         get_icon_path('demolish_button', 'dark'),
+                         False,
+                         "DECOMMISSION %s -- CLICK TWICE; THE "
+                         "TOWN CAN RAISE ANOTHER BY FOCUS"
+                         % b_st.name.upper())
+                        for b_st in (
+                            self.base_of_city(city, k)
+                            for k in ('army', 'air', 'naval'))
+                        if b_st is not None], big=True)
                     bar.set_hint("SET THE CITY'S TAX RATE -- IT BINDS "
                                  "FROM THE NEXT FORTNIGHT")
                 else:

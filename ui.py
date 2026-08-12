@@ -3094,18 +3094,25 @@ class TechFax:
             for k, u in enumerate(shown[:3]):
                 ipath = unit_ui_icon(u)
                 sprite = '/units/' in str(ipath).replace('\\\\', '/')
-                ic = DirectFrame(
+                ic = DirectButton(
                     parent=self.frame, relief=None,
                     frameColor=(0, 0, 0, 0),
                     image=ipath,
-                    image_scale=0.030 if sprite else 0.026,
-                    frameSize=(-0.026, 0.026, -0.026, 0.026),
-                    pos=(cx - self.CARD_W + 0.045 + k * 0.058,
-                         0, cy - 0.042))
+                    image_scale=0.042 if sprite else 0.036,
+                    frameSize=(-0.040, 0.040, -0.040, 0.040),
+                    pos=(cx - self.CARD_W + 0.052 + k * 0.084,
+                         0, cy - 0.042),
+                    command=self.game.open_unit_briefing,
+                    extraArgs=[u])
                 if sprite:
                     ic['image_hpr'] = (0, 0, 45)
                 ic.setTransparency(True)
                 crisp_image(ic)
+                add_tooltip(ic, "%s -- CLICK FOR THE SERVICE "
+                            "BRIEFING"
+                            % stats_for(u, self.game.player_country
+                                        )['label'].upper(),
+                            font=self.base.hud_font)
                 if not (done or avail):
                     ic.setColorScale(1, 1, 1, 0.35)
                 self._dyn.append(ic)

@@ -437,6 +437,23 @@ def _draw_info_button(d, ink):
     d.rectangle([35, 70, 61, 77], fill=col)                   # serif base
 
 
+def _draw_city_pick(d, ink):
+    """THE CIVIC KEY: a plain traditional town mark -- three grey
+    towers on a base line. Deliberately SIMPLE and GREY so it reads
+    as a control, never as a piece of the map's own art."""
+    g1 = (176, 176, 182, 255)
+    g2 = (108, 108, 116, 255)
+    d.rectangle([8, 78, 88, 86], fill=g2)               # the ground
+    d.rectangle([14, 42, 36, 78], fill=g1, outline=g2, width=3)
+    d.rectangle([38, 20, 60, 78], fill=g1, outline=g2, width=3)
+    d.rectangle([62, 50, 86, 78], fill=g1, outline=g2, width=3)
+    for (x0, x1, y0) in ((18, 32, 48), (42, 56, 26), (66, 82, 56)):
+        yy = y0
+        while yy < 72:
+            d.rectangle([x0, yy, x1, yy + 4], fill=g2)  # windows
+            yy += 10
+
+
 def _draw_anchor_button(d, ink):
     """Parchment button bearing an ANCHOR: a supply ship rides at
     anchor as a floating supply station."""
@@ -918,6 +935,7 @@ _DRAWERS = {
     'factory_button': _draw_factory_button,
     'menu_button': _draw_menu_button,
     'anchor_button': _draw_anchor_button,
+    'city_pick': _draw_city_pick,
     'tax_button': _draw_tax_button,
     'depot': _draw_depot,
     'bunker': _draw_bunker,

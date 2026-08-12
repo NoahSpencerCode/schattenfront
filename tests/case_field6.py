@@ -133,4 +133,37 @@ g.open_unit_briefing('tank')
 check(g.briefing_fax is not None, "the briefing prints")
 g._close_briefing()
 
+# ---------- THE GUNNERY STANDOFF SPEAKS: a battleship that cannot
+# work closer holds station and calls for an observer
+g.wars.add(frozenset(('germany', 'soviet')))
+g._rebuild_war_sets()
+bb = g.spawn_unit('battleship', 'germany', 59.6, 24.0, seed=70,
+                  water=True)
+bb.supply = bb.stats['supply_cap']
+deep = g.spawn_unit('infantry', 'soviet', 59.22, 24.75,
+                    seed=71)   # well inland: beyond even OBSERVED reach
+bb.give_order({'kind': 'attack', 'target': deep})
+from harness import until
+until(g, lambda: (bb.current_order or {}).get('_shore_hold'),
+      120, "the standoff declares itself")
+check((bb.current_order or {}).get('_shore_hold') is True,
+      "she holds station and calls for an observer -- no more "
+      "silent refusal")
+bb.clear_orders()
+g.wars.discard(frozenset(('germany', 'soviet')))
+g._rebuild_war_sets()
+
+# ---------- THE TOWN STRIKES ITS OWN BASES from garrison command
+berlin = next(c for c in g.cities if c.name == 'Berlin')
+g.clear_selection()
+g._select_city(berlin)
+g._refresh_selection_ui()
+n_keys = sum(1 for b2 in g.bottom_bar.buttons if hasattr(b2, 'getX'))
+bases = sum(1 for k in ('army', 'air', 'naval')
+            if g.base_of_city(berlin, k) is not None)
+check(bases > 0 and n_keys >= 3 + bases,
+      "garrison command carries tax/draft/focus AND %d base "
+      "STRIKE key(s) (%d keys)" % (bases, n_keys))
+g.clear_selection()
+
 finish()

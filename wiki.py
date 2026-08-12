@@ -418,6 +418,10 @@ class WikiFax:
             "PORTS and AIRFIELDS are engineer-built works: they "
             "base and supply",
             "  but produce nothing, and lorries must feed them.",
+            "A town's own bases carry STRIKE keys on its garrison "
+            "command --",
+            "  two clicks decommission one; a focus raises it "
+            "again.",
         ], L, y - 0.085)
 
         self.vrule(-0.04, -0.66, t + 0.02)
