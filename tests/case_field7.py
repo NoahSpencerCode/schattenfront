@@ -118,4 +118,45 @@ check((marcher.current_order or {}).get('kind') == 'board'
 cab._ferry = None
 marcher.clear_orders()
 
+# ---------- THE PASSING TOP-UP: a lorry waypointed through a
+# depot arrives FULL; a lorry at rest still banks its load
+from structures import Depot
+dep = Depot(g, 29.0, 17.0, 'germany', "WAYSIDE CACHE")
+dep.stock = 12000.0            # half full: room to bank, stock to draw
+g.depots.append(dep)           # deep desert: no town's free refill
+lorry = g.spawn_unit('supply_truck', 'germany', 29.0, 17.01,
+                     seed=90)
+lorry.supply = 400.0
+lorry.give_order({'kind': 'move',
+                  'goal': latlon_to_vec(29.0, 18.5)})
+g._tick_supply()
+check(lorry.supply > 400.0,
+      "EN ROUTE past the cache the lorry tops up (%d lbs)"
+      % lorry.supply)
+lorry.clear_orders()
+lorry.supply = 1200.0
+lorry._drew_from = None
+lorry._supply_tgt = None
+for u3 in g.units:      # nobody starving: no call claims the lorry
+    if u3.alive and u3.stats['supply_cap'] > 0 and u3 is not lorry:
+        u3.supply = u3.stats['supply_cap']
+stock0 = dep.stock
+g._tick_supply()
+check(dep.stock > stock0,
+      "at rest beside it the lorry still banks its load forward")
+g.depots.remove(dep)
+dep.cleanup()
+
+# ---------- THE STANDARD OPENS THE FOREIGN OFFICE
+warsaw2 = next(c for c in g.cities if c.name == 'Warsaw')
+check(warsaw2.title_flag is not None
+      and warsaw2.flag_glow is not None
+      and warsaw2.icon_glow is not None,
+      "every town flies its standard with a glow lamp behind each "
+      "key")
+g._open_nation_dossier('poland')
+check(g.diplo_fax is not None,
+      "a click on the standard opens the nation's dossier")
+g._close_diplomacy()
+
 finish()

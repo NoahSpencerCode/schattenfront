@@ -187,6 +187,18 @@ class City:
         self.icon_np.setLightOff()
         self.icon_np.setColorScale(1.0, 1.0, 1.0, 0.96)
         set_marker_layer(self.icon_np, LAYER_STRUCT + 4)
+        # the FADING BACK GLOW pressed behind the key on hover
+        self.icon_glow = make_icon_quad(game.loader, 'hover_glow',
+                                        'dark', half=1.25, flat=False)
+        self.icon_glow.reparentTo(self.label)
+        self.icon_glow.setPos(
+            -(self.label_tn.getWidth() * 0.5 + 0.72), 0, 0.26)
+        self.icon_glow.setLightOff()
+        self.icon_glow.setColorScale(1.0, 0.93, 0.55, 0.0)
+        set_marker_layer(self.icon_glow, LAYER_STRUCT + 3)
+        self._icon_glow_a = 0.0
+        self.flag_glow = None
+        self._flag_glow_a = 0.0
         # the capture banner: >CAPTURE< (-N) flown over the name when
         # the garrison on the square suffices -- built lazily
         self.cap_np = None
@@ -251,6 +263,16 @@ class City:
                 self.label_tn.getWidth() * 0.5 + 0.70, 0, 0.26)
             self.title_flag.setLightOff()
             set_marker_layer(self.title_flag, LAYER_STRUCT + 4)
+            if getattr(self, 'flag_glow', None) is None:
+                self.flag_glow = make_icon_quad(
+                    self.game.loader, 'hover_glow', 'dark',
+                    half=1.05, flat=False)
+                self.flag_glow.reparentTo(self.label)
+                self.flag_glow.setPos(
+                    self.label_tn.getWidth() * 0.5 + 0.70, 0, 0.26)
+                self.flag_glow.setLightOff()
+                self.flag_glow.setColorScale(1.0, 0.93, 0.55, 0.0)
+                set_marker_layer(self.flag_glow, LAYER_STRUCT + 3)
             self._flag_country = self.country
         c = COUNTRIES[self.country]['color']
         self.label_tn.setTextColor(min(1.0, c[0] * 1.5 + 0.25),
@@ -3438,22 +3460,78 @@ class WW2RTSGame(ShowBase):
                 best, best_d = c, d
         return best
 
-    def _tick_city_icon_hover(self):
-        """The civic key glows under the cursor -- the town saying
-        it will answer the click."""
+    def _pick_city_flag(self, mpos):
+        """A town's STANDARD is a key to the Foreign Office: pick
+        it by the same screen law as the civic icon."""
+        per_wu = self._screen_per_wu()
+        best, best_d = None, None
+        for c in self.cities:
+            if (c.title_flag is None
+                    or not self._facing_camera(c.pos)):
+                continue
+            sp = self.screen_pos(c.title_flag.getPos(self.render))
+            if sp is None:
+                continue
+            r = CLICK_RADIUS * 1.1
+            if per_wu is not None:
+                r = max(r, 0.026 * per_wu)
+            d = (mpos - sp).length()
+            if d <= r and (best_d is None or d < best_d):
+                best, best_d = c, d
+        return best
+
+    def _open_nation_dossier(self, nat):
+        """Straight to the ledger's dossier for one power (a click
+        on your OWN standard opens the plain ledger)."""
+        if self.diplo_fax is None:
+            self.open_diplomacy()
+        if (self.diplo_fax is not None
+                and nat != self.player_country):
+            self.diplo_fax._open_dossier(nat)
+
+    def _tick_city_icon_hover(self, dt=0.0):
+        """The civic key and the standard glow under the cursor --
+        a soft back-glow FADING in and out, the town saying it will
+        answer the click."""
         mw = self.mouseWatcherNode
-        if (self.game_state != 'playing' or mw is None
-                or not mw.hasMouse()):
-            return
-        hov = self._pick_city(Point2(mw.getMouse()))
+        hov = hov_flag = None
+        if (self.game_state == 'playing' and mw is not None
+                and mw.hasMouse()):
+            mpos = Point2(mw.getMouse())
+            hov = self._pick_city(mpos)
+            if hov is None:
+                hov_flag = self._pick_city_flag(mpos)
         old = getattr(self, '_city_hover', None)
-        if hov is old:
-            return
-        if old is not None and old.icon_np is not None:
-            old.icon_np.setColorScale(0.95, 0.92, 0.84, 0.95)
-        if hov is not None and hov.icon_np is not None:
-            hov.icon_np.setColorScale(1.65, 1.5, 0.95, 1.0)
-        self._city_hover = hov
+        if hov is not old:
+            if old is not None and old.icon_np is not None:
+                old.icon_np.setColorScale(0.95, 0.92, 0.84, 0.95)
+            if hov is not None and hov.icon_np is not None:
+                hov.icon_np.setColorScale(1.65, 1.5, 0.95, 1.0)
+            self._city_hover = hov
+        # the fading glows: only towns mid-animation pay per frame
+        anim = getattr(self, '_glow_cities', None)
+        if anim is None:
+            anim = self._glow_cities = set()
+        if hov is not None:
+            anim.add(hov)
+        if hov_flag is not None:
+            anim.add(hov_flag)
+        k = min(1.0, dt * 7.0) if dt > 0 else 1.0
+        for c in list(anim):
+            ti = 0.8 if c is hov else 0.0
+            tf = 0.8 if c is hov_flag else 0.0
+            c._icon_glow_a += (ti - c._icon_glow_a) * k
+            c._flag_glow_a += (tf - c._flag_glow_a) * k
+            if c.icon_glow is not None:
+                c.icon_glow.setColorScale(1.0, 0.93, 0.55,
+                                          c._icon_glow_a)
+            if c.flag_glow is not None:
+                c.flag_glow.setColorScale(1.0, 0.93, 0.55,
+                                          c._flag_glow_a)
+            if (c is not hov and c is not hov_flag
+                    and c._icon_glow_a < 0.02
+                    and c._flag_glow_a < 0.02):
+                anim.discard(c)
 
     def _click_select(self, mpos, shift):
         if shift and self._strike_waypoint(mpos):
@@ -3469,6 +3547,12 @@ class WW2RTSGame(ShowBase):
             self.clear_selection()
             self._select_city(city)
             return
+        # THE STANDARD is a key to the Foreign Office
+        if not shift:
+            fc = self._pick_city_flag(mpos)
+            if fc is not None:
+                self._open_nation_dossier(fc.country)
+                return
         own = [(u, self._unit_world_pos(u)) for u in self.units
                if self._commandable(u) and self._facing_camera(u.pos)]
         unit = self._pick_object(mpos, own)
@@ -4502,6 +4586,10 @@ class WW2RTSGame(ShowBase):
                 return
         if unit.country == self.player_country and not order.get('auto'):
             order['indicate'] = True
+            if unit.stats.get('supply_carrier'):
+                # the commander's own waypoint outranks a stale haul
+                # mission: the lorry TOPS UP at caches it passes now
+                unit._depot_haul = False
             # THE FRONTIER: a column ordered across a foreign border
             # without a right of passage is turned back by their
             # guards -- buy the right at the table, or declare war
@@ -6542,16 +6630,29 @@ void main() {
                     # a jobless one dumps its load -- that asymmetry is
                     # what makes a chain flow forward
                     has_job = getattr(u, '_supply_tgt', None) is not None
+                    en_route = bool(u.current_order or u.order_queue)
+                    hauling = bool(getattr(u, '_depot_haul', False))
                     drew = getattr(u, '_drew_from', None)
-                    if (not has_job and u.supply > cap * 0.35
+                    if (not has_job
+                            and (hauling or not en_route)
+                            and u.supply > cap * 0.35
                             and d.stock < d_cap
                             and (drew is None or drew[0] != id(d))):
+                        # a lorry AT REST -- or on a DEPOT-HAUL
+                        # mission -- banks its load forward
                         keep = max(cap * 0.25, self._fuel_reserve(u))
                         move = max(0.0, min(u.supply - keep,
                                             d_cap - d.stock))
                         u.supply -= move
                         d.stock += move
-                    elif has_job and u.supply < cap and d.stock > 0:
+                    elif ((has_job or (en_route and not hauling))
+                          and u.supply < cap and d.stock > 0):
+                        # a carrier EN ROUTE tops up in passing --
+                        # waypoint a lorry through a depot and it
+                        # arrives at the far end FULL, instead of
+                        # dumping its load at the first cache it
+                        # brushed on the way. The MISSION decides,
+                        # not mere motion: a depot-haul dumps.
                         move = min(cap - u.supply, d.stock)
                         move = self._pump(u, move)
                         u.supply += move
@@ -6714,7 +6815,11 @@ void main() {
         the stop, within reach. Lorries use depots AND harbours;
         supply ships use the harbours alone."""
         caches = (list(self.depots) + list(self.harbors)
-                  if t.stats['domain'] == 'land' else self.harbors)
+                  if t.stats['domain'] == 'land' else
+                  list(self.harbors)
+                  + [s2._cache_face for s2 in self.units
+                     if s2.alive and not s2.carried_by and s2 is not t
+                     and getattr(s2, 'is_supply_station', False)])
         best = None
         for d in caches:
             if d.country != t.country or d.stock < floor:
@@ -9828,5 +9933,5 @@ void main() {
                 self._cap_banner_timer = 1.0
                 self._tick_capture_banners()
             self._flash_capture_banners()
-            self._tick_city_icon_hover()
+            self._tick_city_icon_hover(dt)
         return Task.cont

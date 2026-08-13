@@ -500,6 +500,10 @@ class WikiFax:
             "neediest friend in sight.",
             "  The frontier binds the lorries too: no errand "
             "runs through a closed country.",
+            "  A carrier EN ROUTE tops up at any cache it passes "
+            "-- waypoint one",
+            "  through a depot and it arrives full; at rest it "
+            "BANKS its load.",
             "SUPPLY SHIPS feed warships, carriers' air stock and "
             "columns ashore --",
             "  or ANCHOR as a floating supply station: a port that "

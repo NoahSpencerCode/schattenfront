@@ -29,7 +29,7 @@
 },
 "buttons/menu_button.png": {
 "h": "5e1125495a745da6adc750eb1fa9490f",
-"v": 17
+"v": 18
 },
 "buttons/panel_button.png": {
 "h": "270d4229532203c8e58fdcec38129f8d",
@@ -721,7 +721,7 @@
 },
 "pictograms/city_pick.png": {
 "h": "4532627c837dfe914f4bd2a28cb4adeb",
-"v": 17
+"v": 18
 },
 "pictograms/fast_battleship.png": {
 "h": "dfd0f6bf2542a932d8dfd3c34941d41f",
@@ -729,6 +729,10 @@
 },
 "pictograms/heavy_cruiser.png": {
 "h": "59495f648f81a08d15c46e704aacce18",
+"v": 17
+},
+"pictograms/hover_glow.png": {
+"h": "f9b65bf762d1a03bb05e7a7c20b23f75",
 "v": 17
 },
 "sheets/bar.png": {
@@ -761,6 +765,6 @@
 },
 "units/supply_station.png": {
 "h": "b5fa2312d59e14c28a650b36f7464204",
-"v": 17
+"v": 18
 }
 }

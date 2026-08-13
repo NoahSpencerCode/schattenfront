@@ -437,6 +437,18 @@ def _draw_info_button(d, ink):
     d.rectangle([35, 70, 61, 77], fill=col)                   # serif base
 
 
+def _draw_hover_glow(d, ink):
+    """A soft radial glow pressed BEHIND a hovered map control --
+    a white heart fading to nothing, tinted warm by the scene.
+    Drawn outside-in so each ring overwrites the last: a clean
+    radial gradient without blending tricks."""
+    cx, cy = 48, 48
+    for r in range(46, 1, -1):
+        a = int(235 * ((46 - r) / 46.0) ** 1.25)
+        d.ellipse([cx - r, cy - r, cx + r, cy + r],
+                  fill=(255, 244, 208, a))
+
+
 def _draw_city_pick(d, ink):
     """THE CIVIC KEY: a plain traditional town mark -- three grey
     towers on a base line. Deliberately SIMPLE and GREY so it reads
@@ -936,6 +948,7 @@ _DRAWERS = {
     'menu_button': _draw_menu_button,
     'anchor_button': _draw_anchor_button,
     'city_pick': _draw_city_pick,
+    'hover_glow': _draw_hover_glow,
     'tax_button': _draw_tax_button,
     'depot': _draw_depot,
     'bunker': _draw_bunker,
@@ -1515,7 +1528,7 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 17   # bump when drawings change to invalidate the cache
+ICON_VERSION = 18   # bump when drawings change to invalidate the cache
 
 
 def _shift_mask(mask, dx, dy):
@@ -2356,6 +2369,11 @@ def get_icon_path(unit_type, variant='dark', nation=None):
             d = _ScaledDraw(ImageDraw.Draw(img), _SS)
             ink = INK_RED if variant == 'red' else INK_DARK
             _DRAWERS.get(unit_type, _draw_infantry)(d, ink)
+            if unit_type == 'hover_glow':
+                # a GLOW leaves the shop raw: the letterpress rim
+                # and drop shadow would dirty a pure gradient
+                return img.resize((OUT_SIZE, OUT_SIZE),
+                                  Image.LANCZOS)
             img = _finish_icon(img, 'red' if variant == 'red'
                                else 'dark')
             return img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)
