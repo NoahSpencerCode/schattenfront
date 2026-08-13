@@ -76,8 +76,8 @@ for i in range(need):
     troops.append(u)
 g._tick_capture_banners()
 check(warsaw.cap_np is not None and not warsaw.cap_np.isHidden(),
-      "the town flies its >CAPTURE< banner")
-check(warsaw._cap_txt == ">CAPTURE< (-%d)" % need,
+      "the town flies its CAPTURE banner")
+check(warsaw._cap_txt == "CAPTURE (-%d)" % need,
       "and the banner names the garrison bill (%s)" % warsaw._cap_txt)
 foe = g.spawn_unit('infantry', 'poland', warsaw.lat, warsaw.lon,
                    seed=60)

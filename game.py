@@ -199,7 +199,7 @@ class City:
         self._icon_glow_a = 0.0
         self.flag_glow = None
         self._flag_glow_a = 0.0
-        # the capture banner: >CAPTURE< (-N) flown over the name when
+        # the capture banner: CAPTURE (-N) flown over the name when
         # the garrison on the square suffices -- built lazily
         self.cap_np = None
         self.cap_tn = None
@@ -207,7 +207,7 @@ class City:
         self.refresh_marker()
 
     def show_capture_banner(self, need):
-        txt = ">CAPTURE< (-%d)" % need
+        txt = "CAPTURE (-%d)" % need
         if self.cap_np is None:
             # A REAL KEY, not bare ink: the banner wears the same
             # red pill as SCRAMBLE, floating over the town's name
@@ -1328,6 +1328,7 @@ class WW2RTSGame(ShowBase):
         if getattr(self, 'score', None):
             self.score.enter_campaign()     # the map keeps its quiet
         self._bind_game_controls()
+        self.sync_bunkers()             # the works are ground: tell the router
         self._tick_vision_comm()        # fog + contact valid on frame one
 
     def _deposit_site(self, city):
@@ -1577,6 +1578,17 @@ class WW2RTSGame(ShowBase):
             if a.city is city:
                 return a
         return None
+
+    def sync_bunkers(self):
+        """Hand the router the works as they stand. A bunker is
+        GROUND a vehicle cannot cross, so the map must be current
+        the moment one is built, struck or blown up."""
+        if getattr(self, 'planner', None) is None:
+            return
+        from structures import BUNKER_RADIUS
+        self.planner.set_bunkers(
+            [(Vec3(b.pos), BUNKER_RADIUS, id(b))
+             for b in self.bunkers if getattr(b, 'alive', True)])
 
     def _update_borders(self):
         """Refresh the Voronoi border shader after any change of
@@ -2934,14 +2946,22 @@ class WW2RTSGame(ShowBase):
 
     def _tick_capture_banners(self):
         """A town ready to fall flies its own banner over the name:
-        >CAPTURE< and the garrison bill, gently flashing. The banner
+        CAPTURE and the garrison bill, gently flashing. The banner
         IS the button -- clicking it runs the flag up."""
         me = self.player_country
         if not me:
             return
         for city in self.cities:
             need = 0
-            ok = (city.country != me and not city.annexing
+            # A TOWN UNDER ANNEXATION IS STILL A TARGET. The flag
+            # gate read `not city.annexing`, but annexing means only
+            # "not taxable until the fortnight turns" -- and every
+            # capture sets it. Once a town changed hands twice, the
+            # banner (the only way to take it) stayed down until the
+            # fortnight cleared the flag: the field report's Warsaw,
+            # traded back and forth and then stuck. attempt_capture
+            # never had this rule; the banner should not either.
+            ok = (city.country != me
                   and self.at_war(me, city.country))
             if ok:
                 need = city.required_infantry()
@@ -2961,7 +2981,7 @@ class WW2RTSGame(ShowBase):
                 city.cap_np.setAlphaScale(a)
 
     def _click_capture_banner(self, mpos):
-        """A click on a flying >CAPTURE< banner runs the flag up."""
+        """A click on a flying CAPTURE banner runs the flag up."""
         for city in self.cities:
             if city.cap_np is None or city.cap_np.isHidden():
                 continue
@@ -3598,8 +3618,8 @@ class WW2RTSGame(ShowBase):
     def _click_select(self, mpos, shift):
         if shift and self._strike_waypoint(mpos):
             return
-        # THE BANNER OUTRANKS EVERYTHING: a flying >CAPTURE< is the
-        # order it advertises
+        # THE BANNER OUTRANKS EVERYTHING: a flying CAPTURE key is
+        # the order it advertises
         if not shift and self._click_capture_banner(mpos):
             return
         # THE TOWN COMES FIRST: its mark and its name outrank the
@@ -4573,6 +4593,26 @@ class WW2RTSGame(ShowBase):
             return latlon_to_vec(*self.world.nearest_water(lat, lon))
         if domain == 'land' and not self.world.is_land(lat, lon):
             return latlon_to_vec(*self.world.nearest_land(lat, lon))
+        # THE WORKS ARE NOT PARKING: a vehicle sent onto a bunker
+        # stands at its edge instead (as a fleet ordered onto land
+        # lies off the beach). Men on foot go in as before.
+        avoid, open_b = self._vehicle_works(unit)
+        if avoid:
+            from structures import BUNKER_RADIUS
+            for b in self.bunkers:
+                if id(b) in open_b:
+                    continue
+                d = angle_between(goal, b.pos) * GLOBE_RADIUS
+                if d < BUNKER_RADIUS:
+                    out = Vec3(goal) - Vec3(b.pos) * Vec3(goal).dot(b.pos)
+                    if out.lengthSquared() < 1e-12:
+                        out = north_tangent(Vec3(b.pos))
+                    out.normalize()
+                    rim = BUNKER_RADIUS * 1.25 / GLOBE_RADIUS
+                    g2 = (Vec3(b.pos) * math.cos(rim)
+                          + out * math.sin(rim))
+                    g2.normalize()
+                    return g2
         return goal
 
     def _approach_target(self, unit, target, indicate=False):
@@ -4731,31 +4771,60 @@ class WW2RTSGame(ShowBase):
         if order.get('indicate'):
             self._ind_tokens.add(token)
         self._pending_plans += 1
+        avoid, open_b = self._vehicle_works(unit)
         self._plan_jobs.put((unit, unit.stats['domain'], Vec3(start),
                              Vec3(goal), token,
-                             self.closed_frontiers(unit)))
+                             self.closed_frontiers(unit),
+                             avoid, open_b,
+                             self.hostile_ground(unit)))
 
     # ---------------------------------------------- background planning
     def _plan_loop(self):
         """Worker thread: route planning off the main thread so a
         trans-planet order never freezes the game."""
         while True:
-            unit, domain, start, goal, token, banned = \
-                self._plan_jobs.get()
+            (unit, domain, start, goal, token, banned,
+             avoid_b, open_b, risky) = self._plan_jobs.get()
             frontier = False
             try:
                 path = self.planner.plan(domain, start, goal,
-                                         banned=banned)
+                                         banned=banned,
+                                         avoid_bunkers=avoid_b,
+                                         open_bunkers=open_b,
+                                         risky=risky)
                 if path is None and banned:
                     # was it the frontier that turned the column, or
                     # the ground itself? An open-borders retry tells
                     # the refusal slip which law to cite
-                    frontier = self.planner.plan(domain, start,
-                                                 goal) is not None
+                    frontier = self.planner.plan(
+                        domain, start, goal,
+                        avoid_bunkers=avoid_b,
+                        open_bunkers=open_b) is not None
             except Exception:
                 path = None
             self._plan_results.append((unit, token, path, frontier))
             time.sleep(0.002)
+
+    def hostile_ground(self, unit):
+        """Ground a SUPPLY CARRIER should not cross for the sake of
+        a shortcut: every power we are at war with. Not forbidden --
+        a lorry will still run the gauntlet when there is no other
+        road -- merely dear, so the chain prefers the safe way home
+        and stops driving itself into the guns."""
+        if not unit.stats.get('supply_carrier'):
+            return frozenset()
+        return frozenset(self._war_sets.get(unit.country, ()))
+
+    def _vehicle_works(self, unit):
+        """(avoid, open): does this column have to drive AROUND the
+        field works, and which is it standing in already? Men on
+        foot shelter in them, so they route through freely; a
+        vehicle caught inside may drive OUT of that one work and no
+        other."""
+        if (unit.stats['domain'] != 'land'
+                or unit.unit_type == 'infantry'):
+            return False, frozenset()
+        return True, self.planner.bunkers_holding(unit.pos)
 
     def _enqueue_plan(self, unit, goal, silent=False, indicate=False):
         self._plan_seq += 1
@@ -4764,9 +4833,12 @@ class WW2RTSGame(ShowBase):
         if indicate:
             self._ind_tokens.add(self._plan_seq)
         self._pending_plans += 1
+        avoid, open_b = self._vehicle_works(unit)
         self._plan_jobs.put((unit, unit.stats['domain'], Vec3(unit.pos),
                              Vec3(goal), self._plan_seq,
-                             self.closed_frontiers(unit)))
+                             self.closed_frontiers(unit),
+                             avoid, open_b,
+                             self.hostile_ground(unit)))
 
     def _drain_plans(self):
         while self._plan_results:
@@ -5646,6 +5718,7 @@ class WW2RTSGame(ShowBase):
             if st in self.bunkers:
                 self.bunkers.remove(st)
             st.cleanup()
+            self.sync_bunkers()
         elif isinstance(st, Harbor):
             if getattr(st, 'production', None):
                 self.fax_short("HULLS STAND ON THE WAYS -- EMPTY "
@@ -6017,6 +6090,8 @@ class WW2RTSGame(ShowBase):
         elif kind == 'bunker':
             self.bunkers.append(Bunker(self, lat, lon, country,
                                        "BUNKER %d" % (len(self.bunkers) + 1)))
+            # the works are GROUND now: the router must know at once
+            self.sync_bunkers()
         elif kind == 'airfield':
             field = Airfield(self, lat, lon, country,
                              "AIRFIELD %d" % (len(self.airfields)
@@ -6908,6 +6983,22 @@ void main() {
                     and u.supply >= floor]
         return out
 
+    def _safest_source(self, t, sources):
+        """The place to fill up: the NEAREST that is not reached
+        across hostile ground. Only the closest handful are weighed
+        (the check samples the run), and if every one of them lies
+        beyond enemy country the nearest wins anyway -- a dry lorry
+        helps nobody."""
+        ranked = sorted(sources, key=lambda s: t.dist_to(s.pos))
+        risky = self.hostile_ground(t)
+        if not risky:
+            return ranked[0]
+        for s in ranked[:5]:
+            own = self.planner._arc_owners(Vec3(t.pos), Vec3(s.pos))
+            if not own or not (own & risky):
+                return s        # a clear run home
+        return ranked[0]
+
     def _stocked_depot_near(self, t, rng=1.2, floor=3000.0):
         """A cache this carrier could draw from: same power, worth
         the stop, within reach. Lorries use depots AND harbours;
@@ -7081,7 +7172,7 @@ void main() {
                     angle_between(truck.pos, drew[1]) * GLOBE_RADIUS > 0.3:
                 truck._drew_from = None
             if sources:
-                src = min(sources, key=lambda s: truck.dist_to(s.pos))
+                src = self._safest_source(truck, sources)
                 near = (0.3 if isinstance(src, (Harbor, _ShipCache))
                         else 0.15)
                 if truck.dist_to(src.pos) > near:
@@ -9111,9 +9202,9 @@ void main() {
                             "RISE" % foes)
                     else:
                         # the order lives on the map now: the town
-                        # flies its >CAPTURE< banner over the name
+                        # flies its CAPTURE banner over the name
                         bar.set_hint("THE GARRISON STANDS READY -- "
-                                     "CLICK THE TOWN'S >CAPTURE< "
+                                     "CLICK THE TOWN'S CAPTURE "
                                      "BANNER; THE FLAG COSTS %d "
                                      "ENLISTED" % need)
                 else:
