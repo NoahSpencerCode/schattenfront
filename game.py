@@ -6870,6 +6870,42 @@ void main() {
         return min(cap * 0.6,
                    self._move_cost_lbs(u, d) * 1.3 + 40.0)
 
+    def _refill_sources(self, t):
+        """EVERYWHERE THIS CARRIER COULD ACTUALLY FILL UP, judged by
+        the same laws that do the filling -- so a lorry never drives
+        past a quay that would have served it, nor across a country
+        to a town that would have turned it away.
+
+        The shuttle used to read a narrower list than the refill law
+        itself: only its OWN nation's towns (an ALLY's quay, or one
+        opened by a right of supply, was invisible), and a town in
+        the middle of being ANNEXED counted as a source though it
+        supplies nothing -- a wasted march either way."""
+        out = []
+        sea = t.stats['domain'] == 'sea'
+        for c in self.cities:
+            if c.annexing or (sea and not c.harbor):
+                continue
+            if (c.country == t.country
+                    or self.allied(t.country, c.country)
+                    or self.has_right(t.country, c.country, 'supply')):
+                out.append(c)
+        # a cache is worth the drive when it holds a real share of
+        # what the carrier is short of
+        want = max(0.0, t.stats['supply_cap'] - t.supply)
+        floor = min(2000.0, max(400.0, want * 0.5))
+        caches = (list(self.harbors) if sea
+                  else list(self.depots) + list(self.harbors))
+        out += [d for d in caches
+                if d.country == t.country and d.stock >= floor]
+        if sea:
+            out += [u._cache_face for u in self.units
+                    if u.alive and not u.carried_by and u is not t
+                    and getattr(u, 'is_supply_station', False)
+                    and u.country == t.country
+                    and u.supply >= floor]
+        return out
+
     def _stocked_depot_near(self, t, rng=1.2, floor=3000.0):
         """A cache this carrier could draw from: same power, worth
         the stop, within reach. Lorries use depots AND harbours;
@@ -6977,8 +7013,13 @@ void main() {
         cap = t.stats['supply_cap']
         d_direct = angle_between(t.pos, dest_pos) * GLOBE_RADIUS
         best = t.supply - self._move_cost_lbs(t, d_direct)
-        cache = self._stocked_depot_near(t, rng=6.0)
-        if cache is not None:
+        # ANY reachable filling place counts as the stop, not the
+        # caches alone: a friendly town fills a lorry to the brim,
+        # and a chain that may stage through towns does not freeze
+        # for want of a depot
+        stops = [c for c in self._refill_sources(t)
+                 if t.dist_to(c.pos) < 6.0]
+        for cache in stops:
             d1 = t.dist_to(cache.pos)
             if t.supply - self._move_cost_lbs(t, d1) > 0.0:
                 d2 = angle_between(cache.pos, dest_pos) * GLOBE_RADIUS
@@ -7032,25 +7073,15 @@ void main() {
                                       'auto': True})
             return
         if frac < 0.5:
-            if truck.stats['domain'] == 'sea':
-                sources = [c for c in self.cities
-                           if c.country == truck.country and c.harbor]
-                sources += [h for h in self.harbors
-                            if h.country == truck.country
-                            and h.stock > 2000]
-            else:
-                sources = [c for c in self.cities
-                           if c.country == truck.country]
-                sources += [d for d in self.depots + self.harbors
-                            if d.country == truck.country
-                            and d.stock > 2000]
+            sources = self._refill_sources(truck)
             drew = getattr(truck, '_drew_from', None)
             if drew is not None and \
                     angle_between(truck.pos, drew[1]) * GLOBE_RADIUS > 0.3:
                 truck._drew_from = None
             if sources:
                 src = min(sources, key=lambda s: truck.dist_to(s.pos))
-                near = 0.3 if isinstance(src, Harbor) else 0.15
+                near = (0.3 if isinstance(src, (Harbor, _ShipCache))
+                        else 0.15)
                 if truck.dist_to(src.pos) > near:
                     truck.give_order({'kind': 'move',
                                       'goal': Vec3(src.pos),

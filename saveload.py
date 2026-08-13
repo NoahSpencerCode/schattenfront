@@ -46,6 +46,62 @@ def save_dir():
     return cands[-1]
 
 
+# path -> (mtime, size, meta): a filed campaign is a MEGABYTE of
+# JSON and the archive drawer is read on every render of the LOAD
+# GAME page -- arming or answering the burn prompt re-read and
+# re-parsed every case in the drawer, which is the second the
+# game stood still. A case is parsed once and remembered until the
+# file itself changes.
+_META_CACHE = {}
+
+
+# the sidecar carries a case's INDEX CARD -- the few lines the
+# archive drawer prints -- beside the case itself, so opening LOAD
+# GAME reads a few hundred bytes per campaign instead of parsing a
+# megabyte of situation map. Not a .json: list_saves scans for
+# those, and an index card is not a campaign.
+SIDECAR_VERSION = 1
+
+
+def _card_path(path):
+    return path + '.meta'
+
+
+def _read_card(path, st):
+    """The index card, if it is present and still describes THIS
+    file (a case written or replaced since invalidates its card)."""
+    try:
+        with open(_card_path(path), 'r', encoding='utf-8') as fh:
+            card = json.load(fh)
+        if (card.get('v') == SIDECAR_VERSION
+                and card.get('size') == st.st_size
+                and abs(card.get('mtime', -1) - st.st_mtime) < 1e-6):
+            return card.get('meta')
+    except Exception:
+        pass
+    return None
+
+
+def _write_card(path, meta):
+    """File the index card beside its case. A read-only drawer just
+    goes without -- the full parse still works."""
+    try:
+        st = os.stat(path)
+        tmp = _card_path(path) + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as fh:
+            json.dump({'v': SIDECAR_VERSION, 'mtime': st.st_mtime,
+                       'size': st.st_size, 'meta': meta}, fh)
+        os.replace(tmp, _card_path(path))
+    except Exception:
+        pass
+
+
+def forget_save(path):
+    """Drop one case from the meta cache (it was burnt, or written
+    over)."""
+    _META_CACHE.pop(path, None)
+
+
 def list_saves():
     """[(path, meta), ...] newest first; unreadable files skipped."""
     out = []
@@ -64,11 +120,24 @@ def list_saves():
                 continue
             path = os.path.join(d, name)
             try:
-                with open(path, 'r', encoding='utf-8') as fh:
-                    head = json.load(fh)
-                meta = head.get('meta', {})
+                st = os.stat(path)
+                key = (st.st_mtime, st.st_size)
+                hit = _META_CACHE.get(path)
+                if hit is not None and hit[0] == key:
+                    out.append(dict(hit[1]))   # callers may scribble
+                    continue
+                meta = _read_card(path, st)
+                if meta is None:
+                    # no card, or a stale one: read the case itself
+                    # ONCE and write its card for every open after
+                    with open(path, 'r', encoding='utf-8') as fh:
+                        head = json.load(fh)
+                    meta = head.get('meta', {})
+                    _write_card(path, meta)
+                meta = dict(meta)
                 meta['path'] = path
-                out.append(meta)
+                _META_CACHE[path] = (key, meta)
+                out.append(dict(meta))
             except Exception:
                 continue
     out.sort(key=lambda m: -m.get('saved_at', 0))
@@ -321,12 +390,19 @@ def write_save(game, name=None, path=None):
     with open(tmp, 'w', encoding='utf-8') as fh:
         json.dump(data, fh)
     os.replace(tmp, path)
+    forget_save(path)
+    _write_card(path, data.get('meta', {}))
     return path
 
 
 def delete_save(path):
     """Burn one filed campaign. Returns True when the drawer is
     actually clear of it."""
+    forget_save(path)
+    try:
+        os.remove(_card_path(path))
+    except OSError:
+        pass
     try:
         os.remove(path)
         return True

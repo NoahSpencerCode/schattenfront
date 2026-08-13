@@ -495,7 +495,11 @@ class WikiFax:
             "DEPOTS (engineer-built) bank stores and exchange "
             "with lorries.",
             "SUPPLY LORRIES run their own shuttle: empty to the "
-            "nearest source,",
+            "NEAREST place that",
+            "  would fill them -- a town, a depot, a quay, an "
+            "ally's port under a",
+            "  right of supply (a town under annexation serves "
+            "nobody),",
             "  full to their station (RMB sets it) or the "
             "neediest friend in sight.",
             "  The frontier binds the lorries too: no errand "

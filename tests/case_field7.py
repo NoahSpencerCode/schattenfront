@@ -214,4 +214,99 @@ check(_sl.delete_save(p3) and not os.path.exists(p3),
       "and the clerk can burn a case")
 _sl.delete_save(p1)
 
+# ---------- THE ARCHIVE IS READ ONCE PER CASE: the LOAD GAME page
+# re-renders on every burn prompt, and a filed campaign is a
+# megabyte of JSON -- re-parsing the whole drawer each time is the
+# second the game stood still
+pa = _sl.write_save(g, name='freeze-a')
+pb = _sl.write_save(g, name='freeze-b')
+_sl._META_CACHE.clear()
+_sl.list_saves()
+check(pa in _sl._META_CACHE and pb in _sl._META_CACHE,
+      "the drawer is remembered after one reading")
+import json as _json
+_reads = []
+_real_load = _json.load
+
+
+def _spy(fh, *a, **k):
+    _reads.append(1)
+    return _real_load(fh, *a, **k)
+
+
+_json.load = _spy
+_sl.list_saves()
+_json.load = _real_load
+check(not _reads,
+      "a second reading parses NOTHING (%d files re-read)"
+      % len(_reads))
+_sl.delete_save(pa)
+check(pa not in _sl._META_CACHE,
+      "and a burnt case leaves the memory with it")
+_sl.delete_save(pb)
+
+# ---------- THE INDEX CARD: opening LOAD GAME must not read the
+# campaigns themselves. Each case files a few hundred bytes of card
+# beside it, so the drawer opens without parsing a megabyte apiece
+pc = _sl.write_save(g, name='card')
+check(os.path.exists(_sl._card_path(pc)),
+      "a filed case files its index card too")
+_sl._META_CACHE.clear()          # a FRESH session: only the cards
+import builtins as _b
+_opened = []
+_real_open = _b.open
+
+
+def _spy_open(f, *a, **k):
+    _opened.append(str(f))
+    return _real_open(f, *a, **k)
+
+
+_b.open = _spy_open
+_sl.list_saves()
+_b.open = _real_open
+check(pc not in _opened,
+      "and the drawer opens WITHOUT reading the campaign itself")
+check(any(p2.endswith('.meta') for p2 in _opened),
+      "-- it reads the cards instead (%d opened)"
+      % sum(1 for p2 in _opened if p2.endswith('.meta')))
+# a case written over gets a fresh card, never a stale one
+_sl.write_save(g, path=pc)
+_sl._META_CACHE.clear()
+metas = {m['path']: m for m in _sl.list_saves()}
+check(pc in metas, "an overwritten case still reads back")
+_sl.delete_save(pc)
+check(not os.path.exists(_sl._card_path(pc)),
+      "and burning a case burns its card with it")
+
+# ---------- THE NEAREST SOURCE IS ANY PLACE THAT WOULD FILL HER:
+# the shuttle used to read a narrower list than the refill law
+lorry2 = g.spawn_unit('supply_truck', 'germany', 52.5, 13.4,
+                      seed=96)
+lorry2.supply = 100.0
+srcs = g._refill_sources(lorry2)
+berlin2 = next(c for c in g.cities if c.name == 'Berlin')
+check(berlin2 in srcs, "a home town is a source")
+check(not any(getattr(c, 'annexing', False) for c in srcs),
+      "a town under annexation is NOT (it supplies nothing)")
+prague = next((c for c in g.cities if c.country != 'germany'
+               and c.country != 'neutral'), None)
+check(prague not in srcs,
+      "and a foreign town is closed to the lorry")
+g.rights.append({'with': prague.country, 'kind': 'supply',
+                 'dir': 'theirs'})
+check(prague in g._refill_sources(lorry2),
+      "a RIGHT OF SUPPLY opens their quays to her")
+g.rights.pop()
+dep2 = Depot(g, 52.5, 13.42, 'germany', "NEAR CACHE")
+dep2.stock = 15000.0
+g.depots.append(dep2)
+srcs = g._refill_sources(lorry2)
+check(dep2 in srcs, "a stocked depot is a source")
+nearest = min(srcs, key=lambda s2: lorry2.dist_to(s2.pos))
+check(nearest is dep2,
+      "and the NEAREST of them all is the one she is sent to")
+g.depots.remove(dep2)
+dep2.cleanup()
+
 finish()
