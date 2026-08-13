@@ -616,9 +616,13 @@ class WikiFax:
             "A fleet UNLOADS TOGETHER, berthing abreast down the "
             "coast -- but",
             "  NO PUT-ASHORE in a country without passage or war.",
+            "IDLE PERSONNEL TRUCKS run a TAXI: a marcher bound far "
+            "-- for a goal,",
+            "  a garrison or an EMBARKMENT -- is collected and "
+            "driven there.",
         ], M, t - 0.055)
         self.header("BRIDGES AND WORKS UNDER FIRE",
-                    (M, t - 0.575))
+                    (M, t - 0.665))
         self.bullets([
             "Bridges (%d hp) can be dropped by gunfire or bombs "
             "and repaired by" % C.BRIDGE_HP,
@@ -626,13 +630,13 @@ class WikiFax:
             % C.BRIDGE_REPAIR_RATE,
             "Airfields are targetable works: destroyed, their "
             "parked wings die.",
-        ], M, t - 0.630)
-        self.header("AIRCRAFT IN ACTION", (M, t - 0.805))
+        ], M, t - 0.720)
+        self.header("AIRCRAFT IN ACTION", (M, t - 0.895))
         self.bullets([
             "Squadrons launch from a field or deck (SCRAMBLE, or "
             "ENTER), strike",
             "  and come home; carriers are moving airfields.",
-        ], M, t - 0.860)
+        ], M, t - 0.950)
 
     # -------------------------------------------- the stat tables
     def _stat_table(self, domain):

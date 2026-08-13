@@ -4851,11 +4851,22 @@ class WW2RTSGame(ShowBase):
             return transport._inb_n
         n = 0
         for u in self.units:
-            if not u.alive or u.carried_by:
+            if not u.alive:
+                continue
+            back = getattr(u, '_ferry_back', None)
+            if u.carried_by:
+                # a boarder RIDING THE TAXI to this ship is still
+                # inbound: the cab holds his boarding order for him
+                if (back is not None
+                        and back.get('kind') == 'board'
+                        and back.get('target') is transport):
+                    n += 1
                 continue
             orders = list(u.order_queue)
             if u.current_order:
                 orders.append(u.current_order)
+            if back is not None:
+                orders.append(back)     # claimed, still on foot
             if any(o.get('kind') == 'board'
                    and o.get('target') is transport for o in orders):
                 n += 1
@@ -6980,11 +6991,17 @@ void main() {
                     continue
                 goal = Vec3(o['goal'])
                 back = None
-            elif kind == 'garrison':
-                # a man walking to his posting rides too; the cab
-                # remembers the posting and hands it back at the gate
+            elif kind in ('garrison', 'board'):
+                # a man walking to his posting rides too -- and A
+                # MAN MARCHING TO HIS EMBARKMENT rides the same (the
+                # field report: infantry sent across the map to a
+                # ship were never collected, because the taxi law
+                # only read move and garrison orders). The cab
+                # remembers the posting or the boarding and hands
+                # it back at the kerb.
                 tgt = o.get('target')
-                if tgt is None or getattr(tgt, 'pos', None) is None:
+                if (tgt is None or getattr(tgt, 'pos', None) is None
+                        or not getattr(tgt, 'alive', True)):
                     continue
                 goal = Vec3(tgt.pos)
                 back = {'kind': kind, 'target': tgt}
@@ -6997,6 +7014,10 @@ void main() {
                     and t.dist_to(u.pos) <= self.FERRY_PICKUP_MAX]
             if not cabs:
                 continue
+            if back is not None:
+                cabs = [t for t in cabs if t is not back['target']]
+                if not cabs:
+                    continue
             cab = min(cabs, key=lambda t: t.dist_to(u.pos))
             u._ferry_back = back
             buckets.setdefault(id(cab), (cab, []))[1].append((u, goal))

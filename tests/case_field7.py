@@ -85,4 +85,37 @@ g._set_city_info(warsaw)      # the refresher's write: same words
 check(True, "and the refresher writes through the same composer")
 g.clear_selection()
 
+# ---------- THE TAXI SERVES THE EMBARKMENT: infantry marching to
+# a distant ship are collected by an idle lorry (the field report:
+# seven idle trucks watched them walk), and the ship still counts
+# the rider as inbound while his boarding order rides the cab
+marcher = g.spawn_unit('infantry', 'germany', 52.0, 13.0, seed=80)
+marcher.supply = marcher.stats['supply_cap']
+liner = g.spawn_unit('personnel_transport', 'germany', 54.5, 10.6,
+                     seed=81, water=True)
+cab = g.spawn_unit('transport_truck', 'germany', 52.05, 13.05,
+                   seed=82)
+cab.supply = cab.stats['supply_cap']
+marcher.give_order({'kind': 'board', 'target': liner})
+marcher.update(0.05)            # the order stands current
+g._tick_ferry()
+check(getattr(marcher, '_ferry_by', None) is cab,
+      "the cab turns out for a man marching to his SHIP")
+check((getattr(marcher, '_ferry_back', None) or {})
+      .get('target') is liner,
+      "and holds his boarding order for the kerb")
+# aboard the cab, the ship still counts him inbound
+marcher.carried_by = cab
+liner._inb_t = -9.0             # bust the memo
+check(g.inbound_boarders(liner) == 1,
+      "the ramp counts the rider in the taxi as inbound")
+marcher.carried_by = None
+g._ferry_handback(marcher, marcher.pos)
+check((marcher.current_order or {}).get('kind') == 'board'
+      or any(o.get('kind') == 'board'
+             for o in marcher.order_queue),
+      "at the kerb his boarding order comes back")
+cab._ferry = None
+marcher.clear_orders()
+
 finish()
