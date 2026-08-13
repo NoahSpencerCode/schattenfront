@@ -2253,6 +2253,19 @@ for (_t, _n), _name in UNIT_ART.items():
 # longer match its record, is the ARTIST'S and is never repainted --
 # not even when the procedural art bumps its version.
 _MANIFEST_PATH = os.path.join(ICON_DIR, '.generated.json')
+_GEN_DIR = None
+
+
+def _gen_dir():
+    """Where generated art goes when the install will not take it."""
+    global _GEN_DIR
+    if _GEN_DIR is None:
+        try:
+            from settings import user_data_dir
+            _GEN_DIR = os.path.join(user_data_dir(), 'generated')
+        except Exception:
+            _GEN_DIR = ''
+    return _GEN_DIR or None
 _manifest = None
 
 
@@ -2260,7 +2273,8 @@ def _load_manifest():
     global _manifest
     if _manifest is None:
         try:
-            with open(_MANIFEST_PATH) as f:
+            with open(_MANIFEST_PATH, 'r',
+                      encoding='utf-8') as f:
                 _manifest = json.load(f)
         except (OSError, ValueError):
             _manifest = {}
@@ -2275,7 +2289,11 @@ def _file_hash(path):
 def _ensure(rel, version, paint):
     """Return the asset's path, painting it only when it is absent
     or is OUR OWN stale generation. Hand-made art always wins."""
+    from utils import panda_path
     path = os.path.join(ICON_DIR, rel)
+    alt = os.path.join(_gen_dir(), rel) if _gen_dir() else None
+    if not os.path.exists(path) and alt and os.path.exists(alt):
+        path = alt
     key = rel.replace(os.sep, '/')
     man = _load_manifest()
     if os.path.exists(path):
@@ -2283,16 +2301,26 @@ def _ensure(rel, version, paint):
         if (rec is None                       # the artist's file
                 or rec.get('v') == version    # current generation
                 or rec.get('h') != _file_hash(path)):   # repainted
-            return path
+            return panda_path(path)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         paint().save(path)
         man[key] = {'v': version, 'h': _file_hash(path)}
-        with open(_MANIFEST_PATH, 'w') as f:
+        with open(_MANIFEST_PATH, 'w', encoding='utf-8') as f:
             json.dump(man, f, indent=0, sort_keys=True)
     except OSError:
-        pass        # read-only install: assets ship pre-baked
-    return path
+        # A READ-ONLY INSTALL (Program Files, a translocated mac
+        # bundle): the shipped art is pre-baked, but a key drawn at
+        # an aspect nobody baked would come back missing. Paint it
+        # into the player's own folder instead.
+        if alt:
+            try:
+                os.makedirs(os.path.dirname(alt), exist_ok=True)
+                paint().save(alt)
+                return panda_path(alt)
+            except OSError:
+                pass
+    return panda_path(path)
 
 
 # ------------------------------------- one folder per kind of art

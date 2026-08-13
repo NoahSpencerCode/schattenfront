@@ -31,13 +31,22 @@ def save_dir():
     """A writable saves/ directory: beside the game when possible,
     else under the user's documents (a translocated mac install is
     read-only)."""
-    cands = [os.path.abspath('saves'),
-             os.path.expanduser('~/Documents/Global Operations 1939/saves')]
+    cands = [os.path.abspath('saves')]
+    try:
+        from settings import user_data_dir
+        cands.append(os.path.join(user_data_dir(), 'saves'))
+    except Exception:
+        pass
+    # the old home, still written to when it is the only one that
+    # takes: on Windows the Documents folder is often redirected
+    # into OneDrive, so a fresh one made here would be invisible
+    cands.append(
+        os.path.expanduser('~/Documents/Global Operations 1939/saves'))
     for d in cands:
         try:
             os.makedirs(d, exist_ok=True)
             probe = os.path.join(d, '.probe')
-            with open(probe, 'w') as fh:
+            with open(probe, 'w', encoding='utf-8') as fh:
                 fh.write('x')
             os.remove(probe)
             return d
@@ -108,10 +117,17 @@ def list_saves():
     seen = set()
     # the last entry is the game's PRE-RENAME documents folder: old
     # campaigns saved under the working title still show in LOAD GAME
-    for d in (os.path.abspath('saves'),
-              os.path.expanduser('~/Documents/Global Operations 1939/saves'),
-              os.path.expanduser('~/Documents/Zero Hour 1939/saves'),
-              os.path.expanduser('~/Documents/Schattenfront/saves')):
+    dirs = [os.path.abspath('saves')]
+    try:
+        from settings import user_data_dir
+        dirs.append(os.path.join(user_data_dir(), 'saves'))
+    except Exception:
+        pass
+    dirs += [
+        os.path.expanduser('~/Documents/Global Operations 1939/saves'),
+        os.path.expanduser('~/Documents/Zero Hour 1939/saves'),
+        os.path.expanduser('~/Documents/Schattenfront/saves')]
+    for d in dirs:
         if not os.path.isdir(d) or d in seen:
             continue
         seen.add(d)

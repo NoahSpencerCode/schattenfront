@@ -115,8 +115,9 @@ class MenuScreen:
         video_path = self._find_menu_video()
         if video_path:
             try:
+                from utils import panda_path
                 tex = MovieTexture('menu_background')
-                if tex.read(video_path):
+                if tex.read(panda_path(video_path)):
                     tex.setLoop(True)
                     tex.play()
                     # drop the needle somewhere new each time so the

@@ -6,11 +6,64 @@ The detail-tile cache (4 GB, rebuilt lazily in play) and the
 preprocessing sources stay out of the bundle; everything the game
 READS at runtime ships prebuilt so first launch pays no bake.
 """
+import os
+import re
+
 from setuptools import setup
+
+
+def _const(module, name):
+    """One module-level integer constant, read WITHOUT importing the
+    module (geodata pulls numpy and the whole map machine)."""
+    src = open(module, 'r', encoding='utf-8').read()
+    # the constant may be declared alone or in a tuple assignment
+    # (MASK_W, MASK_H = 8192, 4096)
+    m = re.search(r'^%s\s*=\s*(\d+)' % name, src, re.M)
+    if not m:
+        m = re.search(r'^%s\s*,\s*\w+\s*=\s*(\d+)' % name, src,
+                      re.M)
+    if not m:
+        raise SystemExit("setup.py cannot read %s from %s"
+                         % (name, module))
+    return int(m.group(1))
+
+
+# THE BAKED CACHES SHIP BY THE VERSIONS THE CODE ASKS FOR, never by
+# a list typed out by hand: a bumped constant used to leave the
+# bundle carrying last version's file, and the shipped game then
+# tried to BAKE the map on the player's machine at first launch.
+_CACHE_V = _const('geodata.py', 'CACHE_VERSION')
+_TEX_V = _const('geodata.py', 'TEXTURE_VERSION')
+_MASK_W = _const('geodata.py', 'MASK_W')
+_FINE_W = _const('geodata.py', 'FINE_W')
+_CACHES = [
+    'data/cache/vectors_v%d.npz' % _CACHE_V,
+    'data/cache/globe_map_v%d.png' % _TEX_V,
+    'data/cache/land_mask_v%d_%d.npy' % (_CACHE_V, _MASK_W),
+    'data/cache/land_bits_v%d_%d.npy' % (_CACHE_V, _FINE_W),
+    'data/cache/coast_dist_v1_2048.npy',
+    # the two DERIVED relief grids, 18 MB apiece. The 466 MB
+    # etopo1_60s source they were milled from is NOT shipped:
+    # terrain.ensure_dem returns these two the moment it finds
+    # them, and never looks at the source again.
+    'data/cache/etopo1_5m_i2.npy',
+    'data/cache/etopo1_5ms_i2.npy',
+    'data/cache/land_stitch_v2_*.npz',
+]
+for _p in _CACHES:
+    if '*' not in _p and not os.path.exists(_p):
+        raise SystemExit(
+            "setup.py: %s is not baked -- run the game once to bake "
+            "it before building the dist" % _p)
+
+_VERSION = _const('config.py', 'GAME_VERSION') if False else None
+_m = re.search(r"^GAME_VERSION\s*=\s*'([^']+)'",
+               open('config.py', 'r', encoding='utf-8').read(), re.M)
+_VERSION = _m.group(1) if _m else '0.0.0'
 
 setup(
     name='global-operations-1939',
-    version='1.3.1',
+    version=_VERSION,
     options={
         'build_apps': {
             'gui_apps': {'Global Operations 1939': 'main.py'},
@@ -39,20 +92,13 @@ setup(
                 'media/WW2 Military Music Pack/Loops/ogg/*.ogg',
                 'media/speeches/*.mp3',
                 'data/*.geojson',
-                'data/cache/vectors_v5.npz',
-                'data/cache/globe_map_v36.png',
-                'data/cache/land_mask_v5.npy',
-                'data/cache/land_mask_v5_8192.npy',
-                'data/cache/land_bits_v5_32768.npy',
-                'data/cache/coast_dist_v1_2048.npy',
-                'data/cache/etopo1_60s_i2.npy',
-                'data/cache/etopo1_5m_i2.npy',
-                'data/cache/etopo1_5ms_i2.npy',
-                'data/cache/land_stitch_v2_*.npz',
-            ],
+            ] + _CACHES,
             'exclude_patterns': [
                 'venv/**', 'packaging/**', 'build/**', 'dist/**',
                 'data/cache/tiles_*/**', '**/*.pyc',
+                # dev leavings that would ride along in the bundle
+                'assets/icons/_gen/**', '**/.DS_Store',
+                'saves/**', 'tests/**', 'docs/**',
             ],
         },
         'bdist_apps': {

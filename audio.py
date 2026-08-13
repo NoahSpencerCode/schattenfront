@@ -75,8 +75,27 @@ _RECIPES = {"click": _click, "fax": _fax}
 
 
 def get_sound_path(name):
-    os.makedirs(AUDIO_DIR, exist_ok=True)
+    """The sound's path IN PANDA'S OWN FORM -- the audio manager
+    parses it exactly as the texture loader does, so a native
+    Windows path would arrive as one filename full of backslashes
+    and the click and the teletype would simply never sound."""
+    from utils import panda_path
     path = os.path.join(AUDIO_DIR, "%s_v%d.wav" % (name, AUDIO_VERSION))
     if not os.path.exists(path):
-        _write(path, _RECIPES[name]())
-    return path
+        try:
+            os.makedirs(AUDIO_DIR, exist_ok=True)
+            _write(path, _RECIPES[name]())
+        except OSError:
+            # a read-only install: cut the sound in the player's
+            # own folder instead
+            try:
+                from settings import user_data_dir
+                alt = os.path.join(user_data_dir(), 'audio',
+                                   os.path.basename(path))
+                if not os.path.exists(alt):
+                    os.makedirs(os.path.dirname(alt), exist_ok=True)
+                    _write(alt, _RECIPES[name]())
+                return panda_path(alt)
+            except Exception:
+                pass
+    return panda_path(path)
