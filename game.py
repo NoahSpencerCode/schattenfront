@@ -468,11 +468,6 @@ class WW2RTSGame(ShowBase):
         self.settings = load_settings()
         self.aa_samples = int(self.settings.get('antialias', 4))
         self._apply_aa_attrib()
-        # A/B EXPERIMENT -- UNIT MARKS: arm A wears ink pictograms
-        # on sheets and keys, arm B the units' own top-down field
-        # sprites. Flipped from Settings, kept on file.
-        self.unit_sprites_ui = bool(
-            self.settings.get('unit_sprites_ui', True))
 
         # (window size is clamped to the display in main.py before the
         # window opens; the old setMaximized request here was a no-op --

@@ -2348,20 +2348,20 @@ def ui_folder(name):
 
 
 def unit_ui_icon(unit_type, nation=None):
-    """A/B EXPERIMENT (Settings: UNIT MARKS). The mark a unit wears
-    on SHEETS AND KEYS -- arm A the ink pictogram, arm B the unit's
-    own top-down field sprite, the same mark it wears on the map
-    (national art where a nation fields its own). Reads the live
-    setting so a flipped switch redraws on the next sheet opened."""
-    try:
-        sprites = getattr(base, 'unit_sprites_ui', False)
-        if nation is None:
+    """THE MARK A UNIT WEARS ON SHEETS AND KEYS: its own top-down
+    FIELD SPRITE -- the same mark it wears on the map, in the
+    national art where a power fields its own. The manifest, the
+    budget, the rosters and the console keys all speak the map's
+    language, so a counter on the sheet is the counter in the field.
+
+    (This was settled by a field trial against the ink pictograms;
+    the sprites won and the switch is gone.)"""
+    if nation is None:
+        try:
             nation = getattr(base, 'player_country', None)
-    except NameError:
-        sprites = False
-    if sprites:
-        return get_icon_path(unit_type, 'unit', nation)
-    return get_icon_path(unit_type, 'dark')
+        except NameError:
+            nation = None
+    return get_icon_path(unit_type, 'unit', nation)
 
 
 def get_icon_path(unit_type, variant='dark', nation=None):

@@ -592,8 +592,9 @@ class BottomBar:
             if icon:
                 # a captioned key rides its icon high to clear the
                 # chip; a bare key wears the icon dead centre. A
-                # FIELD SPRITE (arm B) rides like a map counter:
-                # turned 45 degrees and blown up to fill the key
+                # a FIELD SPRITE rides like a map counter: turned
+                # 45 degrees and blown up to fill the key (a UI
+                # pictogram -- unload, strike, anchor -- does not)
                 sprite = '/units/' in str(icon).replace('\\\\', '/')
                 pic_z = 0.012 if (label and len(label) <= 8) else 0.0
                 pic = OnscreenImage(image=icon, parent=btn,
