@@ -842,6 +842,17 @@ class DiplomacyLedger:
              'red', KEY_LIGHT, 0.18),
         ])
 
+    def _page_key(self, label, cmd, args=()):
+        """One page-specific key beside the standing CLOSE, TRACKED
+        so it dies with the page (sheet.keys would redraw the rule
+        and the end tag and leak a button on every rebuild)."""
+        b = pill_button(self.frame, label, cmd, extraArgs=list(args),
+                        pos=(-1.08, 0, -0.86 + 0.118), hw=0.28,
+                        hh=0.055, text_scale=0.038,
+                        font=self.base.hud_font, text_fg=INK)
+        self.widgets.append(b)
+        return b
+
     def rebuild(self):
         """Two pages, one sheet. The ROSTER: every nation as a big
         flag card, plus the wars raging -- that is all. Click a card
@@ -855,7 +866,10 @@ class DiplomacyLedger:
         if view is not None and (view in g.eliminated
                                  or view == g.player_country):
             view = self.view = None
-        if view is None:
+        if view == '_commitments':
+            self.table = None
+            self._build_commitments()
+        elif view is None:
             self.table = None
             self._build_roster()
         elif getattr(self, 'table', None) == view:
@@ -867,6 +881,85 @@ class DiplomacyLedger:
         self.view = nat
         self.table = None
         self.rebuild()
+
+    def _open_commitments(self):
+        self.view = '_commitments'
+        self.table = None
+        self.rebuild()
+
+    def _build_commitments(self):
+        """THE STATE OF OUR OBLIGATIONS: every power this office has
+        anything standing with -- a war, a pact, a right, a cargo --
+        on one sheet, so the commander need not open twenty dossiers
+        to remember what he has signed."""
+        g = self.game
+        from config import short_name
+        me = g.player_country
+        self._text("++ OUR COMMITMENTS ++", (0, 0.61), 0.044,
+                   color=RED_INK, align=TextNode.ACenter)
+        self._text("EVERY POWER WITH WHICH SOMETHING STANDS -- "
+                   "CLICK A STANDARD FOR ITS DOSSIER",
+                   (0, 0.555), 0.024, color=INK_FAINT,
+                   align=TextNode.ACenter)
+        self._rule(-1.30, 1.30, 0.525)
+        rows = []
+        for nat in self._COUNTRIES:
+            if nat in (me, 'neutral') or nat in g.eliminated:
+                continue
+            at_war = g.at_war(me, nat)
+            allied = g.allied(me, nat)
+            lines = self._agreement_lines(nat)
+            if at_war or allied or lines:
+                rows.append((nat, at_war, allied, lines))
+        # the bloodiest business first, then the friends, then trade
+        rows.sort(key=lambda r: (not r[1], not r[2],
+                                 short_name(r[0])))
+        if not rows:
+            self._text("NOTHING STANDS WITH ANY POWER. THE OFFICE "
+                       "HAS SIGNED NOTHING AND FIGHTS NO ONE.",
+                       (0, 0.28), 0.030, color=INK_FAINT,
+                       align=TextNode.ACenter)
+        n_war = sum(1 for r in rows if r[1])
+        n_ally = sum(1 for r in rows if r[2])
+        n_paper = sum(len(r[3]) for r in rows)
+        y = 0.445
+        for nat, at_war, allied, lines in rows[:8]:
+            self._card(nat, -1.19, y - 0.010)
+            self._text(short_name(nat).upper(), (-1.10, y + 0.008),
+                       0.031)
+            if at_war or allied:
+                self._stamp(-0.60, y + 0.012,
+                            "AT WAR" if at_war else "ALLY",
+                            (0.62, 0.14, 0.10, 1.0) if at_war
+                            else (0.16, 0.38, 0.14, 1.0),
+                            scale=0.021, center=True)
+            if lines:
+                for k, (label, note) in enumerate(lines[:3]):
+                    ly = y + 0.016 - k * 0.032
+                    self._text(label, (-0.44, ly), 0.023)
+                    self._text(note, (0.86, ly), 0.021,
+                               color=INK_FAINT)
+                if len(lines) > 3:
+                    self._text("AND %d MORE INSTRUMENT(S) ON FILE"
+                               % (len(lines) - 3),
+                               (-0.44, y + 0.016 - 3 * 0.032), 0.021,
+                               color=INK_FAINT)
+            elif not (at_war or allied):
+                self._text("--", (-0.44, y + 0.012), 0.023,
+                           color=INK_FAINT)
+            self._rule(-1.26, 1.30, y - 0.078, w=0.0012)
+            y -= 0.125
+        if len(rows) > 8:
+            self._text("AND %d FURTHER POWER(S) ON FILE -- OPEN "
+                       "THEIR DOSSIERS FROM THE ROSTER"
+                       % (len(rows) - 8), (0, y + 0.010), 0.024,
+                       color=INK_FAINT, align=TextNode.ACenter)
+        self._text("IN SUM: %d WAR(S), %d ALLIANCE(S), %d "
+                   "INSTRUMENT(S) STANDING"
+                   % (n_war, n_ally, n_paper),
+                   (0, -0.63), 0.028, color=INK,
+                   align=TextNode.ACenter)
+        self._page_key("THE ROSTER", self._open_dossier, (None,))
 
     def _card(self, nat, x, y, big=False):
         from icons import flag_texture
@@ -1277,6 +1370,7 @@ class DiplomacyLedger:
                    "AND TERMS ARE OFFERED THERE",
                    (-0.12, -0.628), 0.024, color=INK_FAINT,
                    align=TextNode.ACenter)
+        self._page_key("OUR COMMITMENTS", self._open_commitments)
 
     def _rule(self, x0, x1, y, color=None, w=0.0022):
         r = DirectFrame(parent=self.frame,

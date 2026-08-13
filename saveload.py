@@ -299,16 +299,39 @@ def snapshot(game):
     return data
 
 
-def write_save(game, name=None):
+def write_save(game, name=None, path=None):
+    """File the campaign. With PATH given the case is written back
+    over itself (a resumed campaign keeps one file instead of
+    breeding a copy per save); the write is atomic either way, so a
+    crash mid-save cannot eat the previous state."""
     data = snapshot(game)
-    stamp = time.strftime('%Y%m%d-%H%M%S')
-    fname = (name or 'save') + '-' + stamp + '.json'
-    path = os.path.join(save_dir(), fname)
+    if path and os.path.isdir(os.path.dirname(path) or '.'):
+        try:                            # the case must be writable
+            with open(path, 'a', encoding='utf-8'):
+                pass
+        except OSError:
+            path = None
+    else:
+        path = None
+    if not path:
+        stamp = time.strftime('%Y%m%d-%H%M%S')
+        fname = (name or 'save') + '-' + stamp + '.json'
+        path = os.path.join(save_dir(), fname)
     tmp = path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as fh:
         json.dump(data, fh)
     os.replace(tmp, path)
     return path
+
+
+def delete_save(path):
+    """Burn one filed campaign. Returns True when the drawer is
+    actually clear of it."""
+    try:
+        os.remove(path)
+        return True
+    except OSError:
+        return not os.path.exists(path)
 
 
 # ------------------------------------------------------------ restore

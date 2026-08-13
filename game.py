@@ -700,7 +700,11 @@ class WW2RTSGame(ShowBase):
             # plain AudioManager, so never test __name__
             real_audio = (self.musicManager is not None
                           and self.musicManager.isValid())
-            if self._audio_dev is not None and real_audio:
+            # THE WATCH STANDS WHENEVER THERE IS AUDIO AT ALL: it
+            # used to want a device id in hand at boot, so one
+            # transient probe failure left it never posted and a
+            # headset plugged in later was never followed
+            if real_audio:
                 self.taskMgr.doMethodLater(2.0,
                                            self._tick_audio_watch,
                                            'audio_watch')
@@ -796,50 +800,98 @@ class WW2RTSGame(ShowBase):
     # ------------------------------------------------ the audio watch
     def _tick_audio_watch(self, task):
         """Every couple of seconds: is the system still pointing at
-        the loudspeaker we opened? If not, follow it."""
+        the loudspeaker we opened? If not, follow it.
+
+        A BLUETOOTH HEADSET IS NOT READY THE INSTANT IT APPEARS:
+        macOS swings the default output to it while the link is
+        still settling, so the id must be seen TWICE before we act,
+        and the new device is recorded only once the rebuild has
+        actually produced sound managers. A one-shot failure used
+        to be recorded as success and never retried -- which is
+        exactly a headset that connects a moment too slowly."""
         try:
             from audiodev import default_output_device
             dev = default_output_device()
-            if dev is not None and dev != self._audio_dev:
+            if dev is None or dev == self._audio_dev:
+                self._audio_pending = None
+                return task.again
+            if getattr(self, '_audio_pending', None) != dev:
+                self._audio_pending = dev      # let the link settle
+                return task.again
+            self._audio_pending = None
+            if self.restart_audio():
                 self._audio_dev = dev
-                self.restart_audio()
+            # a failed rebuild leaves _audio_dev alone, so the next
+            # tick tries the new device again
         except Exception:
             pass
         return task.again
 
     def restart_audio(self):
         """Rebuild every audio manager on the CURRENT default output
-        and rewire the sounds. Two rules paid for with a field
-        crash report:
+        and rewire the sounds. Returns True when real managers came
+        back.
 
-        - the OLD managers are RETIRED, held alive forever, never
-          garbage-collected: destroying an OpenAL manager while
-          another lives corrupts the shared device state and the
-          NEXT shutdown walk segfaults;
-        - the score is silenced BEFORE the swap, so nothing is
-          playing on a manager as it goes into retirement.
+        THE OLD MANAGERS MUST GO FIRST, ALL OF THEM. OpenAL opens
+        ONE shared device for the whole process and closes it only
+        when the LAST manager is released -- so the previous rule
+        here (retire the old managers, hold them alive forever)
+        quietly guaranteed the failure it was meant to survive: the
+        device stayed open on the OLD loudspeaker and every fresh
+        manager bound straight back to it. Rebuilt managers, still
+        no sound in the headset. They are shut down and dropped
+        now, which closes the device, and the new managers open it
+        again on whatever the system currently calls default.
 
-        Widgets already on screen keep their old (now silent) click
-        sounds until their page is next rebuilt; the music and the
-        fax clatter -- the audible life of the game -- move over at
-        once."""
+        The crash that first bought the retire rule was a teardown
+        at INTERPRETER FINALIZATION, not a release in flight;
+        finalizeExit leaves by os._exit and never walks that parade
+        (and a full release/recreate cycle was proved survivable in
+        the running process before this was written).
+
+        The score is silenced BEFORE the swap so nothing is playing
+        on a manager as it is released. Widgets already on screen
+        keep their old (now dead) click sounds until their page is
+        next rebuilt; the music and the fax clatter -- the audible
+        life of the game -- move over at once."""
         from panda3d.core import AudioManager
         mode = self.score.mode if self.score is not None else None
         if self.score is not None:
             self.score.stop()
-        retired = getattr(self, '_retired_audio_managers', None)
-        if retired is None:
-            retired = self._retired_audio_managers = []
-        # the interface sounds
+        # ---- 1) let go of EVERYTHING that holds the old device
+        self.click_snd = None
+        self.fax_snd = None
+        try:
+            import direct.gui.DirectGuiGlobals as _DGG
+            _DGG.setDefaultClickSound(None)
+        except Exception:
+            pass
+        old = list(self.sfxManagerList)
+        if self.musicManager is not None:
+            old.append(self.musicManager)
+        del self.sfxManagerList[:]
+        self.musicManager = None
+        self.musicManagerIsValid = False
+        for mgr in old:
+            try:
+                mgr.shutdown()
+            except Exception:
+                pass
+        del old
+        import gc
+        gc.collect()            # the device closes with the last one
+        # ---- 2) open the current default, twice over
+        ok = False
         try:
             from audio import get_sound_path
             new_sfx = AudioManager.createAudioManager()
-            if new_sfx is not None and new_sfx.isValid():
-                if self.sfxManagerList:
-                    retired.append(self.sfxManagerList[0])
-                    self.sfxManagerList[0] = new_sfx
-                else:
-                    self.addSfxManager(new_sfx)
+            if new_sfx is not None:
+                # THE SOUNDS ARE ALWAYS REWIRED, valid device or
+                # not: a null manager still hands back inert sound
+                # objects, and the rest of the game may hold them
+                # without asking whether a loudspeaker exists.
+                # Only the VERDICT below reads isValid.
+                self.addSfxManager(new_sfx)
                 self.click_snd = new_sfx.getSound(
                     get_sound_path('click'))
                 self.fax_snd = new_sfx.getSound(get_sound_path('fax'))
@@ -847,20 +899,24 @@ class WW2RTSGame(ShowBase):
                 self.fax_snd.setVolume(0.5)
                 import direct.gui.DirectGuiGlobals as _DGG
                 _DGG.setDefaultClickSound(self.click_snd)
+                ok = bool(new_sfx.isValid())
         except Exception as exc:
             print("WARNING: interface audio restart failed: %r" % exc)
-        # the score's manager, and the programme back onto it
         try:
             new_music = AudioManager.createAudioManager()
-            if new_music is not None and new_music.isValid():
-                retired.append(self.musicManager)
+            if new_music is not None:
                 self.musicManager = new_music
-                self.musicManagerIsValid = True
+                self.musicManagerIsValid = bool(new_music.isValid())
+                ok = ok or self.musicManagerIsValid
         except Exception as exc:
             print("WARNING: music restart failed: %r" % exc)
         if self.score is not None:
             self.score.reopen(mode)
-        print("AUDIO: managers rebuilt on the new output device")
+        print("AUDIO: managers rebuilt on the new output device"
+              if ok else
+              "AUDIO: the new output device gave no manager -- "
+              "will try again")
+        return ok
 
     def finalizeExit(self):
         """LEAVE BY THE DOOR, NOT THE TEARDOWN PARADE. ShowBase's
@@ -1093,6 +1149,10 @@ class WW2RTSGame(ShowBase):
         the same either way, but a loaded game restores its state
         instead of spawning the opening forces."""
         self._assert_game_root()        # belt and braces before I/O
+        # a FRESH campaign owns no case yet (load_game stamps its
+        # own path after this returns); without this a new war
+        # would be filed over the campaign last resumed
+        self._save_path = None
         loading, progress = self._loading_screen()
         if self.world is None:
             self.world = WorldData(log=progress)
@@ -8813,17 +8873,23 @@ void main() {
 
     # ====================================================== save/load
     def save_game(self):
-        """The whole campaign into one dispatch case in saves/."""
+        """The whole campaign into one dispatch case in saves/. A
+        campaign RESUMED from a file is filed back into that same
+        case -- saving twice used to leave the drawer full of
+        near-identical copies of one war."""
         if self.game_state != 'playing' or self.game_over:
             return
         import saveload
+        over = getattr(self, '_save_path', None)
         try:
-            path = saveload.write_save(self)
+            path = saveload.write_save(self, path=over)
+            self._save_path = path
             self.fax.post(
                 "CAMPAIGN FILED",
-                "The situation map is archived as %s. Resume it from "
+                "The situation map is %s as %s. Resume it from "
                 "LOAD GAME at headquarters." %
-                B(os.path.basename(path)),
+                (B("filed over its own case") if over
+                 else B("archived"), B(os.path.basename(path))),
                 sender="RECORDS SECTION")
         except Exception as exc:
             self.fax.post(
@@ -8843,6 +8909,8 @@ void main() {
             print("could not read save:", exc)
             return
         self.start_game(data['player'], snapshot=data)
+        # the case this campaign came out of: it is filed back here
+        self._save_path = path
 
     def fax_short(self, line):
         """Short despatches print on the SIGNALS line above the bar
@@ -8865,10 +8933,16 @@ void main() {
         bar.hide_exit()
         self._sync_scramble()
         self._sync_demolish()
+        # the briefing is INTELLIGENCE as much as doctrine: a
+        # selected enemy counter opens its service page too, so the
+        # commander can read what he is looking at
         primary = next((u for u in self.selected
                         if u.country == self.player_country), None)
+        if primary is None and self.selected:
+            primary = self.selected[0]
         if primary is not None:
-            bar.show_info(self.open_unit_briefing, [primary.unit_type])
+            bar.show_info(self.open_unit_briefing,
+                          [primary.unit_type, primary.country])
         if self.selected_airfield:
             self._refresh_airfield_ui(self.selected_airfield)
             return
@@ -9557,18 +9631,29 @@ void main() {
             "-- select, then site the drop. Unarmed."],
     }
 
-    def open_unit_briefing(self, unit_type):
+    def open_unit_briefing(self, unit_type, country=None):
+        """The service page for one type. A FOREIGN counter reads
+        from ITS OWN nation's tables -- a Nagato is not a Bismarck
+        -- and the sheet says whose mark it is."""
         if self.game_state != 'playing' or self.briefing_fax:
             return
-        s = stats_for(unit_type, self.player_country)
-        title = "*** UNIT BRIEFING -- %s ***" % s['label'].upper()
+        country = country or self.player_country
+        s = stats_for(unit_type, country)
+        if country != self.player_country:
+            from config import short_name
+            title = ("*** INTELLIGENCE -- %s %s ***"
+                     % (short_name(country).upper(),
+                        s['label'].upper()))
+        else:
+            title = "*** UNIT BRIEFING -- %s ***" % s['label'].upper()
         self.briefing_fax = BriefingFax(
-            self, title, self._unit_briefing_lines(unit_type),
+            self, title,
+            self._unit_briefing_lines(unit_type, country),
             self._close_briefing, icon_ut=unit_type)
 
-    def _unit_briefing_lines(self, unit_type):
+    def _unit_briefing_lines(self, unit_type, country=None):
         from config import COMM_RADIUS_FACTOR
-        s = stats_for(unit_type, self.player_country)
+        s = stats_for(unit_type, country or self.player_country)
 
         def row(label, val):
             return "%s %s" % ((label + ' ').ljust(15, '.'), val)

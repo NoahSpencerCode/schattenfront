@@ -25,7 +25,7 @@
 },
 "buttons/anchor_button.png": {
 "h": "1cc05aed70bb38407132402684c08a90",
-"v": 17
+"v": 18
 },
 "buttons/menu_button.png": {
 "h": "5e1125495a745da6adc750eb1fa9490f",
@@ -551,6 +551,10 @@
 "h": "2d14a35863a242b20c1043f5273f44a2",
 "v": 3
 },
+"keys/red_hover_a1_25_r0_42.png": {
+"h": "30df6e14e040ba28142916eed4a42171",
+"v": 3
+},
 "keys/red_hover_a1_75_r0_42.png": {
 "h": "b6f31bc4f226f1e5d91480f71bfadf3c",
 "v": 3
@@ -607,6 +611,10 @@
 "h": "83d4ac06fe4919302e1638b91ffe51b5",
 "v": 3
 },
+"keys/red_press_a1_25_r0_42.png": {
+"h": "d4b374013cfee69b941cdcd5ce456899",
+"v": 3
+},
 "keys/red_press_a1_75_r0_42.png": {
 "h": "1aab0b527f93779f12c2ae4923f46058",
 "v": 3
@@ -661,6 +669,10 @@
 },
 "keys/red_press_a7_00_r0_42.png": {
 "h": "3c362000f061f98b7eba8f683092112d",
+"v": 3
+},
+"keys/red_ready_a1_25_r0_42.png": {
+"h": "1e900b06b2295d8b8174d7badf515969",
 "v": 3
 },
 "keys/red_ready_a1_75_r0_42.png": {

@@ -7,6 +7,7 @@ station is never 'rescued'."""
 from harness import boot, check, finish
 from utils import latlon_to_vec
 from panda3d.core import Vec3
+import os
 
 g = boot('germany')
 
@@ -158,5 +159,59 @@ g._open_nation_dossier('poland')
 check(g.diplo_fax is not None,
       "a click on the standard opens the nation's dossier")
 g._close_diplomacy()
+
+# ---------- THE LEDGER'S COMMITMENTS PAGE lists every power we
+# have anything standing with
+g.rights.append({'with': 'romania', 'kind': 'passage',
+                 'dir': 'theirs'})
+g.wars.add(frozenset(('germany', 'poland')))
+g._rebuild_war_sets()
+g.open_diplomacy()
+led = g.diplo_fax
+rows = [nat for nat in led._COUNTRIES
+        if nat not in ('germany', 'neutral')
+        and (g.at_war('germany', nat) or g.allied('germany', nat)
+             or led._agreement_lines(nat))]
+check('poland' in rows and 'romania' in rows,
+      "the commitments roll holds the war AND the treaty (%s)"
+      % sorted(rows))
+led._open_commitments()
+check(led.view == '_commitments', "the commitments page opens")
+led._open_dossier(None)
+check(led.view is None, "and THE ROSTER key returns")
+g._close_diplomacy()
+g.rights.pop()
+g.wars.discard(frozenset(('germany', 'poland')))
+g._rebuild_war_sets()
+
+# ---------- THE BRIEFING READS A FOREIGN COUNTER from its own
+# nation's tables
+foe = g.spawn_unit('battleship', 'japan', 35.0, 140.0, seed=95,
+                   water=True)
+g.clear_selection()
+g.selected = [foe]
+foe.set_selected(True)
+g._refresh_selection_ui()
+check(not g.bottom_bar.info_btn.isHidden(),
+      "an enemy counter carries the briefing key")
+g.open_unit_briefing('battleship', 'japan')
+check(g.briefing_fax is not None,
+      "and it prints the foreign service page")
+g._close_briefing()
+g.clear_selection()
+
+# ---------- A RESUMED CAMPAIGN IS FILED BACK OVER ITS OWN CASE
+import saveload as _sl
+p1 = _sl.write_save(g, name='alpha')
+p2 = _sl.write_save(g, path=p1)
+check(p2 == p1, "a save with a case writes back over it")
+check(len([1 for m in _sl.list_saves()
+           if m['path'] == p1]) == 1,
+      "and the drawer still holds ONE copy of that campaign")
+p3 = _sl.write_save(g, name='beta')
+check(p3 != p1, "a save WITHOUT one opens a fresh case")
+check(_sl.delete_save(p3) and not os.path.exists(p3),
+      "and the clerk can burn a case")
+_sl.delete_save(p1)
 
 finish()

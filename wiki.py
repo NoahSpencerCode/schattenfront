@@ -899,6 +899,10 @@ class WikiFax:
                   "with the declaration -- however the war "
                   "arrived.",
                   (M, y - 0.155), 0.023, INK, wrap=56)
+        self.text("OUR COMMITMENTS: one key on the ledger's roster "
+                  "prints every power something stands with -- "
+                  "wars, pacts, rights and standing cargo, on one "
+                  "sheet.", (M, y - 0.290), 0.023, INK, wrap=56)
 
     def _page_controls(self):
         t = self.BODY_TOP

@@ -259,7 +259,9 @@ class MenuScreen:
         back_to='select' returns to the Quick Match sheet, whence the
         page is reached."""
         import saveload
+        from ui import add_tooltip
         self._clear()
+        self._load_back = back_to
         go_back = (self.show_country_select if back_to == 'select'
                    else self.show_main)
         frame = DirectFrame(parent=self.root, frameColor=(1, 1, 1, 1),
@@ -291,6 +293,8 @@ class MenuScreen:
                    (-0.85, 0.545), 0.037, INK, TextNode.ALeft)
         paper_text("-" * 52, (0, 0.50), 0.04)
         saves = saveload.list_saves()[:8]
+        pending = getattr(self, '_del_confirm', None)
+        self._del_confirm = None
         if not saves:
             paper_text("THE ARCHIVE DRAWER IS EMPTY.  SAVE FROM THE",
                        (0, 0.30), 0.037)
@@ -307,6 +311,28 @@ class MenuScreen:
             label = "%s  --  %s  (%d CITIES, %d UNITS)" % (
                 nation.upper(), meta.get('campaign_date', '?'),
                 meta.get('cities', 0), meta.get('forces', 0))
+            from ui import pill_button
+            if meta['path'] == pending:
+                # THE CLERK ASKS TWICE: a burnt case never comes back
+                paper_text("DESTROY THIS CASE?", (-0.78, y + 0.008),
+                           0.032, (0.62, 0.14, 0.10, 1.0),
+                           TextNode.ALeft)
+                paper_text(label, (-0.78, y - 0.040), 0.028,
+                           INK_FAINT, TextNode.ALeft)
+                yes = pill_button(
+                    frame, "BURN IT", self._delete_save,
+                    extraArgs=[meta['path']],
+                    pos=(0.36, 0, y + 0.014), hw=0.20, hh=0.040,
+                    text_scale=0.030, font=self.base.hud_font,
+                    kind='red', text_fg=(0.97, 0.90, 0.80, 1.0))
+                no = pill_button(
+                    frame, "KEEP IT", self._delete_ask,
+                    extraArgs=[None],
+                    pos=(0.78, 0, y + 0.014), hw=0.20, hh=0.040,
+                    text_scale=0.030, font=self.base.hud_font)
+                self.widgets += [yes, no]
+                y -= 0.13
+                continue
             btn = DirectButton(
                 parent=frame, text=label,
                 text_scale=0.036, text_fg=INK,
@@ -316,12 +342,21 @@ class MenuScreen:
                             (0.80, 0.74, 0.55, 1.0),
                             (0.70, 0.66, 0.54, 0.9),
                             (0.5, 0.5, 0.5, 0.3)),
-                frameSize=(-0.06, 1.60, -0.035, 0.055),
+                frameSize=(-0.06, 1.44, -0.035, 0.055),
                 relief=DGG.FLAT,
                 command=self.base.load_game,
                 extraArgs=[meta['path']],
                 pos=(-0.80, 0, y))
             self.widgets.append(btn)
+            burn = pill_button(
+                frame, "X", self._delete_ask,
+                extraArgs=[meta['path']],
+                pos=(0.74, 0, y + 0.010), hw=0.052, hh=0.040,
+                text_scale=0.034, font=self.base.hud_font,
+                kind='red', text_fg=(0.97, 0.90, 0.80, 1.0))
+            self.widgets.append(burn)
+            add_tooltip(burn, "DESTROY THIS FILED CAMPAIGN",
+                        font=self.base.hud_font)
             paper_text("FILED %s" % stamp.upper(),
                        (-0.78, y - 0.042), 0.026, INK_FAINT,
                        TextNode.ALeft)
@@ -331,6 +366,17 @@ class MenuScreen:
                      scale=0.04)
         self.base.accept('b', go_back)
         self.base.accept('escape', go_back)
+
+    def _delete_ask(self, path):
+        """Arm (or stand down) the destruction of one filed case."""
+        self._del_confirm = path
+        self.show_load_page(getattr(self, '_load_back', 'main'))
+
+    def _delete_save(self, path):
+        import saveload
+        saveload.delete_save(path)
+        self._del_confirm = None
+        self.show_load_page(getattr(self, '_load_back', 'main'))
 
     def show_country_select(self, mode='new'):
         """One wide FAX form: the roster of powers down the left with
