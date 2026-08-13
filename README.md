@@ -297,12 +297,22 @@ meter.
 
 ## Release Builds
 
-`python setup.py bdist_apps` (from the venv) assembles installable
-builds for **macOS (Apple Silicon)** and **Windows (x64)** into
-`dist/` as zips, icons included — Panda3D's deploy tools gather the
+`python make_dist.py` (from the venv) assembles installable builds
+for **macOS (Apple Silicon)** and **Windows (x64)** into `dist/` as
+zips, icons included — Panda3D's deploy tools gather the
 per-platform wheels, nothing is compiled locally. The bundle ships
 every cache the game reads at runtime, so first launch pays no bake;
 the deep-zoom tile cache rebuilds itself lazily in play.
+
+**Not `setup.py bdist_apps`.** Panda's deploy stub carries the frozen
+program in a blob appended after the Mach-O structures, and Apple
+Silicon kills such a binary before its first instruction
+(`CODESIGNING, Invalid Page`). `packaging/mac_sign_fix.py` repairs it,
+and must run BETWEEN the freeze and the zip — which `bdist_apps`,
+zipping the moment it finishes building, gives no room for.
+`make_dist.py` runs freeze → repair → verify seal → archive in the
+only order that yields a working mac build. It also refuses to build
+at all if a baked cache named in `setup.py` is missing.
 
 ## Known Limitations / Roadmap
 

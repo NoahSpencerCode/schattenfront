@@ -1,6 +1,14 @@
-"""Release packaging: `python setup.py bdist_apps` builds the game
-for macOS and Windows from any host (Panda3D deploy tools assemble
-per-platform wheels; nothing is compiled locally).
+"""Release packaging.
+
+USE make_dist.py, NOT bdist_apps. The mac app needs a repair between
+the freeze and the zip (packaging/mac_sign_fix.py -- Apple Silicon
+kills the un-repaired stub before its first instruction), and
+bdist_apps zips too early to allow it. make_dist.py runs the three
+steps in the only order that produces a working archive.
+
+`python setup.py build_apps` builds the game for macOS and Windows
+from any host (Panda3D deploy tools assemble per-platform wheels;
+nothing is compiled locally).
 
 The detail-tile cache (4 GB, rebuilt lazily in play) and the
 preprocessing sources stay out of the bundle; everything the game
