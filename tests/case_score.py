@@ -162,6 +162,40 @@ check(g.score.mode == mode_before,
       "restart_audio keeps the programme (%s)" % g.score.mode)
 check(g.click_snd is not None and g.fax_snd is not None,
       "and the interface sounds are rewired")
+
+# --- THE WATCH SETTLES BEFORE IT FOLLOWS. A bluetooth headset
+# swings the system default while its link is still coming up, so
+# a new device id must be SEEN TWICE, and a rebuild that produces
+# nothing must not be recorded as success (a headset that connects
+# a moment too slowly used to be adopted once and never retried).
+import audiodev as _ad
+_real_probe = _ad.default_output_device
+
+
+class _Task:
+    again = 1
+
+
+g._audio_dev = 111
+g._audio_pending = None
+_ad.default_output_device = lambda: 222
+g._tick_audio_watch(_Task())
+check(g._audio_dev == 111 and g._audio_pending == 222,
+      "a NEW device is noted, not chased, on first sight")
+g._tick_audio_watch(_Task())        # seen twice: the rebuild runs
+check(g._audio_dev == 111,
+      "and a rebuild that yields no manager is NOT recorded -- "
+      "the next tick tries again")
+_ok = g.restart_audio
+g.restart_audio = lambda: True      # a device that does come up
+g._audio_pending = 222
+g._tick_audio_watch(_Task())
+check(g._audio_dev == 222,
+      "a rebuild that DOES take is recorded and the watch settles")
+g.restart_audio = _ok
+_ad.default_output_device = _real_probe
+g._audio_dev = None
+g._audio_pending = None
 g.score.enter_campaign()
 g.restart_audio()
 check(g.score.mode == 'campaign',

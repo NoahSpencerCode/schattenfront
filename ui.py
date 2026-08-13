@@ -15,7 +15,7 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from panda3d.core import (SamplerState, TextNode, TexturePool,
                           Plane, PlaneNode, Point3, Vec3)
 
-from icons import get_icon_path, sheet_texture
+from icons import get_icon_path, sheet_texture, unit_ui_icon
 
 
 def sheet_tex(kind):
@@ -194,7 +194,8 @@ class TopBar:
     RESOURCE_COLS = ('OIL', 'STEEL', 'FOOD')
 
     def __init__(self, base, on_budget, on_factory=None,
-                 on_resources=None, on_tech=None, on_diplomacy=None):
+                 on_resources=None, on_tech=None, on_diplomacy=None,
+                 on_menu=None):
         self.base = base
         self.frame = DirectFrame(parent=base.a2dTopCenter,
                                  frameColor=(1, 1, 1, 0.92),
@@ -222,9 +223,13 @@ class TopBar:
             self.content, "BUDGET", on_budget, pos=(1.44, 0, -0.068),
             hw=0.155, hh=0.037, text_scale=0.034, font=base.hud_font)
         # war-industries report, beside the budget: a proper console
-        # key, not a bare pictogram floating on the panel
+        # key, not a bare pictogram floating on the panel. The rank
+        # of report keys is CENTRED on the strip (the bar spans
+        # 0..-0.155) and stands a clear margin off the budget key --
+        # flush against it the whole corner read as one squashed lump
+        KEY_Z = -0.0775
         self.factory_btn = pill_button(
-            self.content, '', on_factory, pos=(1.645, 0, -0.062),
+            self.content, '', on_factory, pos=(1.70, 0, KEY_Z),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('factory_button',
                                                 'dark'),
@@ -236,7 +241,7 @@ class TopBar:
                     "REPORT", font=base.hud_font, dy=-0.105)
         # the quartermaster's ledger, beside the factory key
         self.resource_btn = pill_button(
-            self.content, '', on_resources, pos=(1.755, 0, -0.062),
+            self.content, '', on_resources, pos=(1.81, 0, KEY_Z),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('resource_button',
                                                 'dark'),
@@ -249,7 +254,7 @@ class TopBar:
                     dy=-0.105)
         # the research chart, beside the ledger
         self.tech_btn = pill_button(
-            self.content, '', on_tech, pos=(1.865, 0, -0.062),
+            self.content, '', on_tech, pos=(1.92, 0, KEY_Z),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('research_button',
                                                 'dark'),
@@ -262,7 +267,7 @@ class TopBar:
         # the Foreign Office ledger, last in the rank (moved up from
         # the right screen edge to sit with its fellow report keys)
         self.diplo_btn = pill_button(
-            self.content, '', on_diplomacy, pos=(1.975, 0, -0.062),
+            self.content, '', on_diplomacy, pos=(2.03, 0, KEY_Z),
             hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
         pic = OnscreenImage(image=get_icon_path('diplomacy_button',
                                                 'dark'),
@@ -272,6 +277,19 @@ class TopBar:
         crisp_image(pic)
         add_tooltip(self.diplo_btn, "DIPLOMACY LEDGER -- WARS, "
                     "PACTS AND PEACE", font=base.hud_font, dy=-0.105)
+        # the three-bar stack, far LEFT of the strip: the same FIELD
+        # ORDERS menu ESC summons, for the hand on the mouse
+        self.menu_btn = pill_button(
+            self.content, '', on_menu, pos=(-1.72, 0, KEY_Z),
+            hw=0.048, hh=0.048, corner=0.30, font=base.hud_font)
+        pic = OnscreenImage(image=get_icon_path('menu_button',
+                                                'dark'),
+                            parent=self.menu_btn, scale=0.034,
+                            pos=(0, 0, 0))
+        pic.setTransparency(True)
+        crisp_image(pic)
+        add_tooltip(self.menu_btn, "FIELD ORDERS -- SAVE, RESUME, "
+                    "STAND DOWN [ESC]", font=base.hud_font, dy=-0.105)
         # fourteen dots: the days of the running fortnight
         self.day_dots = []
         for i in range(14):
@@ -329,7 +347,7 @@ class TopBar:
         elif not on and not self.factory_pip.isHidden():
             self.factory_pip.hide()
 
-    LAYOUT_HALF = 2.04          # the half-width the rank is drawn at
+    LAYOUT_HALF = 2.09          # the half-width the rank is drawn at
 
     def _fit_to_screen(self):
         """The strip is drawn for a wide window; a narrower one
@@ -341,6 +359,10 @@ class TopBar:
             right = self.base.getAspectRatio()
         except Exception:
             right = 4.0 / 3.0
+        # the strip PLATE runs wall to wall whatever the window --
+        # an ultrawide screen used to see it end mid-air at x=2
+        w = max(2.0, right)
+        self.frame['frameSize'] = (-w, w, -0.155, 0.0)
         self.content.setScale(min(1.0, right / self.LAYOUT_HALF))
 
     def set_stats(self, stats):
@@ -461,6 +483,10 @@ class BottomBar:
         self._info_np.setX(x)
         self._signal_np.setX(x)
         self._hint_np.setX(x)
+        # SCRAMBLE floats centred over the VISIBLE bar: anchored at
+        # x=0 it drifted right when the facsimile claimed the bar's
+        # left edge
+        self.scramble_btn.setX((left + 1.35) / 2.0)
 
     def show_info(self, command, args):
         self.info_btn['command'] = command
@@ -511,27 +537,46 @@ class BottomBar:
             b.destroy()
         self.buttons = []
 
-    def add_buttons(self, entries):
+    def add_buttons(self, entries, actions=(), big=False):
         """entries: (label, command, extraArgs[, icon_path[, selected
         [, tip[, dim]]]]).  Every control is a SQUARE console key
         bearing an icon; the full name rides a hover tooltip and a
         short label (an hp readout, a cost) prints as a caption under
         the icon.  A truthy 'selected' draws a white halo.  A truthy
         'dim' greys the whole key out -- not ready (no crew, still on
-        the ways); the tooltip still explains why. Two rows of 16."""
+        the ways); the tooltip still explains why.
+        ORDERS AND ROSTER NEVER MIX: 'actions' keys stand from the
+        LEFT edge, 'entries' (the units) muster from the RIGHT.
+        big=True (base and transport menus) wears keys 30% larger."""
         self.clear_buttons()
         self.set_hint('')
-        per_row = 16
-        side = 0.050
-        for i, entry in enumerate(entries[:32]):
+        # EVERY key on the bar wears the LARGE size now (big= kept
+        # for the callers' sake; it no longer shrinks anything)
+        per_row = 12
+        side = 0.065
+        pitch = 0.146
+        placed = []
+        for i, entry in enumerate(tuple(actions)[:per_row]):
+            placed.append((i, 0, entry))
+        n_act = len(placed)
+        ents = list(entries)[:32]
+        idx, row_i = 0, 0
+        while idx < len(ents) and row_i < 2:
+            room = per_row - (n_act if row_i == 0 else 0)
+            take = min(room, len(ents) - idx)
+            start_col = per_row - take
+            for k in range(take):
+                placed.append((start_col + k, row_i, ents[idx + k]))
+            idx += take
+            row_i += 1
+        for col, row, entry in placed:
             label, command, args = entry[0], entry[1], entry[2]
             icon = entry[3] if len(entry) > 3 else None
             selected = entry[4] if len(entry) > 4 else False
             tip = entry[5] if len(entry) > 5 else label
             dim = entry[6] if len(entry) > 6 else False
-            row, col = divmod(i, per_row)
-            x = -1.19 + col * 0.112
-            y = 0.166 - row * 0.112
+            x = -1.19 + col * pitch
+            y = 0.166 - row * pitch
             if selected:
                 # white halo behind the key = selected indicator
                 border = DirectFrame(parent=self.frame,
@@ -546,10 +591,17 @@ class BottomBar:
                               font=self.base.hud_font)
             if icon:
                 # a captioned key rides its icon high to clear the
-                # chip; a bare key wears the icon dead centre
+                # chip; a bare key wears the icon dead centre. A
+                # FIELD SPRITE (arm B) rides like a map counter:
+                # turned 45 degrees and blown up to fill the key
+                sprite = '/units/' in str(icon).replace('\\\\', '/')
                 pic_z = 0.012 if (label and len(label) <= 8) else 0.0
                 pic = OnscreenImage(image=icon, parent=btn,
-                                    scale=0.044, pos=(0, 0, pic_z))
+                                    scale=(side * 0.92 if sprite
+                                           else 0.044 * side / 0.050),
+                                    pos=(0, 0, pic_z))
+                if sprite:
+                    pic.setR(45)
                 pic.setTransparency(True)
                 crisp_image(pic)
                 if label and len(label) <= 8:
@@ -790,6 +842,17 @@ class DiplomacyLedger:
              'red', KEY_LIGHT, 0.18),
         ])
 
+    def _page_key(self, label, cmd, args=()):
+        """One page-specific key beside the standing CLOSE, TRACKED
+        so it dies with the page (sheet.keys would redraw the rule
+        and the end tag and leak a button on every rebuild)."""
+        b = pill_button(self.frame, label, cmd, extraArgs=list(args),
+                        pos=(-1.08, 0, -0.86 + 0.118), hw=0.28,
+                        hh=0.055, text_scale=0.038,
+                        font=self.base.hud_font, text_fg=INK)
+        self.widgets.append(b)
+        return b
+
     def rebuild(self):
         """Two pages, one sheet. The ROSTER: every nation as a big
         flag card, plus the wars raging -- that is all. Click a card
@@ -803,7 +866,10 @@ class DiplomacyLedger:
         if view is not None and (view in g.eliminated
                                  or view == g.player_country):
             view = self.view = None
-        if view is None:
+        if view == '_commitments':
+            self.table = None
+            self._build_commitments()
+        elif view is None:
             self.table = None
             self._build_roster()
         elif getattr(self, 'table', None) == view:
@@ -815,6 +881,85 @@ class DiplomacyLedger:
         self.view = nat
         self.table = None
         self.rebuild()
+
+    def _open_commitments(self):
+        self.view = '_commitments'
+        self.table = None
+        self.rebuild()
+
+    def _build_commitments(self):
+        """THE STATE OF OUR OBLIGATIONS: every power this office has
+        anything standing with -- a war, a pact, a right, a cargo --
+        on one sheet, so the commander need not open twenty dossiers
+        to remember what he has signed."""
+        g = self.game
+        from config import short_name
+        me = g.player_country
+        self._text("++ OUR COMMITMENTS ++", (0, 0.61), 0.044,
+                   color=RED_INK, align=TextNode.ACenter)
+        self._text("EVERY POWER WITH WHICH SOMETHING STANDS -- "
+                   "CLICK A STANDARD FOR ITS DOSSIER",
+                   (0, 0.555), 0.024, color=INK_FAINT,
+                   align=TextNode.ACenter)
+        self._rule(-1.30, 1.30, 0.525)
+        rows = []
+        for nat in self._COUNTRIES:
+            if nat in (me, 'neutral') or nat in g.eliminated:
+                continue
+            at_war = g.at_war(me, nat)
+            allied = g.allied(me, nat)
+            lines = self._agreement_lines(nat)
+            if at_war or allied or lines:
+                rows.append((nat, at_war, allied, lines))
+        # the bloodiest business first, then the friends, then trade
+        rows.sort(key=lambda r: (not r[1], not r[2],
+                                 short_name(r[0])))
+        if not rows:
+            self._text("NOTHING STANDS WITH ANY POWER. THE OFFICE "
+                       "HAS SIGNED NOTHING AND FIGHTS NO ONE.",
+                       (0, 0.28), 0.030, color=INK_FAINT,
+                       align=TextNode.ACenter)
+        n_war = sum(1 for r in rows if r[1])
+        n_ally = sum(1 for r in rows if r[2])
+        n_paper = sum(len(r[3]) for r in rows)
+        y = 0.445
+        for nat, at_war, allied, lines in rows[:8]:
+            self._card(nat, -1.19, y - 0.010)
+            self._text(short_name(nat).upper(), (-1.10, y + 0.008),
+                       0.031)
+            if at_war or allied:
+                self._stamp(-0.60, y + 0.012,
+                            "AT WAR" if at_war else "ALLY",
+                            (0.62, 0.14, 0.10, 1.0) if at_war
+                            else (0.16, 0.38, 0.14, 1.0),
+                            scale=0.021, center=True)
+            if lines:
+                for k, (label, note) in enumerate(lines[:3]):
+                    ly = y + 0.016 - k * 0.032
+                    self._text(label, (-0.44, ly), 0.023)
+                    self._text(note, (0.86, ly), 0.021,
+                               color=INK_FAINT)
+                if len(lines) > 3:
+                    self._text("AND %d MORE INSTRUMENT(S) ON FILE"
+                               % (len(lines) - 3),
+                               (-0.44, y + 0.016 - 3 * 0.032), 0.021,
+                               color=INK_FAINT)
+            elif not (at_war or allied):
+                self._text("--", (-0.44, y + 0.012), 0.023,
+                           color=INK_FAINT)
+            self._rule(-1.26, 1.30, y - 0.078, w=0.0012)
+            y -= 0.125
+        if len(rows) > 8:
+            self._text("AND %d FURTHER POWER(S) ON FILE -- OPEN "
+                       "THEIR DOSSIERS FROM THE ROSTER"
+                       % (len(rows) - 8), (0, y + 0.010), 0.024,
+                       color=INK_FAINT, align=TextNode.ACenter)
+        self._text("IN SUM: %d WAR(S), %d ALLIANCE(S), %d "
+                   "INSTRUMENT(S) STANDING"
+                   % (n_war, n_ally, n_paper),
+                   (0, -0.63), 0.028, color=INK,
+                   align=TextNode.ACenter)
+        self._page_key("THE ROSTER", self._open_dossier, (None,))
 
     def _card(self, nat, x, y, big=False):
         from icons import flag_texture
@@ -859,6 +1004,8 @@ class DiplomacyLedger:
                    "WITHOUT A DECLARATION OF WAR",
         'supply': "OUR COLUMNS MAY WATER AND RESUPPLY AT THEIR "
                   "TOWNS AND QUAYS",
+        'comms': "THEIR WIRELESS NET AND LAND LINES KEEP OUR "
+                 "COLUMNS IN CONTACT ON THEIR GROUND",
         'nonaggression': "NEITHER POWER MAY DECLARE WAR ON THE "
                          "OTHER WHILE IT STANDS",
         'alliance': "THEIR WARS BECOME OURS AND OURS THEIRS -- "
@@ -958,6 +1105,7 @@ class DiplomacyLedger:
                          '%s EACH FORTNIGHT' % res.upper(), 10))
         rows += [('passage', 'RIGHT OF PASSAGE', 0),
                  ('supply', 'USE OF THE SUPPLY NET', 0),
+                 ('comms', 'USE OF THE WIRELESS NET', 0),
                  ('nonaggression', 'PACT OF NON-AGGRESSION', 0),
                  ('alliance', 'PACT OF ALLIANCE', 0)]
         if g.at_war(me, nat):
@@ -998,7 +1146,7 @@ class DiplomacyLedger:
                     # a right already signed is never sold twice --
                     # and the sheet says which WAY it runs, so a
                     # frontier we opened to them reads WE GRANTED
-                    if kind in ('passage', 'supply',
+                    if kind in ('passage', 'supply', 'comms',
                                 'nonaggression'):
                         to_us, to_them = g.right_between(nat, kind)
                         held = to_us if side == 'ask' else to_them
@@ -1160,44 +1308,69 @@ class DiplomacyLedger:
             self._text("ALL QUIET ON EVERY FRONT", (wx, 0.42),
                        0.026, color=INK_FAINT,
                        align=TextNode.ACenter)
-        for i, (a, b) in enumerate(wars[:7]):
-            wy = 0.42 - i * 0.155
+        # the battle-board SCROLLS once the fronts outgrow it: every
+        # war is on file, not the first seven and a count of shame
+        from direct.gui.DirectScrolledFrame import DirectScrolledFrame
+        row_h = 0.155
+        view_h = 1.115
+        need_h = max(view_h, len(wars) * row_h + 0.04)
+        board = DirectScrolledFrame(
+            parent=self.frame, relief=None,
+            frameColor=(0, 0, 0, 0),
+            frameSize=(-0.218, 0.218, -view_h, 0.0),
+            canvasSize=(-0.19, 0.16, -need_h, 0.0),
+            pos=(wx, 0, 0.505), state=DGG.NORMAL,
+            autoHideScrollBars=True,
+            scrollBarWidth=0.026,
+            verticalScroll_relief=DGG.FLAT,
+            verticalScroll_frameColor=(0.45, 0.40, 0.33, 0.35),
+            verticalScroll_thumb_relief=DGG.FLAT,
+            verticalScroll_thumb_frameColor=(0.45, 0.40, 0.33, 0.9),
+            verticalScroll_incButton_relief=None,
+            verticalScroll_decButton_relief=None,
+            horizontalScroll_relief=None)
+        board.horizontalScroll.hide()
+        self.widgets.append(board)
+        canvas = board.getCanvas()
+        for i, (a, b) in enumerate(wars):
+            wy = -0.085 - i * row_h
             for nat, dx in ((a, -0.115), (b, 0.115)):
-                chip = DirectFrame(parent=self.frame, relief=None,
+                chip = DirectFrame(parent=canvas, relief=None,
                                    frameColor=(0, 0, 0, 0),
                                    image=flag_texture(nat),
                                    image_scale=(0.050, 1, 0.0333),
                                    frameSize=(-0.05, 0.05,
                                               -0.034, 0.034),
-                                   pos=(wx + dx, 0, wy))
+                                   pos=(dx, 0, wy),
+                                   state=DGG.DISABLED)
                 chip.setTransparency(True)
                 crisp_image(chip)
-                self.widgets.append(chip)
-            swords = DirectFrame(parent=self.frame, relief=None,
+            swords = DirectFrame(parent=canvas, relief=None,
                                  frameColor=(0, 0, 0, 0),
                                  image=get_icon_path('crossed_swords',
                                                      'dark'),
                                  image_scale=0.036,
                                  frameSize=(-0.04, 0.04,
                                             -0.04, 0.04),
-                                 pos=(wx, 0, wy))
+                                 pos=(0, 0, wy),
+                                 state=DGG.DISABLED)
             swords.setTransparency(True)
             crisp_image(swords)
-            self.widgets.append(swords)
-            self._text("%s v %s" % (short_name(a).upper(),
-                                    short_name(b).upper()),
-                       (wx, wy - 0.070), 0.021,
-                       color=INK_FAINT, align=TextNode.ACenter)
-        if len(wars) > 7:
-            self._text("AND %d MORE FRONTS AFLAME"
-                       % (len(wars) - 7),
-                       (wx, 0.42 - 7 * 0.155), 0.023,
-                       color=(0.62, 0.14, 0.10, 1),
-                       align=TextNode.ACenter)
+            tn = TextNode('war_row')
+            tn.setText("%s v %s" % (short_name(a).upper(),
+                                    short_name(b).upper()))
+            tn.setAlign(TextNode.ACenter)
+            if g.hud_font:
+                tn.setFont(g.hud_font)
+            tn.setTextColor(*INK_FAINT)
+            np_ = canvas.attachNewNode(tn)
+            np_.setScale(0.021)
+            np_.setPos(0, 0, wy - 0.070)
         self._text("CLICK A NATION FOR ITS DOSSIER -- WAR, PACTS "
                    "AND TERMS ARE OFFERED THERE",
                    (-0.12, -0.628), 0.024, color=INK_FAINT,
                    align=TextNode.ACenter)
+        self._page_key("OUR COMMITMENTS", self._open_commitments)
 
     def _rule(self, x0, x1, y, color=None, w=0.0022):
         r = DirectFrame(parent=self.frame,
@@ -1268,7 +1441,8 @@ class DiplomacyLedger:
         import deals as _d
         g = self.game
         out = []
-        for kind in ('passage', 'supply', 'nonaggression'):
+        for kind in ('passage', 'supply', 'comms',
+                     'nonaggression'):
             to_us, to_them = g.right_between(nat, kind)
             label = _d.KIND_LABEL[kind]
             if kind == 'nonaggression':
@@ -1957,15 +2131,25 @@ class BudgetFax:
                 sheet.rule(x, x + 1.16, y - 0.016, 0.0022, INK_FAINT)
                 continue
             ut, stats, available = row[1], row[2], row[3]
-            ic = DirectFrame(parent=self.frame, relief=None,
-                             frameColor=(0, 0, 0, 0),
-                             image=get_icon_path(ut, 'dark'),
-                             image_scale=0.026,
-                             frameSize=(-0.027, 0.027, -0.027, 0.027),
-                             pos=(x + 0.024, 0, y + 0.009))
+            ipath = unit_ui_icon(ut)
+            sprite = '/units/' in str(ipath).replace('\\\\', '/')
+            ic = DirectButton(parent=self.frame, relief=None,
+                              frameColor=(0, 0, 0, 0),
+                              image=ipath,
+                              image_scale=0.036,
+                              frameSize=(-0.038, 0.038,
+                                         -0.038, 0.038),
+                              pos=(x + 0.028, 0, y + 0.009),
+                              command=self.game.open_unit_briefing,
+                              extraArgs=[ut])
+            if sprite:
+                ic['image_hpr'] = (0, 0, 45)
             ic.setTransparency(True)
             crisp_image(ic)
-            sheet.text(stats['label'][:24], (x + 0.06, y), 0.028)
+            add_tooltip(ic, "%s -- CLICK FOR THE SERVICE BRIEFING"
+                        % stats['label'].upper(),
+                        font=self.base.hud_font)
+            sheet.text(stats['label'][:24], (x + 0.075, y), 0.028)
             mat = self.mat_costs.get(ut, {})
             cost_s = "$%d" % stats['cost']
             if mat.get('steel'):
@@ -2063,7 +2247,7 @@ class BriefingFax:
     HALF_W = HALF_H * 8.5 / 11.0
     MARGIN_X = 0.06
 
-    def __init__(self, base, title, lines, on_close):
+    def __init__(self, base, title, lines, on_close, icon_ut=None):
         self.base = base
         self.on_close = on_close
         f = base.hud_font
@@ -2074,6 +2258,20 @@ class BriefingFax:
                                  state=DGG.NORMAL)
         DirectFrame(parent=self.frame, frameColor=PAPER_EDGE,
                     frameSize=(-W, W, H - 0.02, H))
+        if icon_ut:
+            # THE SUBJECT'S OWN MARK, large, on the sheet's shoulder
+            ipath = unit_ui_icon(icon_ut)
+            sprite = '/units/' in str(ipath).replace('\\\\', '/')
+            ic = DirectFrame(parent=self.frame, relief=None,
+                             frameColor=(0, 0, 0, 0),
+                             image=ipath, image_scale=0.155,
+                             frameSize=(-0.16, 0.16, -0.16, 0.16),
+                             pos=(W - 0.24, 0, H - 0.30),
+                             state=DGG.DISABLED)
+            if sprite:
+                ic['image_hpr'] = (0, 0, 45)
+            ic.setTransparency(True)
+            crisp_image(ic)
 
         def measure(txt):
             tn = TextNode('m')
@@ -2330,13 +2528,16 @@ class DraftFax:
 
 
 class CityFocusFax:
-    """The FORTNIGHT FOCUS for one city: pick the directive the town
-    works at, with this city's own numbers beside every choice."""
+    """THE CITY LEDGER: the town's three permanent tracks with
+    their level pips, its food balance, and the one directive it
+    works at this fortnight -- picked here."""
 
     def __init__(self, base, city, on_transmit, on_discard):
-        from config import (FOCUS_FINANCE_HEAL, FOCUS_AGRI_FOOD,
-                            FOCUS_AGRI_MAX, FOCUS_STEEL_OUT,
-                            FOCUS_STEEL_MAX, FOCUS_RESEARCH_RP_PER_M,
+        from config import (FOCUS_FINANCE_HEAL, TRACK_MAX_LEVEL,
+                            AGRI_FOOD_CUM, WORKS_SPEED_MULT,
+                            LAB_YIELD_MULT, CIVIL_RATION,
+                            OCCUPIED_RATION, BUDGET_PERIOD_DAYS,
+                            FOCUS_RESEARCH_RP_PER_M,
                             FOCUS_RESEARCH_RP_MIN, BASE_COSTS)
         self.base = base
         self.city = city
@@ -2347,26 +2548,38 @@ class CityFocusFax:
         f = base.hud_font
 
         rp = max(FOCUS_RESEARCH_RP_MIN,
-                 city.population / 1e6 * FOCUS_RESEARCH_RP_PER_M)
+                 city.population / 1e6 * FOCUS_RESEARCH_RP_PER_M) \
+            * LAB_YIELD_MULT[city.labs_level]
         heal_rev = int(city.gross_product() * FOCUS_FINANCE_HEAL
                        / 100.0 * city.tax_rate / 100.0)
+
+        def track_note(track, table, unit_word):
+            lvl = g.city_track_level(city, track)
+            cost = g.track_upgrade_cost(city, track)
+            if cost is None:
+                return "AT THE TOP -- LEVEL %d" % lvl, False
+            return ("NEXT: %s -- $%d, ONE FORTNIGHT"
+                    % (g._track_gain_word(city, track), cost)), True
+
+        agri_note, agri_ok = track_note('agriculture', AGRI_FOOD_CUM,
+                                        'T FOOD')
+        works_note, works_ok = track_note('works', WORKS_SPEED_MULT,
+                                          '')
+        labs_note, labs_ok = track_note('laboratories',
+                                        LAB_YIELD_MULT, '')
         rows = [
             ('finance', "INVEST IN FINANCE",
              "+%.0f INDUSTRY -- REVENUE RISES ~$%d/FTN"
-             % (FOCUS_FINANCE_HEAL, heal_rev), True),
-            ('agriculture', "INVEST IN AGRICULTURE",
-             "+1 LEVEL (%d/%d): +%d FOOD A FORTNIGHT, PERMANENT"
-             % (city.agri_level, FOCUS_AGRI_MAX, FOCUS_AGRI_FOOD),
-             city.agri_level < FOCUS_AGRI_MAX),
-            ('steel', "INVEST IN THE STEEL WORKS",
-             ("+1 LEVEL (%d/%d): +%d STEEL A FORTNIGHT, PERMANENT"
-              % (city.works_level, FOCUS_STEEL_MAX, FOCUS_STEEL_OUT))
-             if g.steel_city(city) else
-             "NO STEEL DEPOSIT AT THIS TOWN",
-             g.steel_city(city)
-             and city.works_level < FOCUS_STEEL_MAX),
-            ('research', "FUND THE LABORATORIES",
-             "+%.0f RESEARCH POINTS EACH FORTNIGHT" % rp, True),
+             % (FOCUS_FINANCE_HEAL, heal_rev), True, None),
+            ('agriculture', "WORK THE LAND", agri_note, agri_ok,
+             city.agri_level),
+            ('works', "EXPAND THE WORKS", works_note, works_ok,
+             city.works_level),
+            ('laboratories', "BUILD THE LABORATORIES", labs_note,
+             labs_ok, city.labs_level),
+            ('research', "RUN THE LABORATORIES",
+             "+%.0f RESEARCH POINTS EACH FORTNIGHT (x%.1f LABS)"
+             % (rp, LAB_YIELD_MULT[city.labs_level]), True, None),
         ]
         for kind, label in (('army', "RAISE AN ARMY BASE"),
                             ('air', "RAISE AN AIRFORCE BASE"),
@@ -2379,47 +2592,72 @@ class CityFocusFax:
                     if kind == 'naval' and not city.harbor else
                     "$%d + %d STEEL -- ONE FORTNIGHT, ONCE ONLY"
                     % (cost, steel))
-            rows.append(('base_%s' % kind, label, note, possible))
+            rows.append(('base_%s' % kind, label, note, possible,
+                         None))
         self.rows = rows
 
         sheet = FormSheet(
-            base, "FORTNIGHT FOCUS -- %s" % city.name.upper(),
+            base, "CITY LEDGER -- %s" % city.name.upper(),
             half_w=1.30, half_h=0.92,
             from_line="THE TOWN CLERK, %s" % city.name.upper(),
             re_line="THE TOWN WORKS AT ONE DIRECTIVE A FORTNIGHT")
         self.sheet = sheet
         self.frame = sheet.frame
 
-        # the directive table: DIRECTIVE | EFFECT | STATUS
-        cx_d, cx_e, cx_s = -1.22, -0.30, 1.00
-        sheet.header("DIRECTIVE", (cx_d, sheet.body_top))
-        sheet.header("EFFECT AT THIS TOWN", (cx_e, sheet.body_top))
-        sheet.header("STATUS", (cx_s + 0.10, sheet.body_top, ),
-                     0.032)
-        sheet.rule(cx_d, 1.22, sheet.body_top - 0.022, 0.0022)
-        sheet.vrule(-0.36, -0.62, sheet.body_top - 0.022, 0.0016,
-                    INK_FAINT)
-        sheet.vrule(0.94, -0.62, sheet.body_top - 0.022, 0.0016,
-                    INK_FAINT)
+        # THE FOOD BALANCE: what this town grows against what it eats
+        grows = g.city_food_output(city)
+        ration = OCCUPIED_RATION if city.annexing else CIVIL_RATION
+        eats = (city.population / 1e6) * ration * BUDGET_PERIOD_DAYS
+        bal = grows - eats
+        sheet.text(
+            "THE TOWN GROWS %d T OF FOOD A FORTNIGHT AND ITS "
+            "MOUTHS EAT %d -- NET %+d T"
+            % (grows, int(round(eats)), int(round(bal))),
+            (0, sheet.body_top + 0.006), 0.026,
+            (GREEN_INK if bal >= 0 else (0.62, 0.14, 0.10, 1.0)),
+            TextNode.ACenter)
+
+        # the directive table: DIRECTIVE | LEVEL | EFFECT | STATUS
+        cx_d, cx_p, cx_e, cx_s = -1.22, -0.34, 0.02, 1.02
+        top = sheet.body_top - 0.052
+        sheet.header("DIRECTIVE", (cx_d, top))
+        sheet.header("LEVEL", (cx_p, top))
+        sheet.header("EFFECT AT THIS TOWN", (cx_e, top))
+        sheet.header("STATUS", (cx_s + 0.08, top), 0.032)
+        sheet.rule(cx_d, 1.22, top - 0.022, 0.0022)
+        table_bot = top - 0.062 - 8 * 0.0705 + 0.028
+        sheet.vrule(-0.38, table_bot, top - 0.022, 0.0016, INK_FAINT)
+        sheet.vrule(-0.02, table_bot, top - 0.022, 0.0016, INK_FAINT)
+        sheet.vrule(0.96, table_bot, top - 0.022, 0.0016, INK_FAINT)
 
         self.marks = {}
-        y = sheet.body_top - 0.090
-        row_h = 0.128
-        for key, label, note, possible in rows:
+        y = top - 0.062
+        row_h = 0.0705
+        for key, label, note, possible, level in rows:
             if possible:
                 pill_button(self.frame, label, self._pick,
                             extraArgs=[key],
-                            pos=(-0.80, 0, y), hw=0.40, hh=0.040,
-                            text_scale=0.030, font=f)
+                            pos=(-0.81, 0, y), hw=0.39, hh=0.030,
+                            text_scale=0.026, font=f)
             else:
-                tn, _ = sheet.text(label, (-0.80, y - 0.012), 0.030,
-                                   INK_FAINT, TextNode.ACenter)
-            sheet.text(note, (cx_e, y - 0.012), 0.026, INK_FAINT)
-            mk, _ = sheet.text("", (cx_s + 0.11, y - 0.012), 0.028,
+                sheet.text(label, (-0.81, y - 0.010), 0.026,
+                           INK_FAINT, TextNode.ACenter)
+            if level is not None:
+                from config import TRACK_MAX_LEVEL as _TM
+                for k in range(_TM):
+                    filled = (k < level)
+                    sq = DirectFrame(
+                        parent=self.frame,
+                        frameColor=(INK if filled else
+                                    (INK[0], INK[1], INK[2], 0.15)),
+                        frameSize=(-0.012, 0.012, -0.012, 0.012),
+                        pos=(cx_p + 0.02 + k * 0.055, 0, y))
+            sheet.text(note, (cx_e, y - 0.010), 0.023, INK_FAINT)
+            mk, _ = sheet.text("", (cx_s + 0.09, y - 0.010), 0.026,
                                GREEN_INK, TextNode.ACenter)
             self.marks[key] = mk
             y -= row_h
-            sheet.rule(cx_d, 1.22, y + row_h - 0.066, 0.0014,
+            sheet.rule(cx_d, 1.22, y + row_h - 0.042, 0.0012,
                        (INK[0], INK[1], INK[2], 0.25))
 
         self._refresh()
@@ -2859,8 +3097,10 @@ class TechFax:
         labs = [x for x in g.cities
                 if x.country == c and x.focus == 'research'
                 and not x.annexing]
+        from config import LAB_YIELD_MULT as _LYM
         yield_rp = sum(max(FOCUS_RESEARCH_RP_MIN,
                            x.population / 1e6 * FOCUS_RESEARCH_RP_PER_M)
+                       * _LYM[getattr(x, 'labs_level', 0)]
                        for x in labs)
 
         top = self.sheet.body_top
@@ -2946,16 +3186,27 @@ class TechFax:
             shown = [u for u in node['unlocks']
                      if u != 'radar_station']
             for k, u in enumerate(shown[:3]):
-                ic = DirectFrame(
+                ipath = unit_ui_icon(u)
+                sprite = '/units/' in str(ipath).replace('\\\\', '/')
+                ic = DirectButton(
                     parent=self.frame, relief=None,
                     frameColor=(0, 0, 0, 0),
-                    image=get_icon_path(u, 'dark'),
-                    image_scale=0.026,
-                    frameSize=(-0.026, 0.026, -0.026, 0.026),
-                    pos=(cx - self.CARD_W + 0.045 + k * 0.058,
-                         0, cy - 0.042))
+                    image=ipath,
+                    image_scale=0.042 if sprite else 0.036,
+                    frameSize=(-0.040, 0.040, -0.040, 0.040),
+                    pos=(cx - self.CARD_W + 0.052 + k * 0.084,
+                         0, cy - 0.042),
+                    command=self.game.open_unit_briefing,
+                    extraArgs=[u])
+                if sprite:
+                    ic['image_hpr'] = (0, 0, 45)
                 ic.setTransparency(True)
                 crisp_image(ic)
+                add_tooltip(ic, "%s -- CLICK FOR THE SERVICE "
+                            "BRIEFING"
+                            % stats_for(u, self.game.player_country
+                                        )['label'].upper(),
+                            font=self.base.hud_font)
                 if not (done or avail):
                     ic.setColorScale(1, 1, 1, 0.35)
                 self._dyn.append(ic)

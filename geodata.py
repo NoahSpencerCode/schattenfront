@@ -52,7 +52,7 @@ NAVIGABLE_CHANNELS = [
 ]
 
 CACHE_VERSION = 5   # vectors + land mask
-TEXTURE_VERSION = 36  # bump to repaint the base globe texture only
+TEXTURE_VERSION = 37  # bump to repaint the base globe texture only
 
 # --- WW2 globe palette -------------------------------------------------------
 OCEAN = (44, 58, 79)          # dull navy blue
@@ -105,25 +105,19 @@ CITIES = [
     # interior and southern towns so the national territory spans the
     # whole continental USA (border reach is ~700 km per city)
     ('Pittsburgh', 'usa', 40.4406, -79.9959),
-    ('Cleveland', 'usa', 41.4993, -81.6944),
-    ('Buffalo', 'usa', 42.8864, -78.8784),
-    ('Baltimore', 'usa', 39.2904, -76.6122),
     ('Atlanta', 'usa', 33.7490, -84.3880),
     ('Miami', 'usa', 25.7617, -80.1918),
     ('New Orleans', 'usa', 29.9511, -90.0715),
-    ('Memphis', 'usa', 35.1495, -90.0490),
     ('St. Louis', 'usa', 38.6270, -90.1994),
     ('Kansas City', 'usa', 39.0997, -94.5786),
     ('Minneapolis', 'usa', 44.9778, -93.2650),
     ('Omaha', 'usa', 41.2565, -95.9345),
     ('Oklahoma City', 'usa', 35.4676, -97.5164),
-    ('Dallas', 'usa', 32.7767, -96.7970),
     ('San Antonio', 'usa', 29.4241, -98.4936),
     ('El Paso', 'usa', 31.7619, -106.4850),
     ('Denver', 'usa', 39.7392, -104.9903),
     ('Salt Lake City', 'usa', 40.7608, -111.8910),
     ('Phoenix', 'usa', 33.4484, -112.0740),
-    ('Las Vegas', 'usa', 36.1699, -115.1398),
     ('Portland', 'usa', 45.5152, -122.6784),
     ('Boise', 'usa', 43.6150, -116.2023),
     ('Billings', 'usa', 45.7833, -108.5007),
@@ -1337,8 +1331,12 @@ class WorldData:
             by_country.setdefault(country, []).append(
                 (name, country, lat, lon))
         for country in PLAYABLE:
+            # THE AMERICAN NETWORK: the country is a continent, so
+            # its main lines bind the SIX biggest cities in one
+            # spanning tree -- everyone else joins their three
+            n_top = 6 if country == 'usa' else 3
             group = sorted(by_country.get(country, []),
-                           key=lambda g: -popk(g[0]))[:3]
+                           key=lambda g: -popk(g[0]))[:n_top]
             if len(group) < 2:
                 continue
             legs = []
@@ -1348,7 +1346,26 @@ class WorldData:
                     d = latlon_dist_deg((a[3], a[2]), (b[3], b[2]))
                     legs.append((d, a, b))
             legs.sort(key=lambda x: x[0])
-            for d, a, b in legs[:2]:
+            if country == 'usa':
+                # Kruskal over the six: shortest legs that join new
+                # ground until one network stands
+                comp = {g2[0]: g2[0] for g2 in group}
+
+                def find(x):
+                    while comp[x] != x:
+                        comp[x] = comp[comp[x]]
+                        x = comp[x]
+                    return x
+                take = []
+                for d, a, b in legs:
+                    ra, rb = find(a[0]), find(b[0])
+                    if ra != rb:
+                        comp[ra] = rb
+                        take.append((d, a, b))
+                legs = take
+            else:
+                legs = legs[:2]
+            for d, a, b in legs:
                 if d > 40.0:
                     continue        # no ocean-spanning main lines
                 seed = zlib.crc32(("rail:%s:%s" % (a[0], b[0])).encode())
@@ -1487,7 +1504,7 @@ class WorldData:
                     pts.append((x1 + dx * t - dy / nrm * wob,
                                 y1 + dy * t + dx / nrm * wob))
             if len(pts) >= 2:       # an arm drowned at its first lobe
-                streets.append((pts, 0.036))
+                streets.append((pts, 0.026))
                 spines.append(pts)
 
         # web: irregular cross-links between neighbouring arm spines
@@ -1506,7 +1523,7 @@ class WorldData:
                     continue
                 mx = (pa[0] + pb[0]) * 0.5 + float(rng.uniform(-.04, .04))
                 my = (pa[1] + pb[1]) * 0.5 + float(rng.uniform(-.04, .04))
-                streets.append(([pa, (mx, my), pb], 0.022))
+                streets.append(([pa, (mx, my), pb], 0.015))
 
         # rooftops keep a roughly constant PHYSICAL size, so the building
         # count grows with the built-up area -- i.e. with population
@@ -1526,10 +1543,10 @@ class WorldData:
                     half = math.sqrt(core_r ** 2 - o ** 2)
                     streets.append((
                         [(px_ * o - ux * half, py_ * o - uy * half),
-                         (px_ * o + ux * half, py_ * o + uy * half)], 0.013))
+                         (px_ * o + ux * half, py_ * o + uy * half)], 0.009))
                 k += 1
             streets.append(([(-ux * core_r, -uy * core_r),
-                             (ux * core_r, uy * core_r)], 0.013))
+                             (ux * core_r, uy * core_r)], 0.009))
 
         # ---- clip every street at the waterline: walk each polyline at
         # a fine step and keep only the on-land runs ----
@@ -1691,9 +1708,9 @@ class WorldData:
         if r < 2.2:
             draw.ellipse([cx - 2, cy - 2, cx + 2, cy + 2], fill=CITY_DOT)
             return
-        street = (96, 83, 63)
+        street = (129, 116, 94)
         roofs = ((176, 161, 127), (156, 141, 108), (132, 117, 90))
-        lw = max(1, int(r * 0.018))
+        lw = max(1, int(r * 0.012))
         cm = max(2, int(r * 0.045))
 
         def T(p):
@@ -1702,7 +1719,7 @@ class WorldData:
         if r < 12:
             # too small for rooftops: main arterials + dot
             for pts, wf in plan['streets']:
-                if wf >= 0.03:
+                if wf >= 0.02:
                     draw.line([T(p) for p in pts], fill=street,
                               width=lw, joint='curve')
             draw.ellipse([cx - cm, cy - cm, cx + cm, cy + cm],

@@ -46,6 +46,62 @@ def save_dir():
     return cands[-1]
 
 
+# path -> (mtime, size, meta): a filed campaign is a MEGABYTE of
+# JSON and the archive drawer is read on every render of the LOAD
+# GAME page -- arming or answering the burn prompt re-read and
+# re-parsed every case in the drawer, which is the second the
+# game stood still. A case is parsed once and remembered until the
+# file itself changes.
+_META_CACHE = {}
+
+
+# the sidecar carries a case's INDEX CARD -- the few lines the
+# archive drawer prints -- beside the case itself, so opening LOAD
+# GAME reads a few hundred bytes per campaign instead of parsing a
+# megabyte of situation map. Not a .json: list_saves scans for
+# those, and an index card is not a campaign.
+SIDECAR_VERSION = 1
+
+
+def _card_path(path):
+    return path + '.meta'
+
+
+def _read_card(path, st):
+    """The index card, if it is present and still describes THIS
+    file (a case written or replaced since invalidates its card)."""
+    try:
+        with open(_card_path(path), 'r', encoding='utf-8') as fh:
+            card = json.load(fh)
+        if (card.get('v') == SIDECAR_VERSION
+                and card.get('size') == st.st_size
+                and abs(card.get('mtime', -1) - st.st_mtime) < 1e-6):
+            return card.get('meta')
+    except Exception:
+        pass
+    return None
+
+
+def _write_card(path, meta):
+    """File the index card beside its case. A read-only drawer just
+    goes without -- the full parse still works."""
+    try:
+        st = os.stat(path)
+        tmp = _card_path(path) + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as fh:
+            json.dump({'v': SIDECAR_VERSION, 'mtime': st.st_mtime,
+                       'size': st.st_size, 'meta': meta}, fh)
+        os.replace(tmp, _card_path(path))
+    except Exception:
+        pass
+
+
+def forget_save(path):
+    """Drop one case from the meta cache (it was burnt, or written
+    over)."""
+    _META_CACHE.pop(path, None)
+
+
 def list_saves():
     """[(path, meta), ...] newest first; unreadable files skipped."""
     out = []
@@ -64,11 +120,24 @@ def list_saves():
                 continue
             path = os.path.join(d, name)
             try:
-                with open(path, 'r', encoding='utf-8') as fh:
-                    head = json.load(fh)
-                meta = head.get('meta', {})
+                st = os.stat(path)
+                key = (st.st_mtime, st.st_size)
+                hit = _META_CACHE.get(path)
+                if hit is not None and hit[0] == key:
+                    out.append(dict(hit[1]))   # callers may scribble
+                    continue
+                meta = _read_card(path, st)
+                if meta is None:
+                    # no card, or a stale one: read the case itself
+                    # ONCE and write its card for every open after
+                    with open(path, 'r', encoding='utf-8') as fh:
+                        head = json.load(fh)
+                    meta = head.get('meta', {})
+                    _write_card(path, meta)
+                meta = dict(meta)
                 meta['path'] = path
-                out.append(meta)
+                _META_CACHE[path] = (key, meta)
+                out.append(dict(meta))
             except Exception:
                 continue
     out.sort(key=lambda m: -m.get('saved_at', 0))
@@ -146,6 +215,7 @@ def snapshot(game):
     for u in units:
         row = {
             'type': u.unit_type, 'country': u.country,
+            'station': bool(getattr(u, 'is_supply_station', False)),
             'pos': _vec(u.pos), 'hp': u.hp, 'supply': u.supply,
             'flown': getattr(u, '_flown', 0.0),
         }
@@ -241,6 +311,7 @@ def snapshot(game):
             'focus': getattr(c, 'focus', 'finance'),
             'agri': getattr(c, 'agri_level', 0),
             'works': getattr(c, 'works_level', 0),
+            'labs': getattr(c, 'labs_level', 0),
             'production': [[t, s] for (t, s) in c.production],
         } for c in game.cities],
         'airfields': [{
@@ -297,16 +368,46 @@ def snapshot(game):
     return data
 
 
-def write_save(game, name=None):
+def write_save(game, name=None, path=None):
+    """File the campaign. With PATH given the case is written back
+    over itself (a resumed campaign keeps one file instead of
+    breeding a copy per save); the write is atomic either way, so a
+    crash mid-save cannot eat the previous state."""
     data = snapshot(game)
-    stamp = time.strftime('%Y%m%d-%H%M%S')
-    fname = (name or 'save') + '-' + stamp + '.json'
-    path = os.path.join(save_dir(), fname)
+    if path and os.path.isdir(os.path.dirname(path) or '.'):
+        try:                            # the case must be writable
+            with open(path, 'a', encoding='utf-8'):
+                pass
+        except OSError:
+            path = None
+    else:
+        path = None
+    if not path:
+        stamp = time.strftime('%Y%m%d-%H%M%S')
+        fname = (name or 'save') + '-' + stamp + '.json'
+        path = os.path.join(save_dir(), fname)
     tmp = path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as fh:
         json.dump(data, fh)
     os.replace(tmp, path)
+    forget_save(path)
+    _write_card(path, data.get('meta', {}))
     return path
+
+
+def delete_save(path):
+    """Burn one filed campaign. Returns True when the drawer is
+    actually clear of it."""
+    forget_save(path)
+    try:
+        os.remove(_card_path(path))
+    except OSError:
+        pass
+    try:
+        os.remove(path)
+        return True
+    except OSError:
+        return not os.path.exists(path)
 
 
 # ------------------------------------------------------------ restore
@@ -438,9 +539,18 @@ def restore(game, data):
             c.pending_tax = row['pending_tax']
             c.industry = row['industry']
             c.draft_pool = row.get('draft', c.draft_rate())
-            c.focus = row.get('focus', 'finance')
-            c.agri_level = row.get('agri', 0)
+            # the focus vocabulary moved with the Municipal Ledger:
+            # an old save's 'steel' town now EXPANDS THE WORKS. An
+            # unrecognized focus silently no-ops forever in
+            # _apply_city_focus, so normalize HERE, the only door.
+            focus = row.get('focus', 'finance')
+            c.focus = {'steel': 'works'}.get(focus, focus)
+            # a breadbasket keeps its birthright: old saves predate
+            # the pre-levelled farm belts, so take the better of
+            # the saved level and the seed
+            c.agri_level = max(row.get('agri', 0), c.agri_level)
             c.works_level = row.get('works', 0)
+            c.labs_level = row.get('labs', 0)
             c.production = [[t, s] for (t, s) in row['production']]
             c.refresh_marker()
         # deposits follow their city's flag
@@ -558,6 +668,13 @@ def restore(game, data):
         for row in data['units']:
             u = Unit(g, row['type'], row['country'], _v3(row['pos']))
             u.hp = row['hp']
+            if row.get('station'):
+                u.is_supply_station = True
+                from game import _ShipCache
+                u._cache_face = _ShipCache(u)
+                from models import _icon_texture
+                u.counter.setTexture(_icon_texture(
+                    g.loader, 'supply_station', 'unit', u.country))
             u.supply = row['supply']
             u._flown = row.get('flown', 0.0)
             g.units.append(u)

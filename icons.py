@@ -437,6 +437,61 @@ def _draw_info_button(d, ink):
     d.rectangle([35, 70, 61, 77], fill=col)                   # serif base
 
 
+def _draw_hover_glow(d, ink):
+    """A soft radial glow pressed BEHIND a hovered map control --
+    a white heart fading to nothing, tinted warm by the scene.
+    Drawn outside-in so each ring overwrites the last: a clean
+    radial gradient without blending tricks."""
+    cx, cy = 48, 48
+    for r in range(46, 1, -1):
+        a = int(235 * ((46 - r) / 46.0) ** 1.25)
+        d.ellipse([cx - r, cy - r, cx + r, cy + r],
+                  fill=(255, 244, 208, a))
+
+
+def _draw_city_pick(d, ink):
+    """THE CIVIC KEY: a plain traditional town mark -- three grey
+    towers on a base line. Deliberately SIMPLE and GREY so it reads
+    as a control, never as a piece of the map's own art."""
+    g1 = (176, 176, 182, 255)
+    g2 = (108, 108, 116, 255)
+    d.rectangle([8, 78, 88, 86], fill=g2)               # the ground
+    d.rectangle([14, 42, 36, 78], fill=g1, outline=g2, width=3)
+    d.rectangle([38, 20, 60, 78], fill=g1, outline=g2, width=3)
+    d.rectangle([62, 50, 86, 78], fill=g1, outline=g2, width=3)
+    for (x0, x1, y0) in ((18, 32, 48), (42, 56, 26), (66, 82, 56)):
+        yy = y0
+        while yy < 72:
+            d.rectangle([x0, yy, x1, yy + 4], fill=g2)  # windows
+            yy += 10
+
+
+def _draw_anchor_button(d, ink):
+    """Parchment button bearing an ANCHOR: a supply ship rides at
+    anchor as a floating supply station."""
+    d.rounded_rectangle([5, 5, 90, 90], radius=22,
+                        fill=(216, 205, 168, 255),
+                        outline=(54, 44, 34, 255), width=6)
+    col = (44, 35, 26, 255)
+    d.ellipse([41, 16, 55, 30], outline=col, width=5)      # the ring
+    d.rounded_rectangle([44, 30, 52, 66], radius=3, fill=col)  # shank
+    d.rectangle([32, 36, 64, 42], fill=col)                # the stock
+    d.arc([26, 44, 70, 82], start=20, end=160, fill=col, width=6)
+    d.polygon([(26, 62), (34, 66), (28, 72)], fill=col)    # flukes
+    d.polygon([(70, 62), (62, 66), (68, 72)], fill=col)
+
+
+def _draw_menu_button(d, ink):
+    """Parchment button bearing the three-bar stack: opens the FIELD
+    ORDERS menu from the top bar (the same menu ESC summons)."""
+    d.rounded_rectangle([5, 5, 90, 90], radius=22,
+                        fill=(216, 205, 168, 255),
+                        outline=(54, 44, 34, 255), width=6)
+    col = (44, 35, 26, 255)
+    for y in (30, 44, 58):
+        d.rounded_rectangle([24, y, 72, y + 8], radius=4, fill=col)
+
+
 def _pill_button(d, top, bot, edge=(54, 44, 34, 255), glow=None,
                  y0=26.0, y1=70.0, r=11.0):
     """Shared physical-button pill: smooth vertical shade hugging the
@@ -890,6 +945,10 @@ _DRAWERS = {
     'airfield': _draw_airfield,
     'harbor': _draw_harbor,
     'factory_button': _draw_factory_button,
+    'menu_button': _draw_menu_button,
+    'anchor_button': _draw_anchor_button,
+    'city_pick': _draw_city_pick,
+    'hover_glow': _draw_hover_glow,
     'tax_button': _draw_tax_button,
     'depot': _draw_depot,
     'bunker': _draw_bunker,
@@ -1453,6 +1512,9 @@ _TOP_DOWN = {
     'airforce_command': _tu_air_command,
     'transport_air': _tu_transport_air,
     'supply_ship': _tu_supply_ship,
+    # the FLOATING SUPPLY STATION wears the ship's own art for now
+    # (a proper anchored sprite is on the artist's list)
+    'supply_station': _tu_supply_ship,
     'artillery': _tu_artillery,
     'heavy_tank': _tu_heavy_tank,
     'heavy_bomber': _tu_heavy_bomber,
@@ -1466,7 +1528,7 @@ _TOP_DOWN = {
 }
 
 
-ICON_VERSION = 17   # bump when drawings change to invalidate the cache
+ICON_VERSION = 18   # bump when drawings change to invalidate the cache
 
 
 def _shift_mask(mask, dx, dy):
@@ -2257,6 +2319,23 @@ def ui_folder(name):
     return 'pictograms'
 
 
+def unit_ui_icon(unit_type, nation=None):
+    """A/B EXPERIMENT (Settings: UNIT MARKS). The mark a unit wears
+    on SHEETS AND KEYS -- arm A the ink pictogram, arm B the unit's
+    own top-down field sprite, the same mark it wears on the map
+    (national art where a nation fields its own). Reads the live
+    setting so a flipped switch redraws on the next sheet opened."""
+    try:
+        sprites = getattr(base, 'unit_sprites_ui', False)
+        if nation is None:
+            nation = getattr(base, 'player_country', None)
+    except NameError:
+        sprites = False
+    if sprites:
+        return get_icon_path(unit_type, 'unit', nation)
+    return get_icon_path(unit_type, 'dark')
+
+
 def get_icon_path(unit_type, variant='dark', nation=None):
     """Path to the icon PNG, generating it on first request. Top-down
     unit sprites resolve through the ART REGISTER: nations fielding
@@ -2290,6 +2369,11 @@ def get_icon_path(unit_type, variant='dark', nation=None):
             d = _ScaledDraw(ImageDraw.Draw(img), _SS)
             ink = INK_RED if variant == 'red' else INK_DARK
             _DRAWERS.get(unit_type, _draw_infantry)(d, ink)
+            if unit_type == 'hover_glow':
+                # a GLOW leaves the shop raw: the letterpress rim
+                # and drop shadow would dirty a pure gradient
+                return img.resize((OUT_SIZE, OUT_SIZE),
+                                  Image.LANCZOS)
             img = _finish_icon(img, 'red' if variant == 'red'
                                else 'dark')
             return img.resize((OUT_SIZE, OUT_SIZE), Image.LANCZOS)

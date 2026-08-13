@@ -14,7 +14,7 @@ from panda3d.core import TextNode
 
 from config import (AIR_VISION_MULT, COMM_RADIUS_FACTOR, COUNTRIES,
                     RAIL_LEG_MULT, RAIL_TRAIN_SPEED,
-                    GLOBE_RADIUS, LIFT_AIR, LIFT_GROUND,
+                    GLOBE_RADIUS, LIFT_AIR, LIFT_GROUND, LIFT_RING,
                     NIGHT_VISION_FACTOR, UNIT_SPEED_FACTOR,
                     UNIT_SPRITE_SCALE, VISION_SCALE)
 from globe import make_surface_ring, orient_to_surface
@@ -670,6 +670,7 @@ class Unit:
         self.alive = True
         self.visible_to_player = False
         self.in_contact = True            # inside a friendly comm circle
+        self.is_supply_station = False    # riding at anchor as a depot
 
         # aircraft: where the machine is parked / where the flight ends
         self.based_at = None              # Airfield or carrier Unit
@@ -735,6 +736,9 @@ class Unit:
         self.sel_ring.reparentTo(self.holder)
         set_marker_layer(self.sel_ring, base + 3)
         self.sel_ring.hide()
+        # the guns' reach: built lazily on first selection
+        self._layer_base = base
+        self.range_ring = None
 
         # range decals (hidden for enemy units); the vision field and the
         # merged comm-net outline are both drawn by the globe shader
@@ -839,12 +843,52 @@ class Unit:
     def set_marker_scale(self, scale):
         pass    # sprites keep a fixed world size at every zoom
 
+    def max_attack_range(self):
+        """The farthest this unit's guns can EVER strike, in world
+        units -- the best case of the gunnery law: most arms are
+        capped by their own DAYTIME eyes; tanks, artillery and
+        warships reach TWICE their eyes when a friend observes the
+        target; aircraft use their airborne eyes (a bomber strikes
+        far shorter than it sees)."""
+        rng = self.stats['range']
+        if self.stats['damage'] <= 0 or rng <= 0:
+            return 0.0
+        day = self.stats['vision'] * VISION_SCALE
+        if self.is_air():
+            day *= AIR_VISION_MULT
+        if (self.stats['domain'] == 'sea'
+                or self.unit_type in self.game.INDIRECT_FIRE):
+            return min(rng, day * 2.0)
+        return min(rng, day)
+
+    def _show_range_ring(self):
+        """A THIN RED CIRCLE at the guns' longest reach, drawn while
+        the unit is selected. Parented to the unit's root (not the
+        scaled holder), so its radius is true world size at every
+        zoom -- and separate from the vision circle, because for the
+        long arms the two are NOT the same ring."""
+        r = self.max_attack_range()
+        if r <= 0.0:
+            return
+        if self.range_ring is None:
+            ring = make_flat_ring('atk_range', r,
+                                  (0.85, 0.18, 0.12, 0.85),
+                                  thickness=1.5, segments=48)
+            ring.reparentTo(self.root)
+            ring.setPos(0, 0, GLOBE_RADIUS * LIFT_RING)
+            set_marker_layer(ring, self._layer_base + 2)
+            self.range_ring = ring
+        self.range_ring.show()
+
     def set_selected(self, sel):
         self.selected = sel
         if sel:
             self.sel_ring.show()
+            self._show_range_ring()
         else:
             self.sel_ring.hide()
+            if self.range_ring is not None:
+                self.range_ring.hide()
 
     # -------------------------------------------------------------- orders
     def clear_orders(self):
@@ -861,8 +905,20 @@ class Unit:
         self.plan_pending = None
 
     def give_order(self, order, queue=False):
+        if self.is_supply_station:
+            # SHE IS A STATION: no order moves her until the anchor
+            # comes up (auto errands stay silent)
+            if (self.game and not order.get('auto')
+                    and self.country == self.game.player_country):
+                self.game.fax_short("SHE RIDES AT ANCHOR -- WEIGH "
+                                    "ANCHOR TO MAKE WAY")
+            return
         if not queue:
             self.clear_orders()
+            # a DIRECT order from the hand outranks every standing
+            # arrangement -- including a transport's hold at the
+            # ramp for boarders who never came
+            order['direct'] = True
         self.order_queue.append(order)
         self.game.on_order_given(self, order, queue)
 
@@ -903,15 +959,25 @@ class Unit:
         if self.current_order is None and self.order_queue:
             nxt = self.order_queue[0]
             # a transport holds at the ramp until every unit ordered
-            # aboard has embarked -- waypoints can be planned ahead
+            # aboard has embarked -- waypoints can be planned ahead.
+            # BUT a DIRECT order sails at once: a boarder who never
+            # arrives must never pin the ship to the quay forever --
+            # the player's fresh move outranks the wait, and the
+            # riders' board orders simply chase the new anchorage.
             hold = (self.stats.get('capacity')
                     and self.stats['domain'] != 'air'
                     and nxt.get('kind') in ('move', 'unload')
                     and not nxt.get('auto')
+                    and not nxt.get('direct')
                     and self.game.inbound_boarders(self))
             if not hold:
                 self.current_order = self.order_queue.pop(0)
                 self.game.begin_order(self, self.current_order)
+
+        # an attack order CHASES: the march corrects onto the
+        # target's current position while it stays in sight
+        if self.current_order is not None:
+            self.game.tick_attack_pursuit(self)
 
         # a route is still being planned in the background. THE GUNS
         # DO NOT WAIT ON THE MAP ROOM: a unit standing with an enemy
@@ -1025,9 +1091,17 @@ class Unit:
                 out = out + spin * 0.35
                 out.normalize()
                 import math as _m
-                newpos = (Vec3(b.pos) * _m.cos(wall_ang)
-                          + out * _m.sin(wall_ang))
-                newpos.normalize()
+                slid = (Vec3(b.pos) * _m.cos(wall_ang)
+                        + out * _m.sin(wall_ang))
+                slid.normalize()
+                # NO TELEPORTING OFF THE WORKS: the rim point is
+                # where the column is HEADED, reached at its own
+                # pace -- snapping straight to it flung any vehicle
+                # near the perimeter across the map in one frame
+                jump = angle_between(self.pos, slid)
+                if jump > step and jump > 1e-9:
+                    slid = slerp(self.pos, slid, step / jump)
+                newpos = slid
                 # a goal INSIDE the wall can never be reached by a
                 # vehicle: the rim IS arrival, or it stalls forever
                 arrived = (angle_between(Vec3(target), Vec3(b.pos))

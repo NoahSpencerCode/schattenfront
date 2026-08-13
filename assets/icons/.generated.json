@@ -23,6 +23,14 @@
 "h": "e59cb7253b70438dd9fb127b92d53c80",
 "v": 17
 },
+"buttons/anchor_button.png": {
+"h": "1cc05aed70bb38407132402684c08a90",
+"v": 18
+},
+"buttons/menu_button.png": {
+"h": "5e1125495a745da6adc750eb1fa9490f",
+"v": 18
+},
 "buttons/panel_button.png": {
 "h": "270d4229532203c8e58fdcec38129f8d",
 "v": 17
@@ -67,12 +75,20 @@
 "h": "195d0988e0306e9d0a8a78d99ef79e69",
 "v": 17
 },
+"flags/argentina.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
+"v": 2
+},
 "flags/australia.png": {
 "h": "4f5aaeb0d0395f975584deefbc31ce79",
 "v": 1
 },
 "flags/belgium.png": {
 "h": "0df27960b115e77c22b228abc1fb531a",
+"v": 2
+},
+"flags/brazil.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
 "v": 2
 },
 "flags/brit_med.png": {
@@ -167,6 +183,18 @@
 "h": "71e0a0b2497888a3b77268c55ff5f57d",
 "v": 1
 },
+"flags/spain.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
+"v": 2
+},
+"flags/sweden.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
+"v": 2
+},
+"flags/turkey.png": {
+"h": "9c62bc9a87c02aa5d399fb658b0d5ebf",
+"v": 2
+},
 "flags/usa.png": {
 "h": "342575b62993f48c5e00f4cc922f8573",
 "v": 1
@@ -185,6 +213,10 @@
 },
 "keys/panel_hover_a11_75_r0_42.png": {
 "h": "b76e5e941fe5fb16dc1dba5aa85fd949",
+"v": 3
+},
+"keys/panel_hover_a13_00_r0_42.png": {
+"h": "9ba15cb86159ee6e6139ce80ea1f6495",
 "v": 3
 },
 "keys/panel_hover_a1_00_r0_30.png": {
@@ -255,6 +287,10 @@
 "h": "f9033a431ac884793abefd8e964451f3",
 "v": 3
 },
+"keys/panel_hover_a6_25_r0_42.png": {
+"h": "2a1621b10a49f5cfb584d5a518c8a4be",
+"v": 3
+},
 "keys/panel_hover_a6_50_r0_42.png": {
 "h": "62703085ee2fdd09fffdd4763d68580c",
 "v": 3
@@ -293,6 +329,10 @@
 },
 "keys/panel_press_a11_75_r0_42.png": {
 "h": "42cbb6e0b40775d4773fadd3cf03e634",
+"v": 3
+},
+"keys/panel_press_a13_00_r0_42.png": {
+"h": "1861921849bb8d174b99fd205d6f5ac2",
 "v": 3
 },
 "keys/panel_press_a1_00_r0_30.png": {
@@ -363,6 +403,10 @@
 "h": "a5fd9607e552796bd7cbfac768748d79",
 "v": 3
 },
+"keys/panel_press_a6_25_r0_42.png": {
+"h": "eabc467b91aeb4f80bcd9ca7b49fad0c",
+"v": 3
+},
 "keys/panel_press_a6_50_r0_42.png": {
 "h": "178287f4f674702d4f4680e870a4ed99",
 "v": 3
@@ -401,6 +445,10 @@
 },
 "keys/panel_ready_a11_75_r0_42.png": {
 "h": "168c0f3b69b7d7af042e36b7438203ee",
+"v": 3
+},
+"keys/panel_ready_a13_00_r0_42.png": {
+"h": "0c4ded0ec1d18e60ddb0e57cfd83df1a",
 "v": 3
 },
 "keys/panel_ready_a1_00_r0_30.png": {
@@ -471,6 +519,10 @@
 "h": "f28de8bf70dc5025768136035982ad87",
 "v": 3
 },
+"keys/panel_ready_a6_25_r0_42.png": {
+"h": "52a553b1327a655c63dc286fc3d282c2",
+"v": 3
+},
 "keys/panel_ready_a6_50_r0_42.png": {
 "h": "89d4f463eb9df77e1aec48f03294598d",
 "v": 3
@@ -497,6 +549,10 @@
 },
 "keys/panel_ready_a9_25_r0_42.png": {
 "h": "2d14a35863a242b20c1043f5273f44a2",
+"v": 3
+},
+"keys/red_hover_a1_25_r0_42.png": {
+"h": "30df6e14e040ba28142916eed4a42171",
 "v": 3
 },
 "keys/red_hover_a1_75_r0_42.png": {
@@ -555,6 +611,10 @@
 "h": "83d4ac06fe4919302e1638b91ffe51b5",
 "v": 3
 },
+"keys/red_press_a1_25_r0_42.png": {
+"h": "d4b374013cfee69b941cdcd5ce456899",
+"v": 3
+},
 "keys/red_press_a1_75_r0_42.png": {
 "h": "1aab0b527f93779f12c2ae4923f46058",
 "v": 3
@@ -609,6 +669,10 @@
 },
 "keys/red_press_a7_00_r0_42.png": {
 "h": "3c362000f061f98b7eba8f683092112d",
+"v": 3
+},
+"keys/red_ready_a1_25_r0_42.png": {
+"h": "1e900b06b2295d8b8174d7badf515969",
 "v": 3
 },
 "keys/red_ready_a1_75_r0_42.png": {
@@ -667,12 +731,20 @@
 "h": "2deed29d03f63791a6c326e31907f468",
 "v": 3
 },
+"pictograms/city_pick.png": {
+"h": "4532627c837dfe914f4bd2a28cb4adeb",
+"v": 18
+},
 "pictograms/fast_battleship.png": {
 "h": "dfd0f6bf2542a932d8dfd3c34941d41f",
 "v": 17
 },
 "pictograms/heavy_cruiser.png": {
 "h": "59495f648f81a08d15c46e704aacce18",
+"v": 17
+},
+"pictograms/hover_glow.png": {
+"h": "f9b65bf762d1a03bb05e7a7c20b23f75",
 "v": 17
 },
 "sheets/bar.png": {
@@ -702,5 +774,9 @@
 "units/heavy_cruiser.png": {
 "h": "24ece4578d8151ff81383d30e698462d",
 "v": 17
+},
+"units/supply_station.png": {
+"h": "b5fa2312d59e14c28a650b36f7464204",
+"v": 18
 }
 }

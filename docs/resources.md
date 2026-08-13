@@ -41,7 +41,9 @@ with a fax naming the prize. Output is tons *per fortnight*.
 |---|---|---|
 | oil | 9 | 640 |
 | steel | 13 | 810 |
-| food | 26 | 1,830 |
+
+Food has **no deposits** (1.3.2): every town grows its own — see
+§1.2.
 
 *Oil* — Ploiești 90, Baghdad 60, Tehran 60, Houston 120, Oklahoma
 City 60, Palembang 80, Novorossiysk 100, Kuybyshev 40, Rangoon 30.
@@ -50,28 +52,28 @@ City 60, Palembang 80, Novorossiysk 100, Kuybyshev 40, Rangoon 30.
 Stalingrad 60, Kharkov 60, Osaka 60, Mukden 60, Glasgow 40, Gorky
 40, Liège 40, Prague 40, Milan 40.
 
-*Food* — 26 granaries: the Ukraine (Kiev 110, Odessa 80, Rostov 70,
-Voronezh 90), the American plains (St. Louis 110, Kansas City 100,
-Omaha 90, Minneapolis 80), the paddies (Bangkok 90, Mandalay 80,
-Saigon 80, Delhi 80, Calcutta 70, Nanking 70), the Danube (Budapest
-60, Bucharest 60), France (Paris 60, Lyon 50, Bordeaux 50), and
-scattered smaller fields (Sydney 70, Königsberg 50, Surabaya 50,
-Munich 40, Nagoya 40, Bologna 40, Wuhan 60).
+*Food* — grown by every city: `CITY_FOOD_BASE` (10 t/ftn) plus the
+town's **agriculture level** on the exponential table
+`AGRI_FOOD_CUM` (4/12/28/60/124 cumulative). The historic farm
+belts open pre-levelled (`BREADBASKETS`): Kiev, St. Louis and
+Kansas City at L3; the Ukraine, plains, paddies and Danube towns at
+L2; France, Bavaria and the rest at L1.
 
 > A city works **one** deposit — `DEPOSITS` is keyed by city name, so
 > a second entry for the same town silently replaces the first. The
 > test suite asserts no site has been overwritten.
 
-### 1.2 The civilian baseline
+### 1.2 No free imports (1.3.2)
 
-Every power draws a small neutral-market import regardless of what
-it holds: **40 oil, 60 steel, 40 food** per fortnight
-(`BASELINE_IMPORTS`). It is why a power stripped of every field
-still trickles.
+There is **no civilian baseline**. The deposits are the world's
+only taps of oil and steel: a power without a field buys at the
+treaty table or goes without — Germany, Britain and Japan hold no
+oil at the bell, and that is the point. Food is grown by the towns
+(§1.1) and expanded by working the land.
 
 ### 1.3 Daily accrual — the wells run every day
 
-`_daily_income(country)` = (deposits + baseline) ÷ 14.
+`_daily_income(country)` = (oil/steel deposits + every town's food) ÷ 14.
 `_accrue_resources(days)` runs off the main loop whenever the day
 counter turns, so tons arrive **daily, not in a fortnightly lump**.
 
@@ -201,28 +203,29 @@ reports it. Stocks never go negative.
 
 Per day, at 1 September 1939 — computed from the live game:
 
-| power | oil/day | steel/day | food/day | **food net** |
+| power | oil/day | steel/day | food/day | **food net/day** |
 |---|---|---|---|---|
-| Germany | 2.9 | 15.0 | 9.3 | **+1.2** |
-| Britain | 2.9 | 12.9 | 2.9 | **−5.3** |
-| USA | 15.7 | 17.1 | 30.0 | **+14.9** |
-| Japan | 2.9 | 12.9 | 5.7 | **−4.9** |
-| Soviet | 12.9 | 15.7 | 27.9 | **+20.6** |
+| Germany | 0 | 10.7 | 11.3 | **+3.2** |
+| Britain | 0 | 8.6 | 10.0 | **+1.9** |
+| USA | 12.9 | 12.9 | 31.4 | **+16.3** |
+| Japan | 0 | 8.6 | 14.6 | **+4.0** |
+| Soviet | 10.0 | 15.7 | 17.4 | **+10.1** |
+
+(1.3.2 figures, probed from the live game. The ZEROES are the
+strategy: Germany, Britain and Japan pump no oil at all.)
 
 Nothing in this table is scripted — it falls out of who owns which
 cities, and it reproduces the strategic problems of 1939:
 
-- **Britain** grows almost nothing (steel only) and runs **−5.3
-  food a day**. She must buy her bread and ship it — the convoy war
-  is an economic necessity, not flavour.
-- **Japan** is short of food *and* has almost no oil (baseline
-  only). Her rice and her fuel both lie in other men's colonies:
-  Palembang, Saigon, Bangkok. The southern strategy writes itself.
-- **Germany** feeds herself by a whisker (**+1.2**) on Königsberg
-  and Munich, and has no oil of her own. Ploiești and the Ukraine
-  are worth a war — because they are.
-- **The Soviet Union** is the breadbasket (**+20.6**) with oil at
-  Novorossiysk; **the USA** has everything and an ocean in the way.
+- **Britain** runs the thinnest food margin (+1.9/day — one hungry
+  fortnight of drafting erases it) and pumps **no oil**: her fuel
+  is bought or taken, and the convoy war is an economic necessity.
+- **Japan** pumps **no oil** either. Palembang, Saigon, Bangkok —
+  the southern strategy writes itself.
+- **Germany** eats on her towns' farms and pumps **nothing**.
+  Ploiești and Novorossiysk are worth a war — because they are.
+- **The Soviet Union** and **the USA** sit on their own oil and
+  the deepest farm belts; the ocean is America's only distance.
 
 An empty stockpile is not a wall. It is a **clock**: Britain's 260
 opening tons of food last about seven weeks before the ration fails.
@@ -269,7 +272,9 @@ already reads:
 ```
 RESOURCE_CAP        999          per resource, per nation
 STARTING_RESOURCES  oil 400   steel 800   food 260
-BASELINE_IMPORTS    oil  40   steel  60   food  40   (per fortnight)
+CITY_FOOD_BASE      10           t/ftn every town grows unaided
+AGRI_FOOD_CUM       0/4/12/28/60/124   t/ftn by agriculture level
+TRACK_COSTS         $300/450/675/1000/1500   money only, L1..L5
 OIL_PER_LB          1/1250       tons per lb into a machine
 OIL_PER_SORTIE      0.6          tons per takeoff
 FOOD_PER_ENLISTED   4            tons per section raised

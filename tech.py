@@ -175,8 +175,13 @@ def node_name(country, node_id):
 
 def unlocked_units(country, researched):
     """The buyable roster: the 1939 kit plus every researched unlock
-    (radar_station is a works, not a unit -- filtered by callers)."""
+    (radar_station is a works, not a unit -- filtered by callers).
+    THE CARRIER POWERS sail their flat-tops from the first day:
+    the USA and Japan opened the war with fleet carriers in
+    commission, and here they need no research programme."""
     out = set(BASE_UNITS)
+    if country in ('usa', 'japan'):
+        out.add('aircraft_carrier')
     for nid in normalize(researched):
         out.update(u for u in NODES[nid]['unlocks']
                    if u != 'radar_station')

@@ -19,7 +19,7 @@ from direct.gui.DirectGui import DirectButton, DirectFrame, DGG
 from panda3d.core import TextNode
 
 import config as C
-from icons import get_icon_path
+from icons import get_icon_path, unit_ui_icon
 from ui import (FormSheet, pill_button, crisp_image, INK, INK_FAINT,
                 RED_INK, GREEN_INK, KEY_LIGHT)
 from units import UNIT_TYPES, BRANCH_OF, FIRE_SUPPLY_FACTOR
@@ -160,10 +160,11 @@ class WikiFax:
                            frameSize=(x - thick / 2.0,
                                       x + thick / 2.0, z0, z1))
 
-    def icon(self, name, pos, scale=0.028):
+    def icon(self, name, pos, scale=0.028, unit=False):
         ic = DirectFrame(parent=self._content, relief=None,
                          frameColor=(0, 0, 0, 0),
-                         image=get_icon_path(name, 'dark'),
+                         image=(unit_ui_icon(name) if unit
+                                else get_icon_path(name, 'dark')),
                          image_scale=scale,
                          frameSize=(-scale, scale, -scale, scale),
                          pos=(pos[0], 0, pos[1]))
@@ -214,10 +215,11 @@ class WikiFax:
             "Friendly towns keep their own watch (%.0f mi about "
             "the walls)." % _mi(C.CITY_VISION_RANGE),
             "Ground you cannot see is darker and drained of "
-            "colour; enemies there are invisible.",
+            "colour; enemies",
+            "  there are invisible.",
         ], L, t - 0.345)
 
-        self.header("THE WIRELESS NET -- COMMAND", (L, t - 0.545))
+        self.header("THE WIRELESS NET -- COMMAND", (L, t - 0.640))
         self.bullets([
             "Command posts, flagships and command wings carry "
             "the net: radius",
@@ -225,10 +227,10 @@ class WikiFax:
             "Friendly cities carry the land-line network "
             "(%.0f mi about each town)." % _mi(C.CITY_COMM_RADIUS),
             "A unit OUTSIDE the net goes W/T SILENT: invisible, "
-            "unselectable, deaf to orders.",
-            "The top bar counts your silent units under [OUT OF "
-            "CONTACT].",
-        ], L, t - 0.600)
+            "unselectable,",
+            "  deaf to orders. The top bar counts them under "
+            "[OUT OF CONTACT].",
+        ], L, t - 0.695)
 
         self.vrule(-0.04, -0.66, t + 0.02)
         self.header("ROADS, RAILS AND RIVERS", (M, t))
@@ -241,6 +243,10 @@ class WikiFax:
             "mph) and burn no stores" % (C.RAIL_TRAIN_SPEED * 60),
             "  under way. The router prefers rail over road when "
             "both serve.",
+            "THE FRONTIER BINDS THE ROUTE: no course is plotted "
+            "through a country",
+            "  that has not granted passage -- war or a treaty "
+            "opens it.",
             "Rivers stop land columns dead, except at BRIDGES "
             "(%d hp; engineers repair" % C.BRIDGE_HP,
             "  %d hp a second, and can survey new roads, rails "
@@ -248,18 +254,20 @@ class WikiFax:
             "The sea lanes of the world are open: Suez, Panama, "
             "Kiel, the Belts, the",
             "  Bosporus and the narrow straits are all navigable.",
-            "Engineers build works ON SITE: roads, rails, depots, "
-            "bunkers, bridges,",
-            "  radar, ports and airfields -- standing within reach "
-            "of the ground.",
+            "Engineers build depots, bunkers, bridges, radar, "
+            "ports and airfields",
+            "  ON SITE -- and lay roads and rails STRETCH BY "
+            "STRETCH, the party",
+            "  advancing along its own survey as each length of "
+            "way opens.",
         ], M, t - 0.055)
-        self.header("THE MAP IS THE TRUTH", (M, t - 0.545))
+        self.header("THE MAP IS THE TRUTH", (M, t - 0.665))
         self.bullets([
             "Cities, deposits, bases and bridges are printed on "
             "the map itself.",
             "Contour lines are drawn from the same ground the "
             "columns march over.",
-        ], M, t - 0.600)
+        ], M, t - 0.720)
 
     def _page_economy(self):
         t = self.BODY_TOP
@@ -315,10 +323,11 @@ class WikiFax:
              "Spent building every hull and plate. A piece's bill "
              "rises with its price; infantry cost none."),
             ('granary', "FOOD -- MANPOWER",
-             "%d t raises and feeds a section. Civilians eat "
-             "%.2f t per million souls a day (occupied mouths "
-             "%.1f t)." % (C.FOOD_PER_ENLISTED, C.CIVIL_RATION,
-                           C.OCCUPIED_RATION)),
+             "GROWN BY EVERY TOWN: %d t/ftn base plus its "
+             "agriculture level. %d t raises a section; civilians "
+             "eat %.2f t per million souls a day (occupied mouths "
+             "%.1f t)." % (C.CITY_FOOD_BASE, C.FOOD_PER_ENLISTED,
+                           C.CIVIL_RATION, C.OCCUPIED_RATION)),
         ]
         y = t - 0.070
         for icon_name, head, body in rows:
@@ -326,61 +335,78 @@ class WikiFax:
             self.text(head, (M + 0.105, y), 0.0265, RED_INK)
             self.text(body, (M + 0.105, y - 0.042), 0.0235,
                       INK, wrap=48)
-            y -= 0.165
+            y -= 0.175
         n_dep = {}
         for name, (res, out) in C.DEPOSITS.items():
             n_dep[res] = n_dep.get(res, 0) + 1
-        self.header("DEPOSITS", (M, y - 0.010))
+        self.header("DEPOSITS -- THE WORLD'S ONLY TAPS",
+                    (M, y - 0.010))
         self.bullets([
-            "%d oil fields, %d steel districts and %d granaries "
-            "lie by their real" % (n_dep.get('oil', 0),
-                                   n_dep.get('steel', 0),
-                                   n_dep.get('food', 0)),
-            "  towns. OWN THE TOWN AND ITS DEPOSIT WORKS FOR YOU, "
-            "paying tons into",
-            "  the stockpile each fortnight (cap %d a resource)."
-            % C.RESOURCE_CAP,
-            "The heaviest: Houston %d oil, Pittsburgh %d steel, "
-            "Kiev %d food."
-            % (C.DEPOSITS['Houston'][1], C.DEPOSITS['Pittsburgh'][1],
-               C.DEPOSITS['Kiev'][1]),
-            "Baseline imports trickle in even without conquest: "
-            "%d/%d/%d a fortnight." % (C.BASELINE_IMPORTS['oil'],
-                                       C.BASELINE_IMPORTS['steel'],
-                                       C.BASELINE_IMPORTS['food']),
+            "%d oil fields and %d steel districts lie by their "
+            "real towns, and they" % (n_dep.get('oil', 0),
+                                      n_dep.get('steel', 0)),
+            "  are the ONLY source of oil and steel on Earth: no "
+            "free imports.",
+            "OWN THE TOWN AND ITS DEPOSIT PAYS YOU, steadily, "
+            "every fortnight",
+            "  (stockpile cap %d). No deposit? BUY at the treaty "
+            "table -- or take one." % C.RESOURCE_CAP,
+            "The heaviest: Houston %d oil, Pittsburgh %d steel. "
+            "Food has no deposits"
+            % (C.DEPOSITS['Houston'][1],
+               C.DEPOSITS['Pittsburgh'][1]),
+            "  at all -- the historic farm belts open with "
+            "agriculture pre-levelled.",
         ], M, y - 0.065)
 
     def _page_cities(self):
         t = self.BODY_TOP
         L, M = -1.32, 0.06
-        self.header("THE FORTNIGHT FOCUS", (L, t))
+        self.header("THE MUNICIPAL LEDGER", (L, t))
         self.bullets([
-            "Every town works at ONE directive a fortnight, set "
-            "on its FOCUS sheet:",
+            "Every town keeps THREE PERMANENT TRACKS of %d levels "
+            "-- agriculture," % C.TRACK_MAX_LEVEL,
+            "  the works, the laboratories. One fortnight focus "
+            "buys ONE level,",
+            "  MONEY ALONE (L1-L%d: %s), and the returns are"
+            % (C.TRACK_MAX_LEVEL,
+               ", ".join("$%d" % c for c in C.TRACK_COSTS)),
+            "  EXPONENTIAL -- the deep town beats two shallow "
+            "ones. Levels survive",
+            "  capture: a developed city is worth taking.",
         ], L, t - 0.055)
+        track_rows = [
+            ("AGRICULTURE", "food t/ftn by level: %s (+%d base "
+             "every town)" % ("/".join(
+                 str(v) for v in C.AGRI_FOOD_CUM[1:]),
+                 C.CITY_FOOD_BASE)),
+            ("THE WORKS", "its bases build faster: %s"
+             % "/".join("x%.2f" % v
+                        for v in C.WORKS_SPEED_MULT[1:])),
+            ("THE LABORATORIES", "research focus yields: %s"
+             % "/".join("x%.1f" % v
+                        for v in C.LAB_YIELD_MULT[1:])),
+        ]
+        y = t - 0.300
+        for head, body in track_rows:
+            self.text(head, (L + 0.02, y), 0.0245, INK)
+            self.text(body, (L + 0.36, y), 0.022, INK_FAINT)
+            self.rule(L + 0.02, -0.10, y - 0.017, 0.0014)
+            y -= 0.052
         focus_rows = [
             ("INVEST IN FINANCE", "+%.0f industry health"
              % C.FOCUS_FINANCE_HEAL),
-            ("INVEST IN AGRICULTURE", "+%d food/ftn per level, "
-             "permanent (max %d)" % (C.FOCUS_AGRI_FOOD,
-                                     C.FOCUS_AGRI_MAX)),
-            ("INVEST IN THE STEEL WORKS", "+%d steel/ftn per "
-             "level (max %d; needs a deposit)"
-             % (C.FOCUS_STEEL_OUT, C.FOCUS_STEEL_MAX)),
-            ("FUND THE LABORATORIES", "%.0f research points per "
-             "million souls (min %.0f)"
+            ("RUN THE LABORATORIES", "%.0f RP per million souls "
+             "(min %.0f) x the labs level"
              % (C.FOCUS_RESEARCH_RP_PER_M, C.FOCUS_RESEARCH_RP_MIN)),
-            ("RAISE AN ARMY BASE", "$%d + %d steel, once"
-             % C.BASE_COSTS['army']),
-            ("RAISE AN AIRFORCE BASE", "$%d + %d steel, once"
-             % C.BASE_COSTS['air']),
-            ("RAISE A NAVAL BASE", "$%d + %d steel, once; port "
-             "towns only" % C.BASE_COSTS['naval']),
+            ("RAISE A BASE", "army $%d+%ds, air $%d+%ds, naval "
+             "$%d+%ds; once each"
+             % (C.BASE_COSTS['army'] + C.BASE_COSTS['air']
+                + C.BASE_COSTS['naval'])),
         ]
-        y = t - 0.105
         for head, body in focus_rows:
             self.text(head, (L + 0.02, y), 0.0245, INK)
-            self.text(body, (L + 0.62, y), 0.0235, INK_FAINT)
+            self.text(body, (L + 0.36, y), 0.022, INK_FAINT)
             self.rule(L + 0.02, -0.10, y - 0.017, 0.0014)
             y -= 0.052
         self.header("BASES AND FIELDS", (L, y - 0.030))
@@ -392,6 +418,10 @@ class WikiFax:
             "PORTS and AIRFIELDS are engineer-built works: they "
             "base and supply",
             "  but produce nothing, and lorries must feed them.",
+            "A town's own bases carry STRIKE keys on its garrison "
+            "command --",
+            "  two clicks decommission one; a focus raises it "
+            "again.",
         ], L, y - 0.085)
 
         self.vrule(-0.04, -0.66, t + 0.02)
@@ -420,13 +450,18 @@ class WikiFax:
             "airfield -- and",
             "  its mouths: the occupied eat %.1f t per million a "
             "day." % C.OCCUPIED_RATION,
+            "A town ready to fall flies a flashing >CAPTURE< "
+            "banner over its name,",
+            "  with the garrison bill. CLICK THE BANNER to run "
+            "the flag up.",
         ], M, t - 0.345)
-        self.header("SELECTING A TOWN", (M, t - 0.660))
+        self.header("SELECTING A TOWN", (M, t - 0.755))
         self.bullets([
-            "Click the town MARK or its printed NAME. Towns "
-            "outrank counters on",
-            "  the click, but only inside the letters themselves.",
-        ], M, t - 0.715)
+            "Click the CIVIC ICON standing left of the town's "
+            "name -- it glows",
+            "  under the cursor. The letters and the ground belong "
+            "to the counters.",
+        ], M, t - 0.810)
 
     def _page_supply(self):
         t = self.BODY_TOP
@@ -460,11 +495,25 @@ class WikiFax:
             "DEPOTS (engineer-built) bank stores and exchange "
             "with lorries.",
             "SUPPLY LORRIES run their own shuttle: empty to the "
-            "nearest source,",
+            "NEAREST place that",
+            "  would fill them -- a town, a depot, a quay, an "
+            "ally's port under a",
+            "  right of supply (a town under annexation serves "
+            "nobody),",
             "  full to their station (RMB sets it) or the "
             "neediest friend in sight.",
+            "  The frontier binds the lorries too: no errand "
+            "runs through a closed country.",
+            "  A carrier EN ROUTE tops up at any cache it passes "
+            "-- waypoint one",
+            "  through a depot and it arrives full; at rest it "
+            "BANKS its load.",
             "SUPPLY SHIPS feed warships, carriers' air stock and "
-            "columns ashore.",
+            "columns ashore --",
+            "  or ANCHOR as a floating supply station: a port that "
+            "floats, stored",
+            "  into and drawn from by the chain. At anchor she "
+            "cannot make way.",
             "Hand-over happens within %.0f mi." %
             _mi(C.SUPPLY_TRANSFER_RANGE),
         ], L, t - 0.485)
@@ -486,7 +535,11 @@ class WikiFax:
         self.bullets([
             "Every pound of stores issued to a MACHINE draws oil: "
             "one ton moves",
-            "  1,250 lbs. Men and the railways draw none.",
+            "  1,250 lbs. Men and the railways draw none -- and "
+            "the CHAIN ITSELF",
+            "  (lorries, ships, stations) hands pounds on free: "
+            "the pound is",
+            "  charged ONCE, at the final issue.",
             "No oil, no issue: the machine keeps its stores but "
             "the pumps stop.",
             "The STRATEGIC RESOURCES ledger (top bar) shows "
@@ -494,13 +547,13 @@ class WikiFax:
             "  the fortnight's spend and the whole supply net "
             "live.",
         ], M, t - 0.385)
-        self.header("FOOD IS MANPOWER", (M, t - 0.660))
+        self.header("FOOD IS MANPOWER", (M, t - 0.750))
         self.bullets([
             "Rations are drawn when towns muster men and daily "
             "for every soul",
             "  the flag covers. A blockaded island starves before "
             "it surrenders.",
-        ], M, t - 0.715)
+        ], M, t - 0.805)
 
     def _page_combat(self):
         t = self.BODY_TOP
@@ -509,6 +562,12 @@ class WikiFax:
         self.bullets([
             "Units fire on enemies in range OF THEIR OWN ACCORD "
             "-- no order needed.",
+            "AN ATTACK ORDER CHASES: while the prey is in sight "
+            "the march corrects",
+            "  onto its CURRENT position; sight lost, the column "
+            "makes for the last",
+            "  known place -- and locks on again when sight "
+            "returns.",
             "Damage is the salvo's weight; strength (HP) is what "
             "a unit absorbs.",
             "Each arm engages only what its guns can hurt: AA "
@@ -516,22 +575,30 @@ class WikiFax:
             "  destroyers at what their class names, bombers at "
             "what lies under",
             "  the flight path. See the service tables.",
+            "A SELECTED unit wears a thin red ring at its guns' "
+            "longest reach:",
+            "  most arms are capped by their own daytime eyes, "
+            "but tanks, artillery",
+            "  and warships strike TWICE their eyes with a "
+            "friendly observer on",
+            "  the target -- and aircraft strike shorter than "
+            "they see.",
             "A unit under fire flashes a red ring on the map.",
         ], L, t - 0.055)
-        self.header("THE NIGHT", (L, t - 0.380))
+        self.header("THE NIGHT", (L, t - 0.660))
         self.bullets([
             "Night halves every eye, and aircraft and surface "
             "units cannot spot",
             "  each other at all -- night convoys slip beneath "
             "the bombers.",
-        ], L, t - 0.435)
-        self.header("BUNKERS", (L, t - 0.575))
+        ], L, t - 0.715)
+        self.header("BUNKERS", (L, t - 0.855))
         self.bullets([
             "Engineer-built. INFANTRY ONLY may stand on the "
             "works; vehicles",
-            "  deflect around the rim.",
-            "Enemy fire on infantry inside is QUARTERED.",
-        ], L, t - 0.630)
+            "  deflect around the rim. Enemy fire on infantry "
+            "inside is QUARTERED.",
+        ], L, t - 0.910)
 
         self.vrule(-0.04, -0.66, t + 0.02)
         self.header("EMBARKATION AND THE CHAIN", (M, t))
@@ -550,9 +617,20 @@ class WikiFax:
             "Transports never unload on their own: the UNLOAD "
             "key sites the",
             "  put-ashore, PARADROP the drop.",
+            "A transport HOLDS AT THE RAMP for ordered boarders "
+            "-- but a direct",
+            "  MOVE order sails at once; no straggler ever pins "
+            "the ship.",
+            "A fleet UNLOADS TOGETHER, berthing abreast down the "
+            "coast -- but",
+            "  NO PUT-ASHORE in a country without passage or war.",
+            "IDLE PERSONNEL TRUCKS run a TAXI: a marcher bound far "
+            "-- for a goal,",
+            "  a garrison or an EMBARKMENT -- is collected and "
+            "driven there.",
         ], M, t - 0.055)
         self.header("BRIDGES AND WORKS UNDER FIRE",
-                    (M, t - 0.430))
+                    (M, t - 0.665))
         self.bullets([
             "Bridges (%d hp) can be dropped by gunfire or bombs "
             "and repaired by" % C.BRIDGE_HP,
@@ -560,13 +638,13 @@ class WikiFax:
             % C.BRIDGE_REPAIR_RATE,
             "Airfields are targetable works: destroyed, their "
             "parked wings die.",
-        ], M, t - 0.485)
-        self.header("AIRCRAFT IN ACTION", (M, t - 0.660))
+        ], M, t - 0.720)
+        self.header("AIRCRAFT IN ACTION", (M, t - 0.895))
         self.bullets([
             "Squadrons launch from a field or deck (SCRAMBLE, or "
             "ENTER), strike",
             "  and come home; carriers are moving airfields.",
-        ], M, t - 0.715)
+        ], M, t - 0.950)
 
     # -------------------------------------------- the stat tables
     def _stat_table(self, domain):
@@ -596,10 +674,18 @@ class WikiFax:
         row_h = (y + 0.66) / max(1, len(rows))
         row_h = min(0.105, row_h)
         for ut, s in rows:
-            self.icon(ut, (L + 0.045, y + 0.006), 0.030)
+            self.icon(ut, (L + 0.045, y + 0.006), 0.030,
+                      unit=True)
             self.text(s['label'], (L + 0.10, y), 0.0245)
-            self.text("$%d" % s['cost'], (-0.42, y), 0.0245,
-                      INK, TextNode.ARight)
+            if ut == 'infantry':
+                # never bought: the budget sells no Enlisted -- they
+                # muster from the city draft (rolls free, conscripts
+                # paid in industry)
+                self.text("DRAFT", (-0.42, y), 0.0245,
+                          INK, TextNode.ARight)
+            else:
+                self.text("$%d" % s['cost'], (-0.42, y), 0.0245,
+                          INK, TextNode.ARight)
             self.text("%d" % s['hp'], (-0.27, y), 0.0245, INK,
                       TextNode.ARight)
             if s['damage'] > 0:
@@ -642,7 +728,10 @@ class WikiFax:
                                           * C.VISION_SCALE
                                           * C.AIR_VISION_MULT))
             if ut not in tech.BASE_UNITS:
-                notes.append("RESEARCH")
+                notes.append("RESEARCH (USA AND JAPAN SAIL THEIRS "
+                             "FROM DAY ONE)"
+                             if ut == 'aircraft_carrier'
+                             else "RESEARCH")
             self.text("; ".join(notes) if notes else "--",
                       (0.52, y), 0.0215, INK_FAINT)
             self.rule(L, R, y - row_h / 2.0 + 0.012, 0.0012)
@@ -703,11 +792,11 @@ class WikiFax:
         t = self.BODY_TOP
         L, R = -1.32, 1.32
         self.bullets([
-            "Research points come FROM THE TOWNS ALONE: a city "
-            "whose fortnight focus is FUND THE LABORATORIES earns "
-            "%.0f RP per million souls (minimum %.0f). No tithe "
-            "is skimmed from taxes." % (C.FOCUS_RESEARCH_RP_PER_M,
-                                        C.FOCUS_RESEARCH_RP_MIN),
+            "Research points come FROM THE TOWNS ALONE: RUN THE "
+            "LABORATORIES earns %.0f RP per million souls (min "
+            "%.0f), TIMES the labs level (x%s at the top)."
+            % (C.FOCUS_RESEARCH_RP_PER_M, C.FOCUS_RESEARCH_RP_MIN,
+               C.LAB_YIELD_MULT[-1]),
             "A programme opens when every programme wired above "
             "it is delivered. Spending is instant on the RESEARCH "
             "CHART [R].",
@@ -789,6 +878,7 @@ class WikiFax:
         inst = [
             ('RIGHT OF PASSAGE', 'passage'),
             ('USE OF THE SUPPLY NET', 'supply'),
+            ('USE OF THE WIRELESS NET', 'comms'),
             ('PACT OF NON-AGGRESSION', 'nonaggression'),
             ('PACT OF ALLIANCE', 'alliance'),
             ('AN END TO THE WAR', 'peace'),
@@ -805,7 +895,18 @@ class WikiFax:
             y -= 0.096
         self.text("THE FRONTIER IS REAL: without passage or war, "
                   "your columns and your engineers stop at the "
-                  "border.", (M, y - 0.020), 0.023, INK, wrap=56)
+                  "border -- and the router plots no course "
+                  "through a closed country.",
+                  (M, y - 0.020), 0.023, INK, wrap=56)
+        self.text("WAR TEARS UP THE PAPERS: every right and "
+                  "standing arrangement with a belligerent dies "
+                  "with the declaration -- however the war "
+                  "arrived.",
+                  (M, y - 0.155), 0.023, INK, wrap=56)
+        self.text("OUR COMMITMENTS: one key on the ledger's roster "
+                  "prints every power something stands with -- "
+                  "wars, pacts, rights and standing cargo, on one "
+                  "sheet.", (M, y - 0.290), 0.023, INK, wrap=56)
 
     def _page_controls(self):
         t = self.BODY_TOP
@@ -823,6 +924,8 @@ class WikiFax:
             ("SPACE", "Pause the war."),
             ("= / -", "Game speed up / down."),
             ("ESC", "Field orders menu; closes any open sheet."),
+            ("MENU KEY", "The three-bar key, top left of the bar: "
+             "FIELD ORDERS, same as ESC."),
         ]
         right = [
             ("B", "The BUDGET MANIFEST."),
@@ -832,9 +935,13 @@ class WikiFax:
             ("WHEEL", "Zoom, gliding toward the cursor."),
             ("TOP BAR KEYS", "Factory, resources, research and "
              "diplomacy reports."),
-            ("CITY CLICK", "The town's mark or its NAME selects "
-             "it; its keys open tax, draft and focus sheets."),
+            ("CITY CLICK", "The CIVIC ICON beside the town's name "
+             "selects it (it glows on hover); its keys open tax, "
+             "draft and focus sheets."),
             ("[i] KEY", "The selected unit's service briefing."),
+            ("WORKS CLICK", "A selected bunker, depot or engineer "
+             "airfield carries a STRIKE key: two clicks "
+             "decommission it."),
         ]
         self.header("IN THE FIELD", (L, t))
         y = t - 0.060

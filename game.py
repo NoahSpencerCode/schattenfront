@@ -34,14 +34,16 @@ from panda3d.core import (AmbientLight, AntialiasAttrib, CardMaker,
 from ai import NationAI
 from config import (AI_STARTING_FUNDS, AI_THINK_INTERVAL,
                     CAPTURE_CLEAR_RANGE,
-                    BASELINE_IMPORTS, DEPOSITS, OIL_PER_LB,
+                    DEPOSITS, OIL_PER_LB,
                     OIL_PER_SORTIE, PLAYABLE, RESOURCES,
                     RESOURCE_CAP, STARTING_RESOURCES,
                     TRADE_PRICES, CIVIL_RATION,
                     FOOD_PER_ENLISTED, OCCUPIED_RATION,
                     DRAFT_INDUSTRY_GRIND,
-                    FOCUS_FINANCE_HEAL, FOCUS_AGRI_FOOD,
-                    FOCUS_AGRI_MAX, FOCUS_STEEL_OUT, FOCUS_STEEL_MAX,
+                    FOCUS_FINANCE_HEAL,
+                    TRACK_MAX_LEVEL, TRACK_COSTS, CITY_FOOD_BASE,
+                    AGRI_FOOD_CUM, WORKS_SPEED_MULT, LAB_YIELD_MULT,
+                    BREADBASKETS,
                     FOCUS_RESEARCH_RP_PER_M, FOCUS_RESEARCH_RP_MIN,
                     BASE_COSTS,
                     short_name,
@@ -68,7 +70,7 @@ from menu import MenuScreen
 from settings import load_settings, save_settings
 from tech import (TECH_BRANCHES, unlocked_units, radar_unlocked,
                   NODES, available_nodes, node_name, normalize)
-from icons import get_icon_path
+from icons import get_icon_path, unit_ui_icon
 from models import (make_bridge_marker, make_flag_quad,
                     make_flat_ring, make_icon_quad,
                     make_hit_flash_template, set_marker_layer,
@@ -130,8 +132,12 @@ class City:
         self.draft_pool = self.draft_rate()
         # the fortnight focus: what the town works at
         self.focus = 'finance'
-        self.agri_level = 0             # permanent food improvements
-        self.works_level = 0            # permanent steel improvements
+        # THE MUNICIPAL LEDGER: three permanent tracks, five levels
+        # each. The breadbaskets open the war with agriculture
+        # already worked -- the black earth is a head start.
+        self.agri_level = BREADBASKETS.get(name, 0)
+        self.works_level = 0            # base production speed
+        self.labs_level = 0             # research focus multiplier
         self.lat, self.lon = lat, lon
         self.pos = latlon_to_vec(lat, lon)
         self.capture_progress = 0.0
@@ -169,7 +175,78 @@ class City:
         set_marker_layer(self.label, LAYER_STRUCT + 4)
         self.title_flag = None
         self._flag_country = None
+        # THE CIVIC KEY: the town is picked by this ICON, standing
+        # left of the name as the standard stands right. Hover
+        # glows it; the click opens the municipality.
+        self.icon_np = make_icon_quad(game.loader, 'city_pick',
+                                      'dark',
+                                      half=0.62, flat=False)
+        self.icon_np.reparentTo(self.label)
+        self.icon_np.setPos(-(self.label_tn.getWidth() * 0.5 + 0.72),
+                            0, 0.26)
+        self.icon_np.setLightOff()
+        self.icon_np.setColorScale(1.0, 1.0, 1.0, 0.96)
+        set_marker_layer(self.icon_np, LAYER_STRUCT + 4)
+        # the FADING BACK GLOW pressed behind the key on hover
+        self.icon_glow = make_icon_quad(game.loader, 'hover_glow',
+                                        'dark', half=1.25, flat=False)
+        self.icon_glow.reparentTo(self.label)
+        self.icon_glow.setPos(
+            -(self.label_tn.getWidth() * 0.5 + 0.72), 0, 0.26)
+        self.icon_glow.setLightOff()
+        self.icon_glow.setColorScale(1.0, 0.93, 0.55, 0.0)
+        set_marker_layer(self.icon_glow, LAYER_STRUCT + 3)
+        self._icon_glow_a = 0.0
+        self.flag_glow = None
+        self._flag_glow_a = 0.0
+        # the capture banner: >CAPTURE< (-N) flown over the name when
+        # the garrison on the square suffices -- built lazily
+        self.cap_np = None
+        self.cap_tn = None
+        self._cap_txt = None
         self.refresh_marker()
+
+    def show_capture_banner(self, need):
+        txt = ">CAPTURE< (-%d)" % need
+        if self.cap_np is None:
+            # A REAL KEY, not bare ink: the banner wears the same
+            # red pill as SCRAMBLE, floating over the town's name
+            from icons import button_assets
+            from panda3d.core import CardMaker
+            root = self.label.attachNewNode('capture_banner')
+            root.setPos(0, 0, 1.42)
+            root.setTransparency(TransparencyAttrib.MAlpha)
+            (imgs, phw, phh) = button_assets('red', 1.9, 0.44,
+                                             corner=0.42)
+            cm = CardMaker('cap_pill')
+            cm.setFrame(-phw, phw, -phh, phh)
+            pill = root.attachNewNode(cm.generate())
+            tex = self.game.loader.loadTexture(imgs[0])
+            tex.setMinfilter(SamplerState.FT_linear_mipmap_linear)
+            pill.setTexture(tex)
+            tn = TextNode('capture_%s' % self.name)
+            tn.setAlign(TextNode.ACenter)
+            if self.game.hud_font:
+                tn.setFont(self.game.hud_font)
+            tn.setTextColor(0.97, 0.90, 0.80, 1.0)
+            tn.setShadow(0.05, 0.05)
+            tn.setShadowColor(0.10, 0.03, 0.02, 0.9)
+            self.cap_tn = tn
+            txt_np = root.attachNewNode(tn)
+            txt_np.setScale(0.40)
+            txt_np.setPos(0, 0, -0.135)
+            self.cap_np = root
+            set_marker_layer(pill, LAYER_STRUCT + 4)
+            set_marker_layer(txt_np, LAYER_STRUCT + 5)
+        if txt != self._cap_txt:
+            self.cap_tn.setText(txt)
+            self._cap_txt = txt
+        if self.cap_np.isHidden():
+            self.cap_np.show()
+
+    def hide_capture_banner(self):
+        if self.cap_np is not None and not self.cap_np.isHidden():
+            self.cap_np.hide()
 
     def refresh_marker(self):
         # the city itself is sketched onto the map texture; ownership
@@ -186,6 +263,16 @@ class City:
                 self.label_tn.getWidth() * 0.5 + 0.70, 0, 0.26)
             self.title_flag.setLightOff()
             set_marker_layer(self.title_flag, LAYER_STRUCT + 4)
+            if getattr(self, 'flag_glow', None) is None:
+                self.flag_glow = make_icon_quad(
+                    self.game.loader, 'hover_glow', 'dark',
+                    half=1.05, flat=False)
+                self.flag_glow.reparentTo(self.label)
+                self.flag_glow.setPos(
+                    self.label_tn.getWidth() * 0.5 + 0.70, 0, 0.26)
+                self.flag_glow.setLightOff()
+                self.flag_glow.setColorScale(1.0, 0.93, 0.55, 0.0)
+                set_marker_layer(self.flag_glow, LAYER_STRUCT + 3)
             self._flag_country = self.country
         c = COUNTRIES[self.country]['color']
         self.label_tn.setTextColor(min(1.0, c[0] * 1.5 + 0.25),
@@ -231,6 +318,37 @@ class City:
 
 ROAD_CHUNK_HP = 120.0
 ROAD_SECTION_LEN = 0.45         # world units per section (ends trim)
+
+
+class _ShipCache:
+    """An anchored supply ship wearing a depot's interface: the
+    cache-exchange loop reads .stock/.STOCK_CAP/.pos/.country, and
+    the adapter is LONG-LIVED (made once at anchoring) so the
+    drew-from identity guard holds between ticks."""
+    __slots__ = ('u',)
+
+    def __init__(self, u):
+        self.u = u
+
+    @property
+    def stock(self):
+        return self.u.supply
+
+    @stock.setter
+    def stock(self, v):
+        self.u.supply = v
+
+    @property
+    def STOCK_CAP(self):
+        return self.u.stats['supply_cap']
+
+    @property
+    def pos(self):
+        return self.u.pos
+
+    @property
+    def country(self):
+        return self.u.country
 
 
 class RoadSection:
@@ -350,6 +468,11 @@ class WW2RTSGame(ShowBase):
         self.settings = load_settings()
         self.aa_samples = int(self.settings.get('antialias', 4))
         self._apply_aa_attrib()
+        # A/B EXPERIMENT -- UNIT MARKS: arm A wears ink pictograms
+        # on sheets and keys, arm B the units' own top-down field
+        # sprites. Flipped from Settings, kept on file.
+        self.unit_sprites_ui = bool(
+            self.settings.get('unit_sprites_ui', True))
 
         # (window size is clamped to the display in main.py before the
         # window opens; the old setMaximized request here was a no-op --
@@ -577,7 +700,11 @@ class WW2RTSGame(ShowBase):
             # plain AudioManager, so never test __name__
             real_audio = (self.musicManager is not None
                           and self.musicManager.isValid())
-            if self._audio_dev is not None and real_audio:
+            # THE WATCH STANDS WHENEVER THERE IS AUDIO AT ALL: it
+            # used to want a device id in hand at boot, so one
+            # transient probe failure left it never posted and a
+            # headset plugged in later was never followed
+            if real_audio:
                 self.taskMgr.doMethodLater(2.0,
                                            self._tick_audio_watch,
                                            'audio_watch')
@@ -673,50 +800,98 @@ class WW2RTSGame(ShowBase):
     # ------------------------------------------------ the audio watch
     def _tick_audio_watch(self, task):
         """Every couple of seconds: is the system still pointing at
-        the loudspeaker we opened? If not, follow it."""
+        the loudspeaker we opened? If not, follow it.
+
+        A BLUETOOTH HEADSET IS NOT READY THE INSTANT IT APPEARS:
+        macOS swings the default output to it while the link is
+        still settling, so the id must be seen TWICE before we act,
+        and the new device is recorded only once the rebuild has
+        actually produced sound managers. A one-shot failure used
+        to be recorded as success and never retried -- which is
+        exactly a headset that connects a moment too slowly."""
         try:
             from audiodev import default_output_device
             dev = default_output_device()
-            if dev is not None and dev != self._audio_dev:
+            if dev is None or dev == self._audio_dev:
+                self._audio_pending = None
+                return task.again
+            if getattr(self, '_audio_pending', None) != dev:
+                self._audio_pending = dev      # let the link settle
+                return task.again
+            self._audio_pending = None
+            if self.restart_audio():
                 self._audio_dev = dev
-                self.restart_audio()
+            # a failed rebuild leaves _audio_dev alone, so the next
+            # tick tries the new device again
         except Exception:
             pass
         return task.again
 
     def restart_audio(self):
         """Rebuild every audio manager on the CURRENT default output
-        and rewire the sounds. Two rules paid for with a field
-        crash report:
+        and rewire the sounds. Returns True when real managers came
+        back.
 
-        - the OLD managers are RETIRED, held alive forever, never
-          garbage-collected: destroying an OpenAL manager while
-          another lives corrupts the shared device state and the
-          NEXT shutdown walk segfaults;
-        - the score is silenced BEFORE the swap, so nothing is
-          playing on a manager as it goes into retirement.
+        THE OLD MANAGERS MUST GO FIRST, ALL OF THEM. OpenAL opens
+        ONE shared device for the whole process and closes it only
+        when the LAST manager is released -- so the previous rule
+        here (retire the old managers, hold them alive forever)
+        quietly guaranteed the failure it was meant to survive: the
+        device stayed open on the OLD loudspeaker and every fresh
+        manager bound straight back to it. Rebuilt managers, still
+        no sound in the headset. They are shut down and dropped
+        now, which closes the device, and the new managers open it
+        again on whatever the system currently calls default.
 
-        Widgets already on screen keep their old (now silent) click
-        sounds until their page is next rebuilt; the music and the
-        fax clatter -- the audible life of the game -- move over at
-        once."""
+        The crash that first bought the retire rule was a teardown
+        at INTERPRETER FINALIZATION, not a release in flight;
+        finalizeExit leaves by os._exit and never walks that parade
+        (and a full release/recreate cycle was proved survivable in
+        the running process before this was written).
+
+        The score is silenced BEFORE the swap so nothing is playing
+        on a manager as it is released. Widgets already on screen
+        keep their old (now dead) click sounds until their page is
+        next rebuilt; the music and the fax clatter -- the audible
+        life of the game -- move over at once."""
         from panda3d.core import AudioManager
         mode = self.score.mode if self.score is not None else None
         if self.score is not None:
             self.score.stop()
-        retired = getattr(self, '_retired_audio_managers', None)
-        if retired is None:
-            retired = self._retired_audio_managers = []
-        # the interface sounds
+        # ---- 1) let go of EVERYTHING that holds the old device
+        self.click_snd = None
+        self.fax_snd = None
+        try:
+            import direct.gui.DirectGuiGlobals as _DGG
+            _DGG.setDefaultClickSound(None)
+        except Exception:
+            pass
+        old = list(self.sfxManagerList)
+        if self.musicManager is not None:
+            old.append(self.musicManager)
+        del self.sfxManagerList[:]
+        self.musicManager = None
+        self.musicManagerIsValid = False
+        for mgr in old:
+            try:
+                mgr.shutdown()
+            except Exception:
+                pass
+        del old
+        import gc
+        gc.collect()            # the device closes with the last one
+        # ---- 2) open the current default, twice over
+        ok = False
         try:
             from audio import get_sound_path
             new_sfx = AudioManager.createAudioManager()
-            if new_sfx is not None and new_sfx.isValid():
-                if self.sfxManagerList:
-                    retired.append(self.sfxManagerList[0])
-                    self.sfxManagerList[0] = new_sfx
-                else:
-                    self.addSfxManager(new_sfx)
+            if new_sfx is not None:
+                # THE SOUNDS ARE ALWAYS REWIRED, valid device or
+                # not: a null manager still hands back inert sound
+                # objects, and the rest of the game may hold them
+                # without asking whether a loudspeaker exists.
+                # Only the VERDICT below reads isValid.
+                self.addSfxManager(new_sfx)
                 self.click_snd = new_sfx.getSound(
                     get_sound_path('click'))
                 self.fax_snd = new_sfx.getSound(get_sound_path('fax'))
@@ -724,20 +899,24 @@ class WW2RTSGame(ShowBase):
                 self.fax_snd.setVolume(0.5)
                 import direct.gui.DirectGuiGlobals as _DGG
                 _DGG.setDefaultClickSound(self.click_snd)
+                ok = bool(new_sfx.isValid())
         except Exception as exc:
             print("WARNING: interface audio restart failed: %r" % exc)
-        # the score's manager, and the programme back onto it
         try:
             new_music = AudioManager.createAudioManager()
-            if new_music is not None and new_music.isValid():
-                retired.append(self.musicManager)
+            if new_music is not None:
                 self.musicManager = new_music
-                self.musicManagerIsValid = True
+                self.musicManagerIsValid = bool(new_music.isValid())
+                ok = ok or self.musicManagerIsValid
         except Exception as exc:
             print("WARNING: music restart failed: %r" % exc)
         if self.score is not None:
             self.score.reopen(mode)
-        print("AUDIO: managers rebuilt on the new output device")
+        print("AUDIO: managers rebuilt on the new output device"
+              if ok else
+              "AUDIO: the new output device gave no manager -- "
+              "will try again")
+        return ok
 
     def finalizeExit(self):
         """LEAVE BY THE DOOR, NOT THE TEARDOWN PARADE. ShowBase's
@@ -970,6 +1149,10 @@ class WW2RTSGame(ShowBase):
         the same either way, but a loaded game restores its state
         instead of spawning the opening forces."""
         self._assert_game_root()        # belt and braces before I/O
+        # a FRESH campaign owns no case yet (load_game stamps its
+        # own path after this returns); without this a new war
+        # would be filed over the campaign last resumed
+        self._save_path = None
         loading, progress = self._loading_screen()
         if self.world is None:
             self.world = WorldData(log=progress)
@@ -1068,6 +1251,7 @@ class WW2RTSGame(ShowBase):
         self.trade_deals = []
         # rights won at the table: [{'with','kind','until'}]
         # kinds: 'passage' (march across their country),
+        # 'comms' (their wireless net reports for our columns),
         # 'supply' (water at their towns), 'nonaggression'
         self.rights = []
         self._mat_spent = {c: {'steel': 0, 'food': 0}
@@ -1098,7 +1282,8 @@ class WW2RTSGame(ShowBase):
                               self.open_factory_report,
                               on_resources=self.open_resources_report,
                               on_tech=self.open_tech_tree,
-                              on_diplomacy=self.open_diplomacy)
+                              on_diplomacy=self.open_diplomacy,
+                              on_menu=self._toggle_field_orders)
         self.bottom_bar = BottomBar(self)
         self.bottom_bar.set_title("ALL QUIET")
         self.bottom_bar.set_hint(CONTROLS_HINT)
@@ -1314,6 +1499,14 @@ class WW2RTSGame(ShowBase):
             navy_seat = coastal[0] if coastal else None
         if navy_seat is not None:
             self._found_base(navy_seat, 'naval', announce=False)
+        if faction == 'usa':
+            # A TWO-OCEAN NATION: a second full base set stands at
+            # Los Angeles -- no other power opens with two of each
+            la_c = next((c for c in towns
+                         if c.name == 'Los Angeles'), None)
+            if la_c is not None:
+                for kind in ('army', 'air', 'naval'):
+                    self._found_base(la_c, kind, announce=False)
         for i, ut in enumerate(STARTING_PARK):
             u = self.spawn_unit(ut, faction, army_seat.lat,
                                 army_seat.lon, jitter=0.25,
@@ -1385,7 +1578,12 @@ class WW2RTSGame(ShowBase):
 
     def _update_borders(self):
         """Refresh the Voronoi border shader after any change of
-        ownership (capture or completed annexation)."""
+        ownership (capture or completed annexation) -- and hand the
+        router the same map, so the frontier law rules on current
+        ground."""
+        if getattr(self, 'planner', None) and self.cities:
+            self.planner.update_territory(
+                [(Vec3(c.pos), c.country) for c in self.cities])
         if not self.globe:
             return
         from globe import ANNEX_IDX, NEUTRAL_IDX
@@ -1494,8 +1692,13 @@ class WW2RTSGame(ShowBase):
         b = pill_button(self.a2dRightCenter, '', self._idle_clicked,
                         extraArgs=[ut], pos=(-0.075, 0, 0.40),
                         hw=0.048, hh=0.048, corner=0.30)
-        pic = OnscreenImage(image=get_icon_path(ut, 'dark'),
-                            parent=b, scale=0.032, pos=(0, 0, 0.004))
+        ipath = unit_ui_icon(ut)
+        sprite = '/units/' in str(ipath).replace('\\\\', '/')
+        pic = OnscreenImage(image=ipath, parent=b,
+                            scale=(0.048 * 0.92 if sprite else 0.032),
+                            pos=(0, 0, 0.004))
+        if sprite:
+            pic.setR(45)
         pic.setTransparency(True)
         crisp_image(pic)
         tn = TextNode('idle_' + ut)
@@ -1645,6 +1848,16 @@ class WW2RTSGame(ShowBase):
             self.pause_frame = None
         self.is_paused = False
 
+    def _toggle_field_orders(self):
+        """The top bar's three-bar key: the same FIELD ORDERS menu
+        ESC summons, opened and closed by mouse."""
+        if self.game_state != 'playing':
+            return
+        if self.pause_frame:
+            self._close_pause_menu()
+        else:
+            self._open_pause_menu()
+
     def toggle_pause(self):
         if self.game_state == 'playing' and not self.pause_frame:
             self.is_paused = not self.is_paused
@@ -1679,6 +1892,19 @@ class WW2RTSGame(ShowBase):
         ('supply_truck', 2), ('transport_truck', 2),
         ('fighter', 2),
     )
+    # THE CARRIER POWERS open navy-first: the flat-top and a heavier
+    # screen put to sea, and the garage thins to pay for it
+    NAVY_OPENING_SLATE = (
+        ('army_command', 1), ('naval_command', 1),
+        ('airforce_command', 1),
+        ('aircraft_carrier', 1),
+        ('supply_ship', 4), ('destroyer_sea_sea', 3),
+        ('destroyer_aa', 1), ('battleship', 1),
+        ('personnel_transport', 4),
+        ('aa_artillery', 1), ('tank', 1),
+        ('supply_truck', 2), ('transport_truck', 1),
+        ('fighter', 2),
+    )
 
     def _default_budget_counts(self, country, funds):
         """The opening appropriation, deliberately modest: a command
@@ -1689,7 +1915,14 @@ class WW2RTSGame(ShowBase):
         allowed = unlocked_units(country, self.researched[country])
         counts = {}
         spent = 0
-        for ut, n in self.OPENING_SLATE:
+        slate = (self.NAVY_OPENING_SLATE
+                 if country in ('usa', 'japan')
+                 else self.OPENING_SLATE)
+        if country == 'britain':
+            # the EMPIRE moves by sea: more landing ships at the bell
+            slate = tuple((ut, 4 if ut == 'personnel_transport'
+                           else n) for ut, n in slate)
+        for ut, n in slate:
             if ut not in allowed or ut not in NATION_UNIT_STATS[country]:
                 continue
             if UNIT_TYPES[ut]['domain'] == 'sea' and not has_harbor:
@@ -1790,6 +2023,33 @@ class WW2RTSGame(ShowBase):
             return None
         return owner
 
+    def closed_frontiers(self, unit):
+        """Every country whose ground this column may not TRANSIT:
+        the same law as passage_refused, applied to the whole route
+        instead of the goal alone, so the router detours around a
+        closed country instead of marching through it. Player land
+        columns only -- the AI keeps no rights ledger, and the sea
+        and the air know no frontier."""
+        if unit.stats['domain'] != 'land' \
+                or unit.country != self.player_country:
+            return frozenset()
+        mover = unit.country
+        banned = set()
+        for owner in {c.country for c in self.cities}:
+            if owner in (mover, 'neutral'):
+                continue
+            if self.at_war(mover, owner):
+                continue        # war opens every frontier
+            if self.allied(mover, owner) or \
+                    self.has_right(mover, owner, 'passage'):
+                continue
+            banned.add(owner)
+        # the ground a column already stands on is never closed to
+        # it: a peace signed with the column deep in-country must
+        # still let it walk home
+        banned.discard(self.territory_of(unit.pos))
+        return frozenset(banned)
+
     # =============================================== the table
     def standing(self, nat):
         """What a foreign office thinks of us, on the Civ model:
@@ -1843,6 +2103,7 @@ class WW2RTSGame(ShowBase):
             'nonaggression': not at_war,
             'passage': not at_war,
             'supply': not at_war and st >= 20,
+            'comms': not at_war,
             'funds_once': st >= 25,
             'funds_ftn': True,
             'res_once': True,
@@ -2023,7 +2284,8 @@ class WW2RTSGame(ShowBase):
                      'amount': tok['amount'], 'price': 0,
                      'dir': 'out' if giver == me else 'in',
                      'gift': True})
-            elif k in ('passage', 'supply', 'nonaggression'):
+            elif k in ('passage', 'supply', 'comms',
+                       'nonaggression'):
                 # a pact of non-aggression binds both; a right of
                 # passage or supply runs only the way it was signed
                 d = ('mutual' if k == 'nonaggression'
@@ -2210,26 +2472,29 @@ class WW2RTSGame(ShowBase):
             tons += (c.population / 1e6) * rate
         return tons
 
+    def city_food_output(self, city):
+        """Tons of food THIS town grows per fortnight: the base
+        every town farms unaided plus its agriculture level's
+        EXPONENTIAL table."""
+        if city.annexing or not city.alive:
+            return 0
+        return CITY_FOOD_BASE + AGRI_FOOD_CUM[city.agri_level]
+
     def _daily_income(self, country):
-        """{res: tons} a power draws in ONE DAY: its deposits and the
-        civilian imports, divided across the fortnight."""
-        out = {res: BASELINE_IMPORTS[res] / float(BUDGET_PERIOD_DAYS)
-               for res in RESOURCES}
+        """{res: tons} a power draws in ONE DAY. There are NO free
+        imports: oil and steel come from DEPOSITS ALONE (the world's
+        only taps -- a nation without one buys at the table), and
+        food is GROWN BY THE TOWNS, base plus agriculture level."""
+        out = {res: 0.0 for res in RESOURCES}
         for dep in self.deposits:
             if dep.city.country == country and dep.city.alive:
                 out[dep.resource] += (dep.output
                                       / float(BUDGET_PERIOD_DAYS))
-        # the LAND ITSELF: agriculture and steel-works levels won by
-        # the fortnight focus are permanent city improvements
         for c in self.cities:
-            if c.country != country or c.annexing:
+            if c.country != country:
                 continue
-            if c.agri_level:
-                out['food'] += (c.agri_level * FOCUS_AGRI_FOOD
-                                / float(BUDGET_PERIOD_DAYS))
-            if c.works_level:
-                out['steel'] += (c.works_level * FOCUS_STEEL_OUT
-                                 / float(BUDGET_PERIOD_DAYS))
+            out['food'] += (self.city_food_output(c)
+                            / float(BUDGET_PERIOD_DAYS))
         return out
 
     def _famine(self, country, short):
@@ -2248,8 +2513,8 @@ class WW2RTSGame(ShowBase):
                 "The granaries are %s short of the day's ration. "
                 "Industry sickens in every town while the shortfall "
                 "stands, and no man can be mustered until the stores "
-                "are made good -- buy grain at the table, or take a "
-                "granary." % B("%d TONS" % max(1, int(short))),
+                "are made good -- buy grain at the table, or set the "
+                "towns farming." % B("%d TONS" % max(1, int(short))),
                 sender="MINISTRY OF FOOD")
 
     def _accrue_resources(self, days=1):
@@ -2282,12 +2547,17 @@ class WW2RTSGame(ShowBase):
         for country in PLAYABLE:
             if country in self.eliminated:
                 continue
-            flows = {res: [('IMPORTS', BASELINE_IMPORTS[res])]
-                     for res in RESOURCES}
+            flows = {res: [] for res in RESOURCES}
             for dep in self.deposits:
                 if dep.city.country == country:
                     flows[dep.resource].append(
                         (dep.city.name.upper(), dep.output))
+            # the farms: every town's food, biggest growers first
+            farms = sorted(((c.name.upper(), self.city_food_output(c))
+                            for c in self.cities
+                            if c.country == country),
+                           key=lambda kv: -kv[1])
+            flows['food'].extend(f for f in farms if f[1] > 0)
             if country == self.player_country:
                 for deal in self.trade_deals:
                     if deal['dir'] == 'in':
@@ -2314,7 +2584,16 @@ class WW2RTSGame(ShowBase):
         rail burn none, and per-unit supply law is untouched. A dry
         stockpile stops feeding engines -- the transfer is refused
         and the despatch says so."""
-        if lbs <= 0 or unit.unit_type == 'infantry':
+        if lbs <= 0 or unit.unit_type == 'infantry' \
+                or unit.stats.get('supply_carrier'):
+            # THE POUND IS CHARGED ONCE, AT THE FINAL ISSUE: a
+            # lorry, a supply ship or a floating station is the
+            # CHAIN, not the customer -- pumping every hand the
+            # pound passed through charged it twice on a depot run
+            # and, with a tender working a floating station, spun a
+            # draw-and-rescue LOOP that drained a stockpile at
+            # seven tons of oil a second while the stores went
+            # nowhere at all
             return lbs
         stock = self.resources.get(unit.country)
         if stock is None:               # NPC garrisons keep no books
@@ -2350,52 +2629,73 @@ class WW2RTSGame(ShowBase):
             self.fax_short("PUMPS DRY -- ENGINES ON RESERVE UNTIL "
                            "OIL FLOWS")
 
-    def steel_city(self, city):
-        """Does the town sit on a steel deposit it works?"""
-        return any(d.city is city and d.resource == 'steel'
-                   for d in self.deposits)
+    TRACK_ATTR ={'agriculture': 'agri_level', 'works': 'works_level',
+                  'laboratories': 'labs_level'}
+    TRACK_WORD = {'agriculture': 'AGRICULTURE',
+                  'works': 'THE WORKS',
+                  'laboratories': 'THE LABORATORIES'}
+
+    def city_track_level(self, city, track):
+        return getattr(city, self.TRACK_ATTR[track], 0)
+
+    def track_upgrade_cost(self, city, track):
+        """$ for the town's NEXT level of the track, or None at the
+        top. MONEY ONLY -- the ledger never bills steel."""
+        lvl = self.city_track_level(city, track)
+        if lvl >= TRACK_MAX_LEVEL:
+            return None
+        return TRACK_COSTS[lvl]
+
+    def _track_gain_word(self, city, track):
+        """What the NEXT level is worth, for the fax and the sheet."""
+        lvl = self.city_track_level(city, track)
+        nxt = min(TRACK_MAX_LEVEL, lvl + 1)
+        if track == 'agriculture':
+            return "+%d T FOOD A FORTNIGHT" % (
+                AGRI_FOOD_CUM[nxt] - AGRI_FOOD_CUM[lvl])
+        if track == 'works':
+            return "BASES BUILD %.0f%% FASTER" % (
+                (WORKS_SPEED_MULT[nxt] - 1.0) * 100)
+        return "RESEARCH FOCUS YIELDS x%.1f" % LAB_YIELD_MULT[nxt]
 
     def _apply_city_focus(self, city):
         """One directive a fortnight. Finance heals industry (and so
-        revenue); agriculture and the steel works buy PERMANENT
-        levels; the laboratories buy research points; a base
-        directive founds the base -- each pays a different coin."""
+        revenue); agriculture, the works and the laboratories buy
+        PERMANENT levels for MONEY ALONE; the research focus runs
+        the labs; a base directive founds the base."""
         f = city.focus
         country = city.country
         if f == 'finance':
             city.industry = min(100.0,
                                 city.industry + FOCUS_FINANCE_HEAL)
             return
-        if f == 'agriculture':
-            if city.agri_level < FOCUS_AGRI_MAX:
-                city.agri_level += 1
-                if country == self.player_country:
-                    self.fax_short(
-                        "%s AGRICULTURE AT LEVEL %d -- +%d FOOD A "
-                        "FORTNIGHT, PERMANENT"
-                        % (city.name.upper(), city.agri_level,
-                           FOCUS_AGRI_FOOD))
-            else:
-                city.focus = 'finance'
-            return
-        if f == 'steel':
-            if not self.steel_city(city):
+        if f in self.TRACK_ATTR:
+            attr = self.TRACK_ATTR[f]
+            lvl = getattr(city, attr, 0)
+            if lvl >= TRACK_MAX_LEVEL:
                 city.focus = 'finance'
                 return
-            if city.works_level < FOCUS_STEEL_MAX:
-                city.works_level += 1
+            cost = TRACK_COSTS[lvl]
+            if self.funds.get(country, 0) < cost:
                 if country == self.player_country:
                     self.fax_short(
-                        "%s STEEL WORKS AT LEVEL %d -- +%d STEEL A "
-                        "FORTNIGHT, PERMANENT"
-                        % (city.name.upper(), city.works_level,
-                           FOCUS_STEEL_OUT))
-            else:
-                city.focus = 'finance'
+                        "%s: %s WAIT -- THE LEVEL WANTS $%d"
+                        % (city.name.upper(), self.TRACK_WORD[f],
+                           cost))
+                return              # keeps trying next fortnight
+            self.funds[country] -= cost
+            gain = self._track_gain_word(city, f)
+            setattr(city, attr, lvl + 1)
+            if country == self.player_country:
+                self.fax_short(
+                    "%s %s AT LEVEL %d -- %s, PERMANENT ($%d PAID)"
+                    % (city.name.upper(), self.TRACK_WORD[f],
+                       lvl + 1, gain, cost))
             return
         if f == 'research':
             rp = max(FOCUS_RESEARCH_RP_MIN,
                      city.population / 1e6 * FOCUS_RESEARCH_RP_PER_M)
+            rp *= LAB_YIELD_MULT[getattr(city, 'labs_level', 0)]
             self.research_points[country] = \
                 self.research_points.get(country, 0.0) + rp
             return
@@ -2426,8 +2726,13 @@ class WW2RTSGame(ShowBase):
             return
 
     def _ai_set_foci(self, country):
-        """The computer power's directives: found the missing bases
-        from the biggest cities first, farm when hungry, then bank."""
+        """The computer power's directives, BY NEED: found the
+        missing bases from the biggest cities first; farm AS MANY
+        towns as the food deficit demands (deepest farms first --
+        the exponential table rewards the specialist); keep the
+        capital's laboratories building, then running; put the
+        works to the best base town when the treasury is fat; heal
+        the sick; bank the rest."""
         towns = [c for c in self.cities
                  if c.country == country and not c.annexing]
         if not towns:
@@ -2445,26 +2750,52 @@ class WW2RTSGame(ShowBase):
                    for h in self.harbors) and \
                 any(c.harbor for c in towns):
             want.append('base_naval')
-        hungry = (self._daily_income(country)['food']
-                  < self.civil_ration(country))
+        # the food ledger: how many tons a fortnight short?
+        deficit = (self.civil_ration(country)
+                   - self._daily_income(country)['food']) \
+            * BUDGET_PERIOD_DAYS
+        # farm candidates: the DEEPEST farms first (a level on a
+        # worked farm pays exponentially more than a fresh field)
+        farmable = sorted(
+            (c for c in towns if c.agri_level < TRACK_MAX_LEVEL),
+            key=lambda c: -c.agri_level)
+        farming = set()
+        for c in farmable:
+            if deficit <= 0:
+                break
+            farming.add(c)
+            deficit -= (AGRI_FOOD_CUM[c.agri_level + 1]
+                        - AGRI_FOOD_CUM[c.agri_level])
+        rich = self.funds.get(country, 0) > 6000
+        # PIN the base directives FIRST, so nothing later in the
+        # loop clobbers them (the old mid-loop naval redirect was
+        # always overwritten when the coastal town came later --
+        # an inland-capitalled AI could NEVER found a naval yard)
+        based = {}
+        for f in want:
+            pool = ([t for t in towns if t.harbor]
+                    if f == 'base_naval' else towns)
+            site = next((t for t in pool if t not in based), None)
+            if site is not None:
+                based[site] = f
+        assigned_works = False
         for c in towns:
-            if want:
-                f = want.pop(0)
-                if f == 'base_naval' and not c.harbor:
-                    coastal = next((t for t in towns if t.harbor),
-                                   None)
-                    if coastal is not None:
-                        coastal.focus = f
-                    continue
-                c.focus = f
-            elif hungry and c.agri_level < FOCUS_AGRI_MAX:
+            if c in based:
+                c.focus = based[c]
+            elif c in farming:
                 c.focus = 'agriculture'
-                hungry = False
-            elif self.steel_city(c) and \
-                    c.works_level < FOCUS_STEEL_MAX:
-                c.focus = 'steel'
             elif c.capital:
-                c.focus = 'research'
+                # the capital is the research town: build its labs
+                # while money is easy, then run them forever
+                if rich and c.labs_level < 3:
+                    c.focus = 'laboratories'
+                else:
+                    c.focus = 'research'
+            elif (rich and not assigned_works
+                    and c.works_level < TRACK_MAX_LEVEL
+                    and self.base_of_city(c, 'army') is not None):
+                c.focus = 'works'
+                assigned_works = True
             else:
                 c.focus = 'finance'
 
@@ -2596,7 +2927,52 @@ class WW2RTSGame(ShowBase):
 
     def _capture_clicked(self, city):
         if self.attempt_capture(city, self.player_country):
+            city.hide_capture_banner()
             self._select_city(city)     # reopen as our own municipality
+
+    def _tick_capture_banners(self):
+        """A town ready to fall flies its own banner over the name:
+        >CAPTURE< and the garrison bill, gently flashing. The banner
+        IS the button -- clicking it runs the flag up."""
+        me = self.player_country
+        if not me:
+            return
+        for city in self.cities:
+            need = 0
+            ok = (city.country != me and not city.annexing
+                  and self.at_war(me, city.country))
+            if ok:
+                need = city.required_infantry()
+                ok = (len(self._capture_garrison(city, me)) >= need
+                      and not self.enemies_near_city(city, me))
+            if ok:
+                city.show_capture_banner(need)
+            else:
+                city.hide_capture_banner()
+
+    def _flash_capture_banners(self):
+        t = globalClock.getFrameTime()
+        a = 0.72 + 0.24 * math.sin(t * 3.5)
+        for city in self.cities:
+            if (city.cap_np is not None
+                    and not city.cap_np.isHidden()):
+                city.cap_np.setAlphaScale(a)
+
+    def _click_capture_banner(self, mpos):
+        """A click on a flying >CAPTURE< banner runs the flag up."""
+        for city in self.cities:
+            if city.cap_np is None or city.cap_np.isHidden():
+                continue
+            if not self._facing_camera(city.pos):
+                continue
+            sp = self.screen_pos(city.cap_np.getPos(self.render))
+            if sp is None:
+                continue
+            if (abs(mpos.x - sp.x) < 0.085
+                    and abs(mpos.y - sp.y) < 0.035):
+                self._capture_clicked(city)
+                return True
+        return False
 
     def draft_ceiling(self, city):
         """How many sections the town can raise RIGHT NOW: everyone
@@ -2773,9 +3149,10 @@ class WW2RTSGame(ShowBase):
         if focus != city.focus:
             city.focus = focus
             words = {'finance': "INVEST IN FINANCE",
-                     'agriculture': "INVEST IN AGRICULTURE",
-                     'steel': "INVEST IN THE STEEL WORKS",
-                     'research': "FUND THE LABORATORIES",
+                     'agriculture': "WORK THE LAND",
+                     'works': "EXPAND THE WORKS",
+                     'laboratories': "BUILD THE LABORATORIES",
+                     'research': "RUN THE LABORATORIES",
                      'base_army': "RAISE AN ARMY BASE",
                      'base_air': "RAISE AN AIRFORCE BASE",
                      'base_naval': "RAISE A NAVAL BASE"}
@@ -2822,7 +3199,7 @@ class WW2RTSGame(ShowBase):
             if done >= total:
                 progress = 1.0
             by_branch[UNIT_TYPES[ut]['domain']].append(
-                (s['label'].upper(), get_icon_path(ut, 'dark'),
+                (s['label'].upper(), unit_ui_icon(ut),
                  done, total, 0.0 if progress is None else progress))
         for rows in by_branch.values():
             rows.sort(key=lambda r: r[0])
@@ -2887,7 +3264,9 @@ class WW2RTSGame(ShowBase):
                  'food': self._mat_spent[me]['food']}
         data = {}
         for res in RESOURCES:
-            income = [('IMPORTS', BASELINE_IMPORTS[res])]
+            # NO IMPORTS LINE: the deposits are the world's only
+            # taps of oil and steel, and the towns grow the food
+            income = []
             for t in self.trade_deals:
                 if t['dir'] == 'in' and t['res'] == res:
                     income.append(('TREATY: %s'
@@ -2895,17 +3274,20 @@ class WW2RTSGame(ShowBase):
                                    t['amount']))
             foreign = []
             for dep in self.deposits:
+                if dep.resource != res:
+                    continue
                 if dep.city.country == me:
                     income.append((dep.city.name.upper(), dep.output))
-                elif dep.resource == res:
+                else:
                     foreign.append((dep.city.name.upper(),
                                     short_name(dep.city.country)
                                     .upper(), dep.output))
-            income = [(n, v) for n, v in income
-                      if n == 'IMPORTS' or any(
-                          d.city.name.upper() == n
-                          and d.resource == res
-                          for d in self.deposits)]
+            if res == 'food':
+                farms = sorted(
+                    ((c.name.upper(), self.city_food_output(c))
+                     for c in self.cities if c.country == me),
+                    key=lambda kv: -kv[1])
+                income.extend(f for f in farms if f[1] > 0)
             foreign.sort(key=lambda t: -t[2])
             data[res] = {
                 'stock': int(stock[res]),
@@ -2927,13 +3309,13 @@ class WW2RTSGame(ShowBase):
         data['pump_lbs'] = self._pump_lbs.get(me, 0.0)
         data['pump_oil'] = self._oil_spent.get(me, 0.0)
         eaten = self.civil_ration(me)
+        grown = self._daily_income(me)['food']
         data['ration'] = (
-            "THE RATION: %d TONS A DAY FEEDS %.1f MILLION SOULS -- "
-            "AND %d TONS RAISES ONE SECTION"
-            % (int(round(eaten)),
-               sum(c.population for c in self.cities
-                   if c.country == me) / 1e6,
-               FOOD_PER_ENLISTED))
+            "THE FOOD LEDGER: THE TOWNS GROW %d T A DAY, THE "
+            "MOUTHS EAT %d -- NET %+d T A DAY (%d T RAISES A "
+            "SECTION)"
+            % (int(round(grown)), int(round(eaten)),
+               int(round(grown - eaten)), FOOD_PER_ENLISTED))
         data['trade'] = [
             ("%s %d %s %s %s ($%d/FTN)"
              % ("IMPORTING" if t['dir'] == 'in' else "EXPORTING",
@@ -3105,57 +3487,118 @@ class WW2RTSGame(ShowBase):
         else:
             self._click_select(mpos, shift)
 
-    def _pick_city(self, mpos):
-        """A town is picked by its MARK or by its NAME -- and by
-        NOTHING ELSE. The name's hitbox is the rectangle the letters
-        actually cover on the map (it was a circle as wide as the
-        whole name in EVERY direction, which swallowed every counter
-        standing near town), and the mark's is a tight ring on the
-        civic centre."""
+    def _screen_per_wu(self):
+        """Screen units per world unit at the camera's altitude."""
         import math as _m
         alt = max(0.05, self.cam_dist - GLOBE_RADIUS)
         try:
             fov_v = _m.radians(self.camLens.getFov()[1])
-            per_wu = 1.0 / (alt * _m.tan(fov_v / 2.0))
+            return 1.0 / (alt * _m.tan(fov_v / 2.0))
         except Exception:
-            per_wu = None
-        try:
-            aspect = max(0.5, self.getAspectRatio())
-        except Exception:
-            aspect = 16.0 / 9.0
+            return None
+
+    def _pick_city(self, mpos):
+        """A town is picked by its CIVIC ICON -- the little city
+        mark standing left of the name -- and by NOTHING ELSE: the
+        letters, the centre mark and the ground all belong to the
+        counters standing there now. Every flag's town answers the
+        same key (your own opens its municipality, a foreign one
+        its intelligence view)."""
+        per_wu = self._screen_per_wu()
         best, best_d = None, None
         for c in self.cities:
-            if (c.country != self.player_country
-                    or not self._facing_camera(c.pos)):
+            if not self._facing_camera(c.pos):
                 continue
-            d = None
-            # the civic-centre mark: a unit-sized ring, no more
-            sp = self.screen_pos(c.pos * GLOBE_RADIUS)
-            if sp is not None:
-                r = CLICK_RADIUS * 1.2
-                if per_wu is not None:
-                    r = max(r, 0.022 * per_wu)
-                dm = (mpos - sp).length()
-                if dm <= r:
-                    d = dm
-            # the NAME: the letters run sideways from the anchor and
-            # stand up from the baseline; the camera holds north-up,
-            # so a screen-space rectangle covers them faithfully
-            sp = self.screen_pos(c.label_pos * GLOBE_RADIUS)
-            if sp is not None and per_wu is not None:
-                half_w = (c.label_tn.getWidth() * 0.5 + 0.4) * 0.05
-                sw = half_w * 1.1 * per_wu / aspect
-                sh = 0.040 * 1.1 * per_wu
-                cy = sp.y + 0.025 * per_wu    # baseline -> mid-letter
-                if abs(mpos.x - sp.x) <= sw and abs(mpos.y - cy) <= sh:
-                    dn = (mpos - sp).length()
-                    d = dn if d is None else min(d, dn)
-            if d is not None and (best_d is None or d < best_d):
+            sp = self.screen_pos(c.icon_np.getPos(self.render))
+            if sp is None:
+                continue
+            r = CLICK_RADIUS * 1.2
+            if per_wu is not None:
+                r = max(r, 0.034 * per_wu)
+            d = (mpos - sp).length()
+            if d <= r and (best_d is None or d < best_d):
                 best, best_d = c, d
         return best
 
+    def _pick_city_flag(self, mpos):
+        """A town's STANDARD is a key to the Foreign Office: pick
+        it by the same screen law as the civic icon."""
+        per_wu = self._screen_per_wu()
+        best, best_d = None, None
+        for c in self.cities:
+            if (c.title_flag is None
+                    or not self._facing_camera(c.pos)):
+                continue
+            sp = self.screen_pos(c.title_flag.getPos(self.render))
+            if sp is None:
+                continue
+            r = CLICK_RADIUS * 1.1
+            if per_wu is not None:
+                r = max(r, 0.026 * per_wu)
+            d = (mpos - sp).length()
+            if d <= r and (best_d is None or d < best_d):
+                best, best_d = c, d
+        return best
+
+    def _open_nation_dossier(self, nat):
+        """Straight to the ledger's dossier for one power (a click
+        on your OWN standard opens the plain ledger)."""
+        if self.diplo_fax is None:
+            self.open_diplomacy()
+        if (self.diplo_fax is not None
+                and nat != self.player_country):
+            self.diplo_fax._open_dossier(nat)
+
+    def _tick_city_icon_hover(self, dt=0.0):
+        """The civic key and the standard glow under the cursor --
+        a soft back-glow FADING in and out, the town saying it will
+        answer the click."""
+        mw = self.mouseWatcherNode
+        hov = hov_flag = None
+        if (self.game_state == 'playing' and mw is not None
+                and mw.hasMouse()):
+            mpos = Point2(mw.getMouse())
+            hov = self._pick_city(mpos)
+            if hov is None:
+                hov_flag = self._pick_city_flag(mpos)
+        old = getattr(self, '_city_hover', None)
+        if hov is not old:
+            if old is not None and old.icon_np is not None:
+                old.icon_np.setColorScale(0.95, 0.92, 0.84, 0.95)
+            if hov is not None and hov.icon_np is not None:
+                hov.icon_np.setColorScale(1.65, 1.5, 0.95, 1.0)
+            self._city_hover = hov
+        # the fading glows: only towns mid-animation pay per frame
+        anim = getattr(self, '_glow_cities', None)
+        if anim is None:
+            anim = self._glow_cities = set()
+        if hov is not None:
+            anim.add(hov)
+        if hov_flag is not None:
+            anim.add(hov_flag)
+        k = min(1.0, dt * 7.0) if dt > 0 else 1.0
+        for c in list(anim):
+            ti = 0.8 if c is hov else 0.0
+            tf = 0.8 if c is hov_flag else 0.0
+            c._icon_glow_a += (ti - c._icon_glow_a) * k
+            c._flag_glow_a += (tf - c._flag_glow_a) * k
+            if c.icon_glow is not None:
+                c.icon_glow.setColorScale(1.0, 0.93, 0.55,
+                                          c._icon_glow_a)
+            if c.flag_glow is not None:
+                c.flag_glow.setColorScale(1.0, 0.93, 0.55,
+                                          c._flag_glow_a)
+            if (c is not hov and c is not hov_flag
+                    and c._icon_glow_a < 0.02
+                    and c._flag_glow_a < 0.02):
+                anim.discard(c)
+
     def _click_select(self, mpos, shift):
         if shift and self._strike_waypoint(mpos):
+            return
+        # THE BANNER OUTRANKS EVERYTHING: a flying >CAPTURE< is the
+        # order it advertises
+        if not shift and self._click_capture_banner(mpos):
             return
         # THE TOWN COMES FIRST: its mark and its name outrank the
         # counters standing on it
@@ -3164,6 +3607,12 @@ class WW2RTSGame(ShowBase):
             self.clear_selection()
             self._select_city(city)
             return
+        # THE STANDARD is a key to the Foreign Office
+        if not shift:
+            fc = self._pick_city_flag(mpos)
+            if fc is not None:
+                self._open_nation_dossier(fc.country)
+                return
         own = [(u, self._unit_world_pos(u)) for u in self.units
                if self._commandable(u) and self._facing_camera(u.pos)]
         unit = self._pick_object(mpos, own)
@@ -3265,16 +3714,6 @@ class WW2RTSGame(ShowBase):
             self.selected = [foe]
             foe.set_selected(True)
             self._refresh_selection_ui()
-            return
-        # any other city (enemy or neutral): selectable for an intel view
-        other_cities = [(c, c.label_pos * GLOBE_RADIUS)
-                        for c in self.cities
-                        if c.country != self.player_country
-                        and self._facing_camera(c.pos)]
-        ocity = self._pick_object(mpos, other_cities, radius=CLICK_RADIUS * 1.9)
-        if ocity:
-            self.clear_selection()
-            self._select_city(ocity)
             return
         if not shift:
             self.clear_selection()
@@ -3478,6 +3917,34 @@ class WW2RTSGame(ShowBase):
         # an unload/paradrop order is armed: this click sites the drop
         if self.unload_mode:
             self.unload_mode = False
+            owner = self._landing_refused(ground)
+            if owner is not None:
+                from config import short_name
+                self.fax_short("%s FRONTIER CLOSED -- NO LANDING "
+                               "WITHOUT PASSAGE OR WAR"
+                               % short_name(owner).upper())
+                return
+            # THE INVASION LINE: several sea lifts put ashore in a
+            # LINE ABREAST along the coast, each ship its own berth,
+            # not one pile on one beach
+            sea_lift = [u for u in own_selected
+                        if u.cargo and u.stats['domain'] == 'sea']
+            spread = {}
+            if len(sea_lift) > 1:
+                center = Vec3(0, 0, 0)
+                for u in sea_lift:
+                    center += Vec3(u.pos)
+                center.normalize()
+                lateral = Vec3(ground).cross(center)
+                if lateral.lengthSquared() < 1e-12:
+                    lateral = north_tangent(Vec3(ground))
+                lateral.normalize()
+                spacing = 0.12 / GLOBE_RADIUS
+                for i, u in enumerate(sea_lift):
+                    k = i - (len(sea_lift) - 1) / 2.0
+                    gi = Vec3(ground) + lateral * (k * spacing)
+                    gi.normalize()
+                    spread[u] = gi
             for u in own_selected:
                 if not u.cargo:
                     continue
@@ -3486,7 +3953,8 @@ class WW2RTSGame(ShowBase):
                         GLOBE_RADIUS < 0.6):
                     self._unload_cargo(u)      # unload on the apron
                 else:
-                    u.give_order({'kind': 'unload', 'goal': Vec3(ground)},
+                    u.give_order({'kind': 'unload',
+                                  'goal': spread.get(u, Vec3(ground))},
                                  queue=shift)
             self.fax_short("DISEMBARKATION ORDERED")
             self._refresh_selection_ui()
@@ -4109,6 +4577,48 @@ class WW2RTSGame(ShowBase):
         goal = self._legal_goal(unit, Vec3(target.pos))
         self._enqueue_plan(unit, goal, indicate=indicate)
 
+    # ---------------------------------------------------- the pursuit
+    PURSUIT_PERIOD = 0.7        # seconds between chase corrections
+    PURSUIT_SLACK = 0.04        # wu the prey must move to replot
+
+    def tick_attack_pursuit(self, unit):
+        """AN ATTACK ORDER CHASES ITS PREY. While the target stands
+        in the hunter's sight (his own eyes, or his side's for the
+        long arms), the march corrects onto the target's CURRENT
+        position every beat -- not the spot it stood when the order
+        was given. Sight lost: the column carries on to the LAST
+        KNOWN place. Sight regained: the chase locks on again.
+        Aircraft keep their own sortie law."""
+        o = unit.current_order
+        if (o is None or o.get('kind') != 'attack'
+                or unit.stats['domain'] == 'air'):
+            return
+        target = o.get('target')
+        if not isinstance(target, Unit) or not target.alive:
+            return
+        now = globalClock.getFrameTime()
+        if now - getattr(unit, '_pursuit_t', -9.0) \
+                < self.PURSUIT_PERIOD:
+            return
+        unit._pursuit_t = now
+        seen = (unit.dist_to(target.pos) <= unit.vision_range()
+                or self.target_observed(unit, target))
+        if not seen:
+            return          # march on to the last known place
+        known = o.get('_last_seen')
+        o['_last_seen'] = Vec3(target.pos)
+        if (known is not None
+                and angle_between(Vec3(target.pos), known)
+                * GLOBE_RADIUS < self.PURSUIT_SLACK):
+            return          # the prey has not moved enough
+        if unit.dist_to(target.pos) <= \
+                self.effective_fire_range(unit, target):
+            return          # in range already: the guns talk now
+        if getattr(unit, 'plan_pending', None) \
+                or not self._replan_ready(unit):
+            return
+        self._approach_target(unit, target)
+
     def on_order_given(self, unit, order, queue):
         """Called for every order entering a unit's queue. Marks orders
         from the player's hand for the [PLANNING ROUTE] indicator, and
@@ -4136,12 +4646,19 @@ class WW2RTSGame(ShowBase):
                 return
         if unit.country == self.player_country and not order.get('auto'):
             order['indicate'] = True
+            if unit.stats.get('supply_carrier'):
+                # the commander's own waypoint outranks a stale haul
+                # mission: the lorry TOPS UP at caches it passes now
+                unit._depot_haul = False
             # THE FRONTIER: a column ordered across a foreign border
             # without a right of passage is turned back by their
             # guards -- buy the right at the table, or declare war
-            if order.get('kind') == 'move' and order.get('goal') \
-                    is not None:
-                owner = self.passage_refused(unit, order['goal'])
+            if order.get('kind') in ('move', 'unload') \
+                    and order.get('goal') is not None:
+                owner = (self._landing_refused(order['goal'])
+                         if order['kind'] == 'unload'
+                         else self.passage_refused(unit,
+                                                   order['goal']))
                 if owner is not None:
                     try:
                         unit.order_queue.remove(order)
@@ -4213,19 +4730,29 @@ class WW2RTSGame(ShowBase):
             self._ind_tokens.add(token)
         self._pending_plans += 1
         self._plan_jobs.put((unit, unit.stats['domain'], Vec3(start),
-                             Vec3(goal), token))
+                             Vec3(goal), token,
+                             self.closed_frontiers(unit)))
 
     # ---------------------------------------------- background planning
     def _plan_loop(self):
         """Worker thread: route planning off the main thread so a
         trans-planet order never freezes the game."""
         while True:
-            unit, domain, start, goal, token = self._plan_jobs.get()
+            unit, domain, start, goal, token, banned = \
+                self._plan_jobs.get()
+            frontier = False
             try:
-                path = self.planner.plan(domain, start, goal)
+                path = self.planner.plan(domain, start, goal,
+                                         banned=banned)
+                if path is None and banned:
+                    # was it the frontier that turned the column, or
+                    # the ground itself? An open-borders retry tells
+                    # the refusal slip which law to cite
+                    frontier = self.planner.plan(domain, start,
+                                                 goal) is not None
             except Exception:
                 path = None
-            self._plan_results.append((unit, token, path))
+            self._plan_results.append((unit, token, path, frontier))
             time.sleep(0.002)
 
     def _enqueue_plan(self, unit, goal, silent=False, indicate=False):
@@ -4236,11 +4763,12 @@ class WW2RTSGame(ShowBase):
             self._ind_tokens.add(self._plan_seq)
         self._pending_plans += 1
         self._plan_jobs.put((unit, unit.stats['domain'], Vec3(unit.pos),
-                             Vec3(goal), self._plan_seq))
+                             Vec3(goal), self._plan_seq,
+                             self.closed_frontiers(unit)))
 
     def _drain_plans(self):
         while self._plan_results:
-            unit, token, path = self._plan_results.pop(0)
+            unit, token, path, frontier = self._plan_results.pop(0)
             self._pending_plans = max(0, self._pending_plans - 1)
             self._ind_tokens.discard(token)
             # a pre-planned queued leg: file the route into its order
@@ -4265,8 +4793,17 @@ class WW2RTSGame(ShowBase):
                 # back off so a stranded unit can't churn the planner
                 # (and spam FAXes) every tick
                 unit._route_fail_until = globalClock.getFrameTime() + 20.0
+                # a carrier whose errand found no road releases its
+                # CLAIM, or the customer starves while every other
+                # lorry treats the call as taken
+                if getattr(unit, '_supply_tgt', None) is not None:
+                    unit._supply_tgt = None
+                    unit._depot_haul = False
                 if not getattr(unit, '_plan_silent', False):
-                    self._no_route_fax(unit)
+                    if frontier:
+                        self._frontier_fax(unit)
+                    else:
+                        self._no_route_fax(unit)
                 unit.current_order = None
             else:
                 unit.path = path
@@ -4315,6 +4852,23 @@ class WW2RTSGame(ShowBase):
                              B("NO PRACTICABLE ROUTE")),
             sender="MOVEMENT CONTROL")
 
+    def _frontier_fax(self, unit):
+        """The route exists -- but only through a country that has
+        not granted passage, and the router will not plot it."""
+        if unit.country != self.player_country:
+            return
+        now = globalClock.getFrameTime()
+        if now - getattr(self, '_last_refuse_fax', -99.0) < 5.0:
+            return                  # one refusal slip per five seconds
+        self._last_refuse_fax = now
+        self.fax.post(
+            "ORDER REFUSED",
+            "%s: %s. Every road there runs through a closed "
+            "country -- treat for a right of passage, or declare "
+            "war." % (unit.stats['label'],
+                      B("THE FRONTIER TURNS THE COLUMN")),
+            sender="MOVEMENT CONTROL")
+
     def order_finished(self, unit, order):
         kind = order['kind']
         if unit.stats['domain'] == 'air':
@@ -4330,12 +4884,45 @@ class WW2RTSGame(ShowBase):
                     and not self.at_war(unit.country, target.country)):
                 unit.attack_target = None
                 return True     # peace overtook the order: stand down
-            if unit.dist_to(target.pos) > \
-                    self.effective_fire_range(unit, target):
+            d = unit.dist_to(target.pos)
+            if d > self.effective_fire_range(unit, target):
+                if unit.path or getattr(unit, 'plan_pending', None):
+                    return False
+                if (unit.stats['domain'] == 'sea'
+                        and d <= unit.stats['range']
+                        and order.get('_shore_hold')):
+                    return False    # riding station for an observer
                 if not self._replan_ready(unit):
                     return False
+                if (unit.stats['domain'] == 'sea'
+                        and d <= unit.stats['range']
+                        and order.get('_approached')):
+                    # SHE CANNOT WORK CLOSER: the water ends here,
+                    # and the gunnery law wants a FRIENDLY EYE on
+                    # the target before the guns reach past her
+                    # own. Hold station and say so, once -- the
+                    # silent standoff read as a ship refusing to
+                    # fire. The moment an observer sees the target
+                    # she opens fire from right here.
+                    order['_shore_hold'] = True
+                    if unit.country == self.player_country:
+                        self.fax.post(
+                            "GUNNERY -- OBSERVER WANTED",
+                            "%s holds station: the shore target "
+                            "lies beyond her own eyes. Her guns "
+                            "reach %s with a friendly observer on "
+                            "the target -- land a party or fly a "
+                            "patrol." % (unit.stats['label'],
+                                         B("TWICE THEIR EYES")),
+                            sender="FLEET GUNNERY")
+                    return False
+                order['_approached'] = True
                 self._approach_target(unit, target)
-                return not unit.path
+                # the plot is ASYNC: judging it by the still-empty
+                # path completed the order before the route landed,
+                # and the chase survived only by a cooldown race. A
+                # failed plot cancels through the drain instead.
+                return False
             return False
         if kind == 'board':
             transport = order['target']
@@ -4369,6 +4956,10 @@ class WW2RTSGame(ShowBase):
             self._approach_target(unit, field)
             return False
         if kind == 'build':
+            if order.get('what') in ('road', 'rail'):
+                # a WAY is laid stretch by stretch, the party
+                # advancing along its own survey
+                return self._tick_way_build(unit, order)
             # the engineers must actually be standing on the site before
             # the first shovel goes in
             near = 0.4 if order.get('what') == 'harbor' else 0.18
@@ -4408,11 +4999,22 @@ class WW2RTSGame(ShowBase):
             return transport._inb_n
         n = 0
         for u in self.units:
-            if not u.alive or u.carried_by:
+            if not u.alive:
+                continue
+            back = getattr(u, '_ferry_back', None)
+            if u.carried_by:
+                # a boarder RIDING THE TAXI to this ship is still
+                # inbound: the cab holds his boarding order for him
+                if (back is not None
+                        and back.get('kind') == 'board'
+                        and back.get('target') is transport):
+                    n += 1
                 continue
             orders = list(u.order_queue)
             if u.current_order:
                 orders.append(u.current_order)
+            if back is not None:
+                orders.append(back)     # claimed, still on foot
             if any(o.get('kind') == 'board'
                    and o.get('target') is transport for o in orders):
                 n += 1
@@ -4969,6 +5571,114 @@ class WW2RTSGame(ShowBase):
             B(self._grid_ref(bridge.lat, bridge.lon)),
             sender="ENGINEER CORPS")
 
+    def toggle_supply_station(self, u):
+        """A supply ship rides at anchor as a FLOATING SUPPLY
+        STATION: she cannot make way, and the chain treats her as a
+        port that floats -- carriers dump into her and draw from
+        her, and she issues to everything in sight as she always
+        did. Weigh anchor and she is a ship again."""
+        if (u.unit_type != 'supply_ship' or not u.alive
+                or u.country != self.player_country):
+            return
+        u.is_supply_station = not getattr(u, 'is_supply_station',
+                                          False)
+        if u.is_supply_station:
+            u.clear_orders()
+            u.path = []
+            if not hasattr(u, '_cache_face'):
+                u._cache_face = _ShipCache(u)
+            art = 'supply_station'
+            self.fax_short("SHE RIDES AT ANCHOR -- A FLOATING "
+                           "SUPPLY STATION ON THE CHAIN")
+        else:
+            art = 'supply_ship'
+            self.fax_short("ANCHOR AWEIGH -- SHE MAKES WAY AGAIN")
+        from models import _icon_texture
+        u.counter.setTexture(
+            _icon_texture(self.loader, art, 'unit', u.country))
+        self._refresh_selection_ui()
+
+    def _decommission_clicked(self, st):
+        """A struck work is GONE: the key wants a second click
+        within five seconds before the charge goes in."""
+        arm = getattr(self, '_decom_arm', None)
+        now = globalClock.getFrameTime()
+        if arm is not None and arm[0] is st and now - arm[1] < 5.0:
+            self._decom_arm = None
+            self._decommission(st)
+        else:
+            self._decom_arm = (st, now)
+            self.fax_short("DECOMMISSION %s? CLICK THE KEY AGAIN "
+                           "TO CONFIRM" % st.name.upper())
+
+    def _decommission(self, st):
+        """The party strikes its own works off the map: bunker,
+        depot or engineer-built airfield (a BASE is the city's and
+        stands). An airfield must stand EMPTY first -- decommission
+        is a survey decision, not a way to burn your own wings."""
+        from structures import Airfield, Depot, Bunker
+        if isinstance(st, Airfield):
+            occupied = (getattr(st, 'production', None)
+                        or getattr(st, 'garrison', None)
+                        or any(u.alive and u.based_at is st
+                               for u in self.units))
+            if occupied:
+                self.fax_short("THE FIELD IS IN USE -- FLY THE "
+                               "WINGS OUT AND EMPTY THE LINE FIRST")
+                return
+            if self.selected_airfield is st:
+                self._select_airfield(None)
+            if st in self.airfields:
+                self.airfields.remove(st)
+            st.cleanup()
+            self._build_road_overlay()      # its spur goes with it
+        elif isinstance(st, Depot):
+            if self.selected_depot is st:
+                self._select_depot(None)
+            if st in self.depots:
+                self.depots.remove(st)
+            st.cleanup()
+        elif isinstance(st, Bunker):
+            if self.selected_bunker is st:
+                self._select_bunker(None)
+            if st in self.bunkers:
+                self.bunkers.remove(st)
+            st.cleanup()
+        elif isinstance(st, Harbor):
+            if getattr(st, 'production', None):
+                self.fax_short("HULLS STAND ON THE WAYS -- EMPTY "
+                               "THE LINE FIRST")
+                return
+            if self.selected_harbor is st:
+                self._select_harbor(None)
+            if st in self.harbors:
+                self.harbors.remove(st)
+            st.cleanup()
+            self._build_road_overlay()
+        elif isinstance(st, ArmyPost):
+            if getattr(st, 'production', None):
+                self.fax_short("VEHICLES STAND ON THE LINE -- EMPTY "
+                               "IT FIRST")
+                return
+            if self.selected_armypost is st:
+                self._select_armypost(None)
+            if st in self.armyposts:
+                self.armyposts.remove(st)
+            st.cleanup()
+            self._build_road_overlay()
+        else:
+            return
+        self.fax_short("%s DECOMMISSIONED -- THE GROUND IS CLEAR"
+                       % st.name.upper())
+        self._refresh_selection_ui()
+
+    def _decommission_entry(self, st):
+        """The red STRIKE key a selected work carries on its bar."""
+        return ("STRIKE", self._decommission_clicked, [st],
+                get_icon_path('demolish_button', 'dark'), False,
+                "DECOMMISSION THE WORKS -- CLICK TWICE; THE GROUND "
+                "IS CLEARED FOR GOOD", False)
+
     # =============================================== engineering works
     # works are paid for in SUPPLY from the engineer's own stores --
     # the treasury never sees an engineering bill
@@ -5324,51 +6034,190 @@ class WW2RTSGame(ShowBase):
                                               'road': (-1, -1)},
                                        len(self.bridges)))
             self.planner.notify_bridge_change()
-        elif kind in ('road', 'rail'):
-            # the laid way is EXACTLY a map road (or a main line) --
-            # surveyed by engineers, so its curve is DISCIPLINED; rails
-            # run straighter still. Any river a ROAD crosses gets its
-            # bridge thrown across automatically.
-            is_rail = kind == 'rail'
-            pts = order.get('points') or [site]
-            chain = [order['from']] + list(pts)
-            for a, b in zip(chain[:-1], chain[1:]):
-                if angle_between(a, b) < 1e-7:
-                    continue
-                la1, lo1 = vec_to_latlon(a)
-                la2, lo2 = vec_to_latlon(b)
-                seed = zlib.crc32(("eng:%.3f,%.3f,%.3f,%.3f"
-                                   % (la1, lo1, la2, lo2)).encode())
-                curve = self.world._curved_road_points(
-                    la1, lo1, la2, lo2, seed, passes=5, amp=0.04)
-                if is_rail:
-                    # a surveyed line bends around the water, it
-                    # never runs across it
-                    curve = self.world._dry_the_line(curve)
-                healed = [c for c in self.road_cuts
-                          if any(angle_between(
-                              latlon_to_vec(cla, clo), c)
-                              * GLOBE_RADIUS < self.ROAD_CUT_R
-                              for (cla, clo) in curve[::4])]
-                if healed:
-                    self.road_cuts = [c for c in self.road_cuts
-                                      if c not in healed]
-                    self.planner.clear_road_cuts(self.road_cuts)
-                self._auto_bridge_curve(curve)
-                poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
-                self.planner.add_custom_road(poly, rail=is_rail)
-                store = ('custom_rail_paths' if is_rail
-                         else 'custom_road_paths')
-                if not hasattr(self.world, store):
-                    setattr(self.world, store, [])
-                getattr(self.world, store).append(list(curve))
-            self._build_road_overlay()
         self._apply_marker_scale()
         if country == self.player_country:
             self.fax.post("WORKS COMPLETE",
                           "%s ready at %s." %
                           (B(label), self._grid_ref(lat, lon)),
                           sender="ENGINEER CORPS")
+
+    def _survey_way(self, order):
+        """Survey a road/rail leg ONCE, whole: the drawn line, its
+        slices -- one ROAD_SECTION_LEN stretch of way apiece -- and
+        the moment on the clock at which each stretch stands. All of
+        it deterministic (seeded curve, dried line), so a mid-build
+        save resumes on the same ground: the finished stretches come
+        back with the world's own stores, and the saved countdown
+        alone says how many stood."""
+        is_rail = order.get('what') == 'rail'
+        pts = order.get('points') or [order['site']]
+        chain = [order['from']] + list(pts)
+        curve = []
+        for a, b in zip(chain[:-1], chain[1:]):
+            if angle_between(a, b) < 1e-7:
+                continue
+            la1, lo1 = vec_to_latlon(a)
+            la2, lo2 = vec_to_latlon(b)
+            seed = zlib.crc32(("eng:%.3f,%.3f,%.3f,%.3f"
+                               % (la1, lo1, la2, lo2)).encode())
+            leg = self.world._curved_road_points(
+                la1, lo1, la2, lo2, seed, passes=5, amp=0.04)
+            if is_rail:
+                # a surveyed line bends around the water, it never
+                # runs across it
+                leg = self._rail_around_water(leg)
+            curve.extend(leg if not curve else leg[1:])
+        if len(curve) < 2:
+            return None
+        vecs = [latlon_to_vec(la, lo) for (la, lo) in curve]
+        arc = [0.0]
+        for va, vb in zip(vecs[:-1], vecs[1:]):
+            arc.append(arc[-1] + angle_between(va, vb) * GLOBE_RADIUS)
+        total_len = arc[-1]
+        if total_len <= 1e-9:
+            return None
+        n = max(1, int(round(total_len / ROAD_SECTION_LEN)))
+        cuts = [0]
+        for k in range(1, n):
+            want = total_len * k / n
+            idx = next(i2 for i2, s in enumerate(arc) if s >= want)
+            if idx <= cuts[-1]:
+                idx = min(len(curve) - 1, cuts[-1] + 1)
+            cuts.append(idx)
+        cuts.append(len(curve) - 1)
+        return {
+            'slices': [curve[i0:i1 + 1]
+                       for i0, i1 in zip(cuts[:-1], cuts[1:])],
+            'vslices': [vecs[i0:i1 + 1]
+                        for i0, i1 in zip(cuts[:-1], cuts[1:])],
+            'stands': [vecs[i0] for i0 in cuts[:-1]],
+            # stretch k stands when the countdown falls to its share
+            'thresh': [float(self.BUILD_WORKS[order['what']][2])
+                       * (1.0 - arc[i1] / total_len)
+                       for i1 in cuts[1:]],
+        }
+
+    def _tick_way_build(self, unit, order):
+        """A way is laid ONE STRETCH AT A TIME: the party stands at
+        the working end, a stretch of road (or line) opens when its
+        share of the clock is worked off, and the party advances
+        along the fresh ground to the next -- the construction
+        crawls up the survey instead of appearing whole at the last
+        second. Returns True when the whole leg stands."""
+        ws = order.get('_ws')
+        if ws is None:
+            ws = self._survey_way(order)
+            if ws is None:
+                return True     # a degenerate survey: nothing to lay
+            ws['i'] = sum(1 for th in ws['thresh']
+                          if order['t'] <= th + 1e-9)
+            order['_ws'] = ws   # transient working state: never saved
+        if ws['i'] >= len(ws['slices']):
+            return True
+        stand = ws['stands'][ws['i']]
+        if unit.dist_to(stand) >= 0.18:
+            # march to the working end (or stay the march under way)
+            if unit.path or getattr(unit, 'plan_pending', None):
+                return False
+            if not self._replan_ready(unit):
+                return False
+            self._enqueue_plan(unit, self._legal_goal(unit, stand))
+            return False
+        order['t'] -= globalClock.getDt() * self.game_speed
+        is_rail = order.get('what') == 'rail'
+        first = ws['i']
+        while (ws['i'] < len(ws['slices'])
+               and order['t'] <= ws['thresh'][ws['i']] + 1e-9):
+            # at high game speed one frame may finish several
+            # stretches: lay them all
+            self._lay_way_slice(ws['slices'][ws['i']], is_rail)
+            ws['i'] += 1
+        if ws['i'] == first:
+            return False
+        # the party walks EVERY stretch laid this frame to the new
+        # working end -- along the survey, never a beeline across
+        # country. The order stays open for the walk (completion
+        # clears the path, and the LAST stretch deserves walking out
+        # too); the next path-empty tick files a finished leg above
+        walk = []
+        for s in ws['vslices'][first:ws['i']]:
+            walk.extend(s if not walk else s[1:])
+        unit.path = [(Vec3(v), 1.0) for v in walk[1:]]
+        if ws['i'] < len(ws['slices']):
+            order['site'] = Vec3(ws['stands'][ws['i']])
+        else:
+            order['site'] = Vec3(walk[-1])
+            if unit.country == self.player_country:
+                la, lo = vec_to_latlon(walk[-1])
+                self.fax.post(
+                    "WORKS COMPLETE",
+                    "%s ready at %s." %
+                    (B(self.BUILD_WORKS[order['what']][0]),
+                     self._grid_ref(la, lo)),
+                    sender="ENGINEER CORPS")
+        return False
+
+    def _lay_way_slice(self, curve, is_rail):
+        """One stretch of surveyed way becomes REAL: bridges thrown
+        where it crosses water, bombed cuts under it healed, the
+        router taught the new ground, the world's stores extended.
+        The caller redraws the overlay."""
+        healed = [c for c in self.road_cuts
+                  if any(angle_between(
+                      latlon_to_vec(cla, clo), c)
+                      * GLOBE_RADIUS < self.ROAD_CUT_R
+                      for (cla, clo) in curve[::4])]
+        if healed:
+            self.road_cuts = [c for c in self.road_cuts
+                              if c not in healed]
+            self.planner.clear_road_cuts(self.road_cuts)
+        self._auto_bridge_curve(curve)
+        poly = [latlon_to_vec(cla, clo) for (cla, clo) in curve]
+        self.planner.add_custom_road(poly, rail=is_rail)
+        store = ('custom_rail_paths' if is_rail
+                 else 'custom_road_paths')
+        if not hasattr(self.world, store):
+            setattr(self.world, store, [])
+        getattr(self.world, store).append(list(curve))
+        self._append_way_overlay(curve, is_rail)
+
+    def _append_way_overlay(self, curve, rail):
+        """Draw ONE fresh stretch into the standing overlay. The
+        full rebuild costs a quarter second of frame -- paying it
+        per laid stretch froze the game all through a build. New
+        sections are INSERTED at the canonical rebuild position
+        (road ways ahead of the first rail section), and each laid
+        stretch is its own stored path, so the section list stays
+        IDENTICAL to what a restore-time rebuild produces -- the
+        save's index-aligned section state depends on that."""
+        grp = getattr(self, '_custom_road_group', None)
+        if grp is None or grp.isEmpty():
+            self._build_road_overlay()
+            return
+        pts = list(curve[::3])
+        if curve and (not pts or pts[-1] != curve[-1]):
+            pts.append(curve[-1])
+        poly = [latlon_to_vec(la, lo) for (la, lo) in pts]
+        if len(poly) < 2:
+            return
+        kind = 'rail' if rail else 'road'
+        at = len(self.road_sections)
+        if not rail:
+            at = next((i for i, s in enumerate(self.road_sections)
+                       if getattr(s, 'kind', 'road') == 'rail'),
+                      len(self.road_sections))
+        for sec_pts in self._split_sections(poly, ROAD_SECTION_LEN):
+            mid = sec_pts[len(sec_pts) // 2]
+            if any(angle_between(mid, c) * GLOBE_RADIUS
+                   < self.ROAD_CUT_R for c in self.road_cuts):
+                continue        # laid straight into a bombed zone
+            sec = RoadSection(self, sec_pts)
+            sec.kind = kind
+            sec.node = (self._draw_road_section(sec_pts)
+                        if kind == 'road'
+                        else self._draw_rail_section(sec_pts))
+            self.road_sections.insert(at, sec)
+            at += 1
 
     def _rail_around_water(self, curve):
         """A MAIN LINE TAKES A SMOOTH DETOUR ROUND THE WATER.
@@ -5690,6 +6539,7 @@ void main() {
         for u in self.units:
             if (not u.alive or u.carried_by
                     or getattr(u, 'deployed', False)
+                    or getattr(u, 'is_supply_station', False)
                     or self.is_parked(u)
                     or u.current_order or u.order_queue or u.path
                     or getattr(u, 'plan_pending', None)):
@@ -5754,8 +6604,14 @@ void main() {
                     push = (nrt * math.cos(ang)
                             + nrt.cross(Vec3(u.pos)) * math.sin(ang))
                 push.normalize()
-                nxt = Vec3(u.pos) + push * ((want - gap) * 0.8
-                                            / GLOBE_RADIUS)
+                # AT MARCHING PACE, NOT BY TELEPORT: the ease-aside
+                # is capped at the ground the man could actually
+                # cover in one sweep period, so a pile flows apart
+                # instead of popping
+                pace = (u.stats['speed'] * UNIT_SPEED_FACTOR
+                        * self.game_speed * 0.4)
+                shove = min((want - gap) * 0.8, max(pace, 1e-5))
+                nxt = Vec3(u.pos) + push * (shove / GLOBE_RADIUS)
                 nxt.normalize()
                 la, lo = vec_to_latlon(nxt)
                 if u.stats['domain'] == 'land':
@@ -5814,11 +6670,16 @@ void main() {
         # 2) the caches -- depots inland, HARBOURS on the coast: the
         # carriers of either element exchange with them, nearby units
         # draw; a chain can therefore cross an ocean quay to quay
-        for d in list(self.depots) + list(self.harbors):
+        stations = [u2._cache_face for u2 in units
+                    if u2.alive and not u2.carried_by
+                    and getattr(u2, 'is_supply_station', False)]
+        for d in list(self.depots) + list(self.harbors) + stations:
             d_cap = d.STOCK_CAP
             for u in units:
                 if not u.alive or u.carried_by or u.country != d.country:
                     continue
+                if isinstance(d, _ShipCache) and u is d.u:
+                    continue        # she does not pump to herself
                 if u.dist_to(d.pos) > self._cache_reach(d):
                     continue
                 cap = u.stats['supply_cap']
@@ -5829,16 +6690,29 @@ void main() {
                     # a jobless one dumps its load -- that asymmetry is
                     # what makes a chain flow forward
                     has_job = getattr(u, '_supply_tgt', None) is not None
+                    en_route = bool(u.current_order or u.order_queue)
+                    hauling = bool(getattr(u, '_depot_haul', False))
                     drew = getattr(u, '_drew_from', None)
-                    if (not has_job and u.supply > cap * 0.35
+                    if (not has_job
+                            and (hauling or not en_route)
+                            and u.supply > cap * 0.35
                             and d.stock < d_cap
                             and (drew is None or drew[0] != id(d))):
+                        # a lorry AT REST -- or on a DEPOT-HAUL
+                        # mission -- banks its load forward
                         keep = max(cap * 0.25, self._fuel_reserve(u))
                         move = max(0.0, min(u.supply - keep,
                                             d_cap - d.stock))
                         u.supply -= move
                         d.stock += move
-                    elif has_job and u.supply < cap and d.stock > 0:
+                    elif ((has_job or (en_route and not hauling))
+                          and u.supply < cap and d.stock > 0):
+                        # a carrier EN ROUTE tops up in passing --
+                        # waypoint a lorry through a depot and it
+                        # arrives at the far end FULL, instead of
+                        # dumping its load at the first cache it
+                        # brushed on the way. The MISSION decides,
+                        # not mere motion: a depot-haul dumps.
                         move = min(cap - u.supply, d.stock)
                         move = self._pump(u, move)
                         u.supply += move
@@ -5872,7 +6746,12 @@ void main() {
                     # a fellow carrier is a casualty, not a customer: it
                     # is topped up only when nearly dry, and only to a
                     # working reserve, so a stranded column gets legs
-                    # back without supply sloshing between lorries
+                    # back without supply sloshing between lorries.
+                    # A FLOATING STATION IS NEVER A CASUALTY -- her
+                    # stock is the cache the chain itself manages,
+                    # and "rescuing" her respun the draw loop
+                    if getattr(u, 'is_supply_station', False):
+                        continue
                     if src_sea != (u.stats['domain'] == 'sea'):
                         continue
                     if u.supply >= cap_u * 0.3:
@@ -5947,8 +6826,11 @@ void main() {
     @staticmethod
     def _cache_reach(d):
         """Exchange radius: a quay serves across the waterline, a
-        depot only its own yard."""
-        return 0.35 if isinstance(d, Harbor) else 0.2
+        depot only its own yard. A floating supply station is a
+        quay that happens to float."""
+        if isinstance(d, (Harbor, _ShipCache)):
+            return 0.35
+        return 0.2
 
     def _move_cost_lbs(self, u, d_wu):
         """Stores burnt driving d_wu world units (halfway between
@@ -5988,12 +6870,52 @@ void main() {
         return min(cap * 0.6,
                    self._move_cost_lbs(u, d) * 1.3 + 40.0)
 
+    def _refill_sources(self, t):
+        """EVERYWHERE THIS CARRIER COULD ACTUALLY FILL UP, judged by
+        the same laws that do the filling -- so a lorry never drives
+        past a quay that would have served it, nor across a country
+        to a town that would have turned it away.
+
+        The shuttle used to read a narrower list than the refill law
+        itself: only its OWN nation's towns (an ALLY's quay, or one
+        opened by a right of supply, was invisible), and a town in
+        the middle of being ANNEXED counted as a source though it
+        supplies nothing -- a wasted march either way."""
+        out = []
+        sea = t.stats['domain'] == 'sea'
+        for c in self.cities:
+            if c.annexing or (sea and not c.harbor):
+                continue
+            if (c.country == t.country
+                    or self.allied(t.country, c.country)
+                    or self.has_right(t.country, c.country, 'supply')):
+                out.append(c)
+        # a cache is worth the drive when it holds a real share of
+        # what the carrier is short of
+        want = max(0.0, t.stats['supply_cap'] - t.supply)
+        floor = min(2000.0, max(400.0, want * 0.5))
+        caches = (list(self.harbors) if sea
+                  else list(self.depots) + list(self.harbors))
+        out += [d for d in caches
+                if d.country == t.country and d.stock >= floor]
+        if sea:
+            out += [u._cache_face for u in self.units
+                    if u.alive and not u.carried_by and u is not t
+                    and getattr(u, 'is_supply_station', False)
+                    and u.country == t.country
+                    and u.supply >= floor]
+        return out
+
     def _stocked_depot_near(self, t, rng=1.2, floor=3000.0):
         """A cache this carrier could draw from: same power, worth
         the stop, within reach. Lorries use depots AND harbours;
         supply ships use the harbours alone."""
         caches = (list(self.depots) + list(self.harbors)
-                  if t.stats['domain'] == 'land' else self.harbors)
+                  if t.stats['domain'] == 'land' else
+                  list(self.harbors)
+                  + [s2._cache_face for s2 in self.units
+                     if s2.alive and not s2.carried_by and s2 is not t
+                     and getattr(s2, 'is_supply_station', False)])
         best = None
         for d in caches:
             if d.country != t.country or d.stock < floor:
@@ -6091,8 +7013,13 @@ void main() {
         cap = t.stats['supply_cap']
         d_direct = angle_between(t.pos, dest_pos) * GLOBE_RADIUS
         best = t.supply - self._move_cost_lbs(t, d_direct)
-        cache = self._stocked_depot_near(t, rng=6.0)
-        if cache is not None:
+        # ANY reachable filling place counts as the stop, not the
+        # caches alone: a friendly town fills a lorry to the brim,
+        # and a chain that may stage through towns does not freeze
+        # for want of a depot
+        stops = [c for c in self._refill_sources(t)
+                 if t.dist_to(c.pos) < 6.0]
+        for cache in stops:
             d1 = t.dist_to(cache.pos)
             if t.supply - self._move_cost_lbs(t, d1) > 0.0:
                 d2 = angle_between(cache.pos, dest_pos) * GLOBE_RADIUS
@@ -6146,25 +7073,15 @@ void main() {
                                       'auto': True})
             return
         if frac < 0.5:
-            if truck.stats['domain'] == 'sea':
-                sources = [c for c in self.cities
-                           if c.country == truck.country and c.harbor]
-                sources += [h for h in self.harbors
-                            if h.country == truck.country
-                            and h.stock > 2000]
-            else:
-                sources = [c for c in self.cities
-                           if c.country == truck.country]
-                sources += [d for d in self.depots + self.harbors
-                            if d.country == truck.country
-                            and d.stock > 2000]
+            sources = self._refill_sources(truck)
             drew = getattr(truck, '_drew_from', None)
             if drew is not None and \
                     angle_between(truck.pos, drew[1]) * GLOBE_RADIUS > 0.3:
                 truck._drew_from = None
             if sources:
                 src = min(sources, key=lambda s: truck.dist_to(s.pos))
-                near = 0.3 if isinstance(src, Harbor) else 0.15
+                near = (0.3 if isinstance(src, (Harbor, _ShipCache))
+                        else 0.15)
                 if truck.dist_to(src.pos) > near:
                     truck.give_order({'kind': 'move',
                                       'goal': Vec3(src.pos),
@@ -6270,11 +7187,17 @@ void main() {
                     continue
                 goal = Vec3(o['goal'])
                 back = None
-            elif kind == 'garrison':
-                # a man walking to his posting rides too; the cab
-                # remembers the posting and hands it back at the gate
+            elif kind in ('garrison', 'board'):
+                # a man walking to his posting rides too -- and A
+                # MAN MARCHING TO HIS EMBARKMENT rides the same (the
+                # field report: infantry sent across the map to a
+                # ship were never collected, because the taxi law
+                # only read move and garrison orders). The cab
+                # remembers the posting or the boarding and hands
+                # it back at the kerb.
                 tgt = o.get('target')
-                if tgt is None or getattr(tgt, 'pos', None) is None:
+                if (tgt is None or getattr(tgt, 'pos', None) is None
+                        or not getattr(tgt, 'alive', True)):
                     continue
                 goal = Vec3(tgt.pos)
                 back = {'kind': kind, 'target': tgt}
@@ -6287,6 +7210,10 @@ void main() {
                     and t.dist_to(u.pos) <= self.FERRY_PICKUP_MAX]
             if not cabs:
                 continue
+            if back is not None:
+                cabs = [t for t in cabs if t is not back['target']]
+                if not cabs:
+                    continue
             cab = min(cabs, key=lambda t: t.dist_to(u.pos))
             u._ferry_back = back
             buckets.setdefault(id(cab), (cab, []))[1].append((u, goal))
@@ -6503,11 +7430,25 @@ void main() {
                 getattr(self, 'selected_armypost', None) is st:
             self._refresh_selection_ui()
 
+    def _works_rate(self, st):
+        """THE WORKS TRACK PAYS HERE: production at a town's bases
+        runs faster by its works level. A RATE at the tick -- never
+        a discount baked into the entry -- so the factory report's
+        arithmetic stays truthful, a level raised mid-build speeds
+        the work already on the line, and relocated work takes the
+        NEW site's rate (whose city may be None: engineer fields)."""
+        city = getattr(st, 'city', None)
+        if city is None:
+            return 1.0
+        return WORKS_SPEED_MULT[getattr(city, 'works_level', 0)]
+
     def _tick_production(self, dt):
         for city in self.cities:
             if not city.production:
                 continue
-            city.production[0][1] -= dt * self.game_speed
+            city.production[0][1] -= (dt * self.game_speed
+                                      * WORKS_SPEED_MULT[
+                                          city.works_level])
             if city.production[0][1] <= 0:
                 unit_type, _ = city.production.pop(0)
                 self._deliver_vehicle(unit_type, city.country,
@@ -6532,7 +7473,8 @@ void main() {
         for f in self.airfields:
             if not f.production:
                 continue
-            f.production[0][1] -= dt * self.game_speed
+            f.production[0][1] -= (dt * self.game_speed
+                                   * self._works_rate(f))
             if f.production[0][1] > 0:
                 continue
             unit_type, _ = f.production.pop(0)
@@ -6542,7 +7484,8 @@ void main() {
         for h in self.harbors:
             if not h.production:
                 continue
-            h.production[0][1] -= dt * self.game_speed
+            h.production[0][1] -= (dt * self.game_speed
+                                   * self._works_rate(h))
             if h.production[0][1] > 0:
                 continue
             unit_type, _ = h.production.pop(0)
@@ -6553,7 +7496,8 @@ void main() {
         for p_ in self.armyposts:
             if not p_.production:
                 continue
-            p_.production[0][1] -= dt * self.game_speed
+            p_.production[0][1] -= (dt * self.game_speed
+                                    * self._works_rate(p_))
             if p_.production[0][1] > 0:
                 continue
             unit_type, _ = p_.production.pop(0)
@@ -6587,6 +7531,36 @@ void main() {
             ws.setdefault(a, set()).add(b)
             ws.setdefault(b, set()).add(a)
         self._war_sets = ws
+        # WAR TEARS UP THE PAPERS: no right, pact or standing
+        # arrangement survives between belligerents -- however the
+        # war arrived (a declaration, or a bloc dragging an ally
+        # in). Runs here because EVERY road to war passes this way,
+        # and the sweep is idempotent.
+        me = self.player_country
+        foes = ws.get(me, ()) if me else ()
+        if foes:
+            dead_r = [r for r in self.rights if r['with'] in foes]
+            dead_t = [t for t in self.trade_deals
+                      if t.get('with') in foes]
+            if dead_r or dead_t:
+                for r in dead_r:
+                    self.rights.remove(r)
+                for t in dead_t:
+                    self.trade_deals.remove(t)
+                if (getattr(self, 'fax', None)
+                        and not getattr(self, '_loading_save',
+                                        False)):
+                    from config import short_name
+                    torn = sorted({short_name(x['with'])
+                                   for x in dead_r}
+                                  | {short_name(x['with'])
+                                     for x in dead_t})
+                    self.fax.post(
+                        "AGREEMENTS TORN UP",
+                        "War voids every right, pact and standing "
+                        "arrangement with %s." %
+                        B(", ".join(n.upper() for n in torn)),
+                        sender="FOREIGN OFFICE")
 
     def allied(self, a, b):
         return b in self.alliances.get(a, ())
@@ -6994,6 +7968,10 @@ void main() {
         city.pending_tax = None
         city.tax_rate = TAX_DEFAULT
         city.production = []
+        # the old owner's directive dies with the flag: a track
+        # focus now BILLS THE TREASURY, and a captured town must
+        # not carry a standing purchase its new owner never made
+        city.focus = 'finance'
         city.refresh_marker()
         self._update_borders()
         for ai in self._nation_ais.values():
@@ -7152,14 +8130,21 @@ void main() {
         """One pass: who is on the wireless net, and who can see whom."""
         player = self.player_country
 
-        # communication sources: command units' circles + city land lines
+        # communication sources: command units' circles + city land
+        # lines -- OURS, and every power that shares its wireless
+        # net with us (allies do; USE OF THE WIRELESS NET is bought
+        # at the table like passage)
+        friendly = {player} | {nat for nat in COUNTRIES
+                               if nat != player
+                               and self.has_right(player, nat,
+                                                  'comms')}
         comm_sources = [(c.pos, CITY_COMM_RADIUS) for c in self.cities
-                        if c.country == player and not c.annexing]
+                        if c.country in friendly and not c.annexing]
         comm_sources += [(r.pos, 2.0) for r in self.radars
-                         if r.country == player]
+                         if r.country in friendly]
         for u in self.units:
-            if (u.alive and u.country == player and not u.carried_by
-                    and u.stats.get('comm')):
+            if (u.alive and u.country in friendly
+                    and not u.carried_by and u.stats.get('comm')):
                 comm_sources.append((u.pos, u.comm_range()))
         # the map draws one merged outline around the whole wireless net
         if self.globe:
@@ -7919,17 +8904,23 @@ void main() {
 
     # ====================================================== save/load
     def save_game(self):
-        """The whole campaign into one dispatch case in saves/."""
+        """The whole campaign into one dispatch case in saves/. A
+        campaign RESUMED from a file is filed back into that same
+        case -- saving twice used to leave the drawer full of
+        near-identical copies of one war."""
         if self.game_state != 'playing' or self.game_over:
             return
         import saveload
+        over = getattr(self, '_save_path', None)
         try:
-            path = saveload.write_save(self)
+            path = saveload.write_save(self, path=over)
+            self._save_path = path
             self.fax.post(
                 "CAMPAIGN FILED",
-                "The situation map is archived as %s. Resume it from "
+                "The situation map is %s as %s. Resume it from "
                 "LOAD GAME at headquarters." %
-                B(os.path.basename(path)),
+                (B("filed over its own case") if over
+                 else B("archived"), B(os.path.basename(path))),
                 sender="RECORDS SECTION")
         except Exception as exc:
             self.fax.post(
@@ -7949,6 +8940,8 @@ void main() {
             print("could not read save:", exc)
             return
         self.start_game(data['player'], snapshot=data)
+        # the case this campaign came out of: it is filed back here
+        self._save_path = path
 
     def fax_short(self, line):
         """Short despatches print on the SIGNALS line above the bar
@@ -7971,10 +8964,16 @@ void main() {
         bar.hide_exit()
         self._sync_scramble()
         self._sync_demolish()
+        # the briefing is INTELLIGENCE as much as doctrine: a
+        # selected enemy counter opens its service page too, so the
+        # commander can read what he is looking at
         primary = next((u for u in self.selected
                         if u.country == self.player_country), None)
+        if primary is None and self.selected:
+            primary = self.selected[0]
         if primary is not None:
-            bar.show_info(self.open_unit_briefing, [primary.unit_type])
+            bar.show_info(self.open_unit_briefing,
+                          [primary.unit_type, primary.country])
         if self.selected_airfield:
             self._refresh_airfield_ui(self.selected_airfield)
             return
@@ -8041,7 +9040,9 @@ void main() {
                 "ENEMY FIRE STRIKES AT ONE QUARTER WITHIN THE "
                 "WALLS; NO VEHICLE PASSES THE PERIMETER"
                 % (int(b.hp), int(b.max_hp), sheltered))
-            bar.add_buttons([])
+            bar.add_buttons([], actions=(
+                [self._decommission_entry(b)]
+                if b.country == self.player_country else []))
             bar.set_hint("INFANTRY WITHIN THE PERIMETER FIGHT "
                          "UNDER COVER")
             return
@@ -8055,7 +9056,7 @@ void main() {
                               (city.name.upper(), tag))
                 self._set_city_info(city)
                 if not city.annexing:
-                    bar.add_buttons([
+                    bar.add_buttons([], actions=[
                         ("", self.open_tax_fax, [city],
                          get_icon_path('tax_button', 'dark'), False,
                          "TAX DECREE -- SET THE CITY'S RATE"),
@@ -8069,7 +9070,17 @@ void main() {
                          get_icon_path('factory_button', 'dark'),
                          False,
                          "FORTNIGHT FOCUS -- WHAT THE TOWN WORKS "
-                         "AT")])
+                         "AT")] + [
+                        ("", self._decommission_clicked, [b_st],
+                         get_icon_path('demolish_button', 'dark'),
+                         False,
+                         "DECOMMISSION %s -- CLICK TWICE; THE "
+                         "TOWN CAN RAISE ANOTHER BY FOCUS"
+                         % b_st.name.upper())
+                        for b_st in (
+                            self.base_of_city(city, k)
+                            for k in ('army', 'air', 'naval'))
+                        if b_st is not None], big=True)
                     bar.set_hint("SET THE CITY'S TAX RATE -- IT BINDS "
                                  "FROM THE NEXT FORTNIGHT")
                 else:
@@ -8083,13 +9094,7 @@ void main() {
                               (city.name.upper(), tag,
                                COUNTRIES[city.country]['adjective'].upper()))
                 at_war = self.at_war(self.player_country, city.country)
-                bar.set_info(
-                    "POPULATION %s   %sCONTROLLED BY %s   %s" %
-                    ("{:,}".format(city.population),
-                     "PORT   " if city.harbor else "",
-                     COUNTRIES[city.country]['name'].upper(),
-                     ("CAPTURE: %d/%d ENLISTED ON THE CITY"
-                      % (have, need)) if at_war else "AT PEACE"))
+                self._set_city_info(city)
                 if not at_war:
                     bar.set_hint("NO STATE OF WAR EXISTS -- ONLY A "
                                  "DECLARATION FROM THE DIPLOMACY "
@@ -8103,11 +9108,12 @@ void main() {
                             "CLEAR THE FIELD BEFORE THE FLAG CAN "
                             "RISE" % foes)
                     else:
-                        bar.show_capture(self._capture_clicked,
-                                         [city])
+                        # the order lives on the map now: the town
+                        # flies its >CAPTURE< banner over the name
                         bar.set_hint("THE GARRISON STANDS READY -- "
-                                     "CAPTURING COSTS %d ENLISTED"
-                                     % need)
+                                     "CLICK THE TOWN'S >CAPTURE< "
+                                     "BANNER; THE FLAG COSTS %d "
+                                     "ENLISTED" % need)
                 else:
                     bar.set_hint("MARCH %d ENLISTED ONTO THE CITY TO "
                                  "TAKE IT (1 PER MILLION SOULS)" % need)
@@ -8170,13 +9176,16 @@ void main() {
                                         "FIELD"))
                     entries += [("%d/%d" % (int(p.hp), p.max_hp),
                                  self._noop, [],
-                                 get_icon_path(p.unit_type, 'dark'),
+                                 unit_ui_icon(p.unit_type, p.country),
                                  False,
                                  "%s -- STRENGTH %d/%d" %
                                  (p.stats['label'].upper(),
                                   int(p.hp), p.max_hp))
                                 for p in u.cargo]
-                    bar.add_buttons(entries)
+                    bar.add_buttons(entries[1:] if u.cargo
+                                    else entries,
+                                    actions=entries[:1] if u.cargo
+                                    else (), big=True)
                     bar.set_hint(
                         "RMB PLOTS WAYPOINTS -- ENTER FLIES THE LIFT -- "
                         "RMB LAND UNITS ONTO THE FIELD TO BOARD")
@@ -8227,7 +9236,7 @@ void main() {
             bar.set_info("STRENGTH %d/%d%s" % (int(u.hp), u.max_hp, extra))
             if u.unit_type == 'submarine':
                 down = getattr(u, 'submerged', False)
-                bar.add_buttons([
+                bar.add_buttons([], actions=[
                     ("", self.toggle_submerge, [u],
                      get_icon_path('surface_button' if down
                                    else 'submerge_button', 'dark'),
@@ -8241,7 +9250,7 @@ void main() {
                 return
             if u.unit_type == 'blimp':
                 up = getattr(u, 'deployed', False)
-                bar.add_buttons([
+                bar.add_buttons([], actions=[
                     ("", self.toggle_blimp, [u],
                      get_icon_path('blimp_lower_button' if up
                                    else 'blimp_raise_button', 'dark'),
@@ -8253,22 +9262,39 @@ void main() {
                              "ANY AIRCRAFT -- WINCH DOWN TO MOVE THE "
                              "STATION")
                 return
+            if u.unit_type == 'supply_ship':
+                anchored = getattr(u, 'is_supply_station', False)
+                bar.add_buttons([], actions=[
+                    ("", self.toggle_supply_station, [u],
+                     get_icon_path('anchor_button', 'dark'), anchored,
+                     "WEIGH ANCHOR -- SHE MAKES WAY AGAIN" if anchored
+                     else "ANCHOR AS A FLOATING SUPPLY STATION -- "
+                          "SHE CANNOT MOVE, AND THE CHAIN TREATS "
+                          "HER AS A PORT")])
+                bar.set_hint(
+                    "A STATION AT ANCHOR STORES AND ISSUES LIKE A "
+                    "QUAY -- CARRIERS DUMP INTO HER AND DRAW FROM "
+                    "HER" if anchored else
+                    "SUPPLY SHIPS FEED EVERYTHING IN SIGHT -- OR "
+                    "ANCHOR ONE AS A FLOATING STATION ON THE CHAIN")
+                return
             if u.cargo:
                 entries = [("%d/%d" % (int(p.hp), p.max_hp),
                             self._noop, [],
-                            get_icon_path(p.unit_type, 'dark'), False,
+                            unit_ui_icon(p.unit_type, p.country),
+                            False,
                             "%s -- STRENGTH %d/%d" %
                             (p.stats['label'].upper(),
                              int(p.hp), p.max_hp))
                            for p in u.cargo]
                 para = u.stats.get('paradrop')
-                entries.insert(0, (
+                acts = [(
                     "", self._arm_unload, [],
                     get_icon_path('paradrop_button' if para
                                   else 'unload_button', 'dark'), False,
                     "%s -- ARM, THEN RMB THE SITE" %
-                    ("PARADROP" if para else "UNLOAD")))
-                bar.add_buttons(entries)
+                    ("PARADROP" if para else "UNLOAD"))]
+                bar.add_buttons(entries, actions=acts, big=True)
         else:
             counts = {}
             for u in self.selected:
@@ -8277,6 +9303,20 @@ void main() {
                                 for lbl, n in sorted(counts.items()))
             bar.set_title("TASK FORCE -- %d UNITS" % len(self.selected))
             bar.set_info(summary)
+            # a task force with loaded holds keeps its UNLOAD key: a
+            # fleet lands TOGETHER, each ship berthing down the coast
+            lifts = [u for u in self.selected
+                     if u.country == self.player_country and u.cargo]
+            if lifts:
+                para = all(u.stats.get('paradrop') for u in lifts)
+                bar.add_buttons([], actions=[(
+                    "", self._arm_unload, [],
+                    get_icon_path('paradrop_button' if para
+                                  else 'unload_button', 'dark'),
+                    False,
+                    "%s ALL HOLDS -- ARM, THEN RMB THE SITE; SHIPS "
+                    "BERTH IN A LINE DOWN THE COAST" %
+                    ("PARADROP" if para else "UNLOAD"))], big=True)
         bar.set_hint(CONTROLS_HINT)
 
     def _refresh_carrier_ui(self, carrier):
@@ -8303,12 +9343,12 @@ void main() {
             "SUPPLIED BY THE CITY -- NEW VEHICLES ROLL OUT THE "
             "GATE THE MOMENT THEY ARE FINISHED")
 
-    def _paged_entries(self, entries, page_attr):
+    def _paged_entries(self, entries, page_attr, per=10):
         """A menu holding more keys than one row carries: slice into
         pages, with < and > keys at the ends of the visible run. A
-        page never wraps to a second row: 14 entries plus the two
-        arrows fill exactly the row of 16."""
-        per = 14
+        page never wraps to a second row: the default 14 entries
+        plus the two arrows fill exactly the row of twelve
+        large keys."""
         n = len(entries)
         if n <= per:
             return entries
@@ -8344,12 +9384,13 @@ void main() {
         for ut, t_left in st.production:
             info = stats_for(ut, st.country)
             entries.append(("%ds" % max(0, int(t_left)), self._noop,
-                            [], get_icon_path(ut, 'dark'), False,
+                            [], unit_ui_icon(ut, st.country), False,
                             "%s -- %d S TO DELIVERY" %
                             (info['label'].upper(),
                              max(0, int(t_left))), True))
         bar.add_buttons(self._paged_entries(entries,
-                                                '_station_page'))
+                                            '_station_page', per=10),
+                        big=True)
         bar.set_hint(hint)
 
     def _unload_parked(self, transport):
@@ -8405,7 +9446,7 @@ void main() {
         if wing or garrison:
             entries = [("%d/%d" % (int(p.hp), p.max_hp),
                         self._select_embarked, [p],
-                        get_icon_path(p.unit_type, 'dark'),
+                        unit_ui_icon(p.unit_type, p.country),
                         p in self.selected,
                         "%s -- STRENGTH %d/%d" %
                         (p.stats['label'].upper(), int(p.hp), p.max_hp))
@@ -8413,15 +9454,24 @@ void main() {
             # section two: the land garrison stored on the field
             entries += [("%d/%d" % (int(u.hp), u.max_hp),
                          self._select_garrison, [u],
-                         get_icon_path(u.unit_type, 'dark'),
+                         unit_ui_icon(u.unit_type, u.country),
                          u in self.garrison_sel,
                          "%s (STORED) -- STRENGTH %d/%d" %
                          (u.stats['label'].upper(), int(u.hp), u.max_hp))
                         for u in garrison]
             planned = [p for p in wing
                        if p in self.selected and p.sortie_plan]
+            # an engineer-built field the player owns carries the
+            # STRIKE key (a BASE is the city's and stands)
+            acts = []
+            if (not is_carrier
+                    and base.country == self.player_country
+                    and not getattr(base, 'is_base', False)):
+                acts.append(self._decommission_entry(base))
             bar.add_buttons(self._paged_entries(entries,
-                                                '_roster_page'))
+                                                '_roster_page',
+                                                per=9),
+                            actions=acts, big=True)
             n = sum(1 for p in wing if p in self.selected)
             if planned:
                 lead = planned[0]
@@ -8463,6 +9513,9 @@ void main() {
                      ("{:,}".format(int(depot.stock)),
                       "{:,}".format(int(_CAP)), pct,
                       COUNTRIES[depot.country]['name'].upper()))
+        bar.add_buttons([], actions=(
+            [self._decommission_entry(depot)]
+            if depot.country == self.player_country else []))
         bar.set_hint("JOBLESS LORRIES DUMP STORES HERE; LORRIES ON A "
                      "CALL DRAW FROM IT -- SITE DEPOTS FORWARD TO "
                      "STAGE THE CHAIN")
@@ -8609,18 +9662,29 @@ void main() {
             "-- select, then site the drop. Unarmed."],
     }
 
-    def open_unit_briefing(self, unit_type):
+    def open_unit_briefing(self, unit_type, country=None):
+        """The service page for one type. A FOREIGN counter reads
+        from ITS OWN nation's tables -- a Nagato is not a Bismarck
+        -- and the sheet says whose mark it is."""
         if self.game_state != 'playing' or self.briefing_fax:
             return
-        s = stats_for(unit_type, self.player_country)
-        title = "*** UNIT BRIEFING -- %s ***" % s['label'].upper()
+        country = country or self.player_country
+        s = stats_for(unit_type, country)
+        if country != self.player_country:
+            from config import short_name
+            title = ("*** INTELLIGENCE -- %s %s ***"
+                     % (short_name(country).upper(),
+                        s['label'].upper()))
+        else:
+            title = "*** UNIT BRIEFING -- %s ***" % s['label'].upper()
         self.briefing_fax = BriefingFax(
-            self, title, self._unit_briefing_lines(unit_type),
-            self._close_briefing)
+            self, title,
+            self._unit_briefing_lines(unit_type, country),
+            self._close_briefing, icon_ut=unit_type)
 
-    def _unit_briefing_lines(self, unit_type):
+    def _unit_briefing_lines(self, unit_type, country=None):
         from config import COMM_RADIUS_FACTOR
-        s = stats_for(unit_type, self.player_country)
+        s = stats_for(unit_type, country or self.player_country)
 
         def row(label, val):
             return "%s %s" % ((label + ' ').ljust(15, '.'), val)
@@ -8667,6 +9731,37 @@ void main() {
         if self.briefing_fax:
             self.briefing_fax.destroy()
             self.briefing_fax = None
+
+    def _landing_refused(self, goal, country=None):
+        """Troops may not be PUT ASHORE in a country that has not
+        granted passage -- a landing is a march that starts wet.
+        War or a treaty opens the beach; wilderness is nobody's.
+        A beach standing inside the disc of an OPEN power's town is
+        landable even where a closed neighbour's flag flies nearer:
+        the Pomeranian coast is German ground though Copenhagen
+        stands closest, and a man may always step onto his own."""
+        country = country or self.player_country
+
+        def opens(owner):
+            return (owner in (None, 'neutral', country)
+                    or self.at_war(country, owner)
+                    or self.allied(country, owner)
+                    or self.has_right(country, owner, 'passage'))
+        owner = self.territory_of(goal)
+        if opens(owner):
+            return None
+        # the border strip: only an open town standing nearly AS
+        # CLOSE as the owner's contests the beach -- a distant disc
+        # must not open the whole neighbourhood
+        owner_d = min(angle_between(goal, c.pos) * GLOBE_RADIUS
+                      for c in self.cities
+                      if c.country == owner)
+        for c in self.cities:
+            d = angle_between(goal, c.pos) * GLOBE_RADIUS
+            if (d < 1.8 and d < owner_d + 0.35
+                    and c.country != owner and opens(c.country)):
+                return None
+        return owner
 
     def _arm_unload(self):
         if any(u.cargo for u in self.selected
@@ -8715,24 +9810,42 @@ void main() {
         self.roster_base = base
         self._refresh_selection_ui()
 
-    def _set_city_info(self, city):
-        queue = ", ".join("%s %ds" % (UNIT_TYPES[t]['icon'], s)
-                          for t, s in city.production[:4])
+    def _city_info_line(self, city):
+        """ONE composer for the white line under a town's title.
+        It was written by TWO hands -- the click's view printed a
+        foreign town's intel line, then the once-a-second refresher
+        stamped the municipal ledger over it, and the next refresh
+        flipped it back: the stats appeared to switch between two
+        different readings once a second."""
+        if city.country != self.player_country:
+            need = city.required_infantry()
+            have = len(self._capture_garrison(city,
+                                              self.player_country))
+            at_war = self.at_war(self.player_country, city.country)
+            return ("POPULATION %s   %sCONTROLLED BY %s   %s" %
+                    ("{:,}".format(city.population),
+                     "PORT   " if city.harbor else "",
+                     COUNTRIES[city.country]['name'].upper(),
+                     ("CAPTURE: %d/%d ENLISTED ON THE CITY"
+                      % (have, need)) if at_war else "AT PEACE"))
         tax = "%d%%" % city.tax_rate
         if city.pending_tax is not None:
             tax += " (%d%% NEXT)" % city.pending_tax
         focus_words = {
-            'finance': 'FINANCE', 'agriculture': 'AGRICULTURE',
-            'steel': 'STEEL WORKS', 'research': 'THE LABORATORIES',
+            'finance': 'FINANCE', 'agriculture': 'THE LAND',
+            'works': 'THE WORKS', 'laboratories': 'BUILDING LABS',
+            'research': 'RUNNING THE LABS',
             'base_army': 'RAISING AN ARMY BASE',
             'base_air': 'RAISING AN AIR BASE',
             'base_naval': 'RAISING A NAVAL BASE'}
-        self.bottom_bar.set_info(
-            "POP %s%s   INDUSTRY %.0f%%   TAX %s   FOCUS: %s" %
-            ("{:,}".format(city.population),
-             "   PORT" if city.harbor else "",
-             city.industry, tax,
-             focus_words.get(city.focus, city.focus.upper())))
+        return ("POP %s%s   INDUSTRY %.0f%%   TAX %s   FOCUS: %s" %
+                ("{:,}".format(city.population),
+                 "   PORT" if city.harbor else "",
+                 city.industry, tax,
+                 focus_words.get(city.focus, city.focus.upper())))
+
+    def _set_city_info(self, city):
+        self.bottom_bar.set_info(self._city_info_line(city))
 
     def _tick_top_bar(self):
         if not self.top_bar:
@@ -8929,4 +10042,12 @@ void main() {
             self._city_ui_timer = 1.0
             if self.selected_city and self.bottom_bar:
                 self._set_city_info(self.selected_city)
+        if self.game_state == 'playing':
+            self._cap_banner_timer = getattr(self, '_cap_banner_timer',
+                                             0.0) - dt
+            if self._cap_banner_timer <= 0:
+                self._cap_banner_timer = 1.0
+                self._tick_capture_banners()
+            self._flash_capture_banners()
+            self._tick_city_icon_hover(dt)
         return Task.cont
