@@ -75,6 +75,14 @@ class MovementPlanner:
         self._terr = None
         self._edge_owners = None       # per-static-edge owner sets
         self._inval_gen = 0
+        # THE WORKS ON THE GROUND: bunker discs a VEHICLE may not
+        # drive into. Ground, not a force field -- the router simply
+        # refuses to plot through them, exactly as it refuses the
+        # sea and a closed frontier, so a bunker on a road blocks
+        # that road and the column goes round of its own accord.
+        self._bunkers = []             # [(vec, radius, key)]
+        self._bunker_edges = None      # edge index -> frozenset(key)
+        self._edge_ends = None         # (A(N,3), B(N,3), len(N,))
 
     def notify_bridge_change(self):
         self._river_ok_cache.clear()
@@ -100,6 +108,103 @@ class MovementPlanner:
         self._inval_gen += 1
         self._edge_owners = None
         self._adj_cache = None
+
+    def set_bunkers(self, discs):
+        """The works a vehicle must drive around: [(vec, radius,
+        key)]. Called whenever one is built, struck or destroyed."""
+        new = [(Vec3(v), float(r), k) for (v, r, k) in discs]
+        old = self._bunkers
+        if len(new) == len(old) and all(
+                a[2] == b[2] and abs(a[1] - b[1]) < 1e-9
+                and (a[0] - b[0]).lengthSquared() < 1e-18
+                for a, b in zip(new, old)):
+            return                      # nothing moved: keep the cache
+        self._bunkers = new
+        self._bunker_edges = None
+        self._inval_gen += 1
+        self._adj_cache = None
+
+    def _ensure_edge_ends(self):
+        """Endpoint arrays and arc lengths per static edge -- the
+        cheap filter that keeps the bunker sweep local."""
+        edges = self._static_edges
+        ends = self._edge_ends
+        if ends is not None and len(ends[2]) == len(edges):
+            return ends
+        A = np.empty((len(edges), 3))
+        B = np.empty((len(edges), 3))
+        for k, (i, j, _c, _f, _g, _geom) in enumerate(edges):
+            va, vb = self._nodes[i][0], self._nodes[j][0]
+            A[k] = (va.x, va.y, va.z)
+            B[k] = (vb.x, vb.y, vb.z)
+        with np.errstate(all='ignore'):
+            dots = np.clip((A * B).sum(axis=1), -1.0, 1.0)
+        L = np.arccos(dots) * GLOBE_RADIUS
+        self._edge_ends = (A, B, L)
+        return self._edge_ends
+
+    def _ensure_bunker_edges(self):
+        """Which static edges a vehicle may not use, and on whose
+        account. Only edges whose ENDS lie within a bunker's reach
+        plus their own length are examined closely, so the sweep
+        costs a couple of vectorised passes per work."""
+        if self._bunker_edges is not None:
+            return self._bunker_edges
+        out = {}
+        if not self._bunkers:
+            self._bunker_edges = out
+            return out
+        A, B, L = self._ensure_edge_ends()
+        edges = self._static_edges
+        for (bv, r, key) in self._bunkers:
+            c = np.array([bv.x, bv.y, bv.z])
+            with np.errstate(all='ignore'):
+                da = np.arccos(np.clip(A @ c, -1.0, 1.0)) * GLOBE_RADIUS
+                db = np.arccos(np.clip(B @ c, -1.0, 1.0)) * GLOBE_RADIUS
+            near = np.nonzero(np.minimum(da, db) <= L + r)[0]
+            step = max(r * 0.4, 1e-4)
+            for k in near:
+                k = int(k)
+                if da[k] <= r or db[k] <= r:
+                    out.setdefault(k, set()).add(key)
+                    continue
+                (i, j, _c, _f, _g, geom) = edges[k]
+                va, vb = self._nodes[i][0], self._nodes[j][0]
+                pts = list(geom) if geom else []
+                if not pts:
+                    n = int(L[k] / step)
+                    pts = [slerp(va, vb, t / (n + 1.0))
+                           for t in range(1, n + 1)]
+                for p in pts:
+                    if angle_between(p, bv) * GLOBE_RADIUS <= r:
+                        out.setdefault(k, set()).add(key)
+                        break
+        self._bunker_edges = {k: frozenset(v) for k, v in out.items()}
+        return self._bunker_edges
+
+    def bunkers_holding(self, pos):
+        """The works this point stands INSIDE -- a vehicle caught in
+        one may drive OUT of it (and of no other)."""
+        return frozenset(
+            key for (bv, r, key) in self._bunkers
+            if angle_between(pos, bv) * GLOBE_RADIUS <= r)
+
+    def _arc_clear_of_bunkers(self, va, vb, open_keys):
+        """Does this run keep clear of every work not open to it?"""
+        for (bv, r, key) in self._bunkers:
+            if key in open_keys:
+                continue
+            if angle_between(va, bv) * GLOBE_RADIUS <= r:
+                return False
+            if angle_between(vb, bv) * GLOBE_RADIUS <= r:
+                return False
+            n = int(angle_between(va, vb) * GLOBE_RADIUS
+                    / max(r * 0.4, 1e-4))
+            for t in range(1, min(n, 400) + 1):
+                p = slerp(va, vb, t / (n + 1.0))
+                if angle_between(p, bv) * GLOBE_RADIUS <= r:
+                    return False
+        return True
 
     def _owners_of_np(self, arr, terr=None):
         """Owner index per point ((P,3) unit vectors); -1 = nobody's
@@ -718,11 +823,21 @@ class MovementPlanner:
             return True
         return True  # off-road rivers are re-checked lazily during A*
 
-    def plan_land(self, start_vec, goal_vec, banned=frozenset()):
+    def plan_land(self, start_vec, goal_vec, banned=frozenset(),
+                  avoid_bunkers=False, open_bunkers=frozenset(),
+                  risky=frozenset(), risk_mult=4.0):
         """A* over the land graph. Returns [(vec, speed_mult), ...]
         or None. banned: countries whose ground the column may not
         transit (the frontier law) -- edges touching their territory
-        are closed to this plan."""
+        are closed to this plan. avoid_bunkers: this is a VEHICLE,
+        and the works are ground it cannot drive over;
+        open_bunkers: the works it currently stands INSIDE, which
+        it may drive out of (and only those). risky: countries whose
+        ground is DANGEROUS but not forbidden -- a supply column
+        weighs safety beside distance, so ground held by a power we
+        are at war with costs risk_mult times its length. It will
+        still drive through when there is no other road; it simply
+        will not do so for the sake of a shortcut."""
         if self._static_edges is None:
             self._build_land_graph()
         nodes = list(self._nodes)
@@ -744,6 +859,7 @@ class MovementPlanner:
             # stale ownership (or a dead bridge) over a fresh map
             gen0 = self._inval_gen
             eo = self._ensure_edge_owners()
+            be = self._ensure_bunker_edges()
             edges = self._static_edges
             n_e = len(edges) if eo is None else min(len(edges),
                                                     len(eo))
@@ -754,20 +870,21 @@ class MovementPlanner:
                 e = edges[k]
                 if self._land_edges_usable(e):
                     own = eo[k] if eo else None
+                    blk = be.get(k)
                     cache.setdefault(e[0], []).append(
-                        (e[1], e[2], e[3], e[5], True, own))
+                        (e[1], e[2], e[3], e[5], True, own, blk))
                     cache.setdefault(e[1], []).append(
-                        (e[0], e[2], e[3], e[5], False, own))
+                        (e[0], e[2], e[3], e[5], False, own, blk))
             if self._inval_gen == gen0:
                 self._adj_cache = cache
             static_adj = cache
         extra = {}
 
-        def add(i, j, cost, is_road, geom=None, own=None):
+        def add(i, j, cost, is_road, geom=None, own=None, blk=None):
             extra.setdefault(i, []).append((j, cost, is_road, geom,
-                                            True, own))
+                                            True, own, blk))
             extra.setdefault(j, []).append((i, cost, is_road, geom,
-                                            False, own))
+                                            False, own, blk))
         # dynamic edges: start/goal to their nearest nodes (and each
         # other). The candidate search is VECTORIZED: the old per-node
         # Python loop held the GIL for tens of ms per plan and froze
@@ -809,6 +926,9 @@ class MovementPlanner:
                        if banned else None)
                 if banned and own and (own & banned):
                     continue        # the link crosses a closed frontier
+                if avoid_bunkers and not self._arc_clear_of_bunkers(
+                        nodes[dyn][0], nodes[j][0], open_bunkers):
+                    continue        # the run passes through the works
                 add(dyn, j, math.radians(ang) * GLOBE_RADIUS * fac,
                     False, own=own)
                 linked += 1
@@ -850,11 +970,15 @@ class MovementPlanner:
             neigh = static_adj.get(cur, [])
             if cur in extra:
                 neigh = neigh + extra[cur]
-            for (nxt, cost, is_road, geom, fwd, own) in neigh:
+            for (nxt, cost, is_road, geom, fwd, own, blk) in neigh:
                 if nxt in seen:
                     continue
                 if banned and own and (own & banned):
                     continue    # no course through a closed country
+                if avoid_bunkers and blk and not (blk <= open_bunkers):
+                    continue    # the works stand in the way
+                if risky and own and (own & risky):
+                    cost = cost * risk_mult     # hostile ground
                 if not is_road:
                     rm = river_mult(cur, nxt)
                     if rm is None:
@@ -870,7 +994,8 @@ class MovementPlanner:
         if goal_i not in prev and start_i != goal_i:
             # graph couldn't connect them: try a fine mask-accurate A*
             # (coastal walks, lake shores — as accurate as the map)
-            return self._refine_land(start_vec, goal_vec, banned)
+            return self._refine_land(start_vec, goal_vec, banned,
+                                     avoid_bunkers, open_bunkers)
         # reconstruct -- splicing each road edge\'s dense curve back
         # in, so the column marches the exact ribbon that is drawn
         path = []
@@ -1078,7 +1203,8 @@ class MovementPlanner:
                 return out
         return [b_vec]      # nowhere to go (canal transit): allow it
 
-    def _refine_land(self, a_vec, b_vec, banned=frozenset()):
+    def _refine_land(self, a_vec, b_vec, banned=frozenset(),
+                     avoid_bunkers=False, open_bunkers=frozenset()):
         """Mask-accurate land fallback when the node graph can't connect
         two points (coastal walks, lake shores).  Rivers still apply."""
         if math.degrees(angle_between(a_vec, b_vec)) > 15.0:
@@ -1093,6 +1219,14 @@ class MovementPlanner:
                     if not self.segment_river_ok(prev, v):
                         return None
                     prev = v
+                # the works bind the raster walk too
+                if avoid_bunkers:
+                    prev2 = a_vec
+                    for v in out:
+                        if not self._arc_clear_of_bunkers(
+                                prev2, v, open_bunkers):
+                            return None
+                        prev2 = v
                 # and the frontier law binds the raster walk too: a
                 # refined route through closed ground is no route.
                 # Sample the RUNS between waypoints, not just the
@@ -1243,7 +1377,9 @@ class MovementPlanner:
         return out
 
     # -------------------------------------------------------------- public
-    def plan(self, domain, start_vec, goal_vec, banned=None):
+    def plan(self, domain, start_vec, goal_vec, banned=None,
+             avoid_bunkers=False, open_bunkers=frozenset(),
+             risky=frozenset()):
         """Returns [(unit_vec, speed_mult), ...] or None if unreachable.
         banned: countries closed to this column (land only -- the
         passage law never binds the sea or the air)."""
@@ -1252,4 +1388,6 @@ class MovementPlanner:
         if domain == 'sea':
             return self.plan_sea(start_vec, goal_vec)
         return self.plan_land(start_vec, goal_vec,
-                              banned or frozenset())
+                              banned or frozenset(),
+                              avoid_bunkers, open_bunkers,
+                              risky or frozenset())

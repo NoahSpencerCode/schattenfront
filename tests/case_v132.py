@@ -1,12 +1,10 @@
-"""1.3.2: the version stands, and every selected combatant wears a
+"""1.3.2's laws (the version itself is pinned by the newest
+case): every selected combatant wears a
 thin red ring at its guns' longest reach -- the gunnery law's best
 case, which for the long arms is NOT the vision circle."""
 from harness import boot, step, check, finish
 from panda3d.core import Vec3
-from config import GAME_VERSION, VISION_SCALE, AIR_VISION_MULT
-
-check(GAME_VERSION == '1.3.2', "the colours fly 1.3.2 (%s)"
-      % GAME_VERSION)
+from config import VISION_SCALE, AIR_VISION_MULT
 
 g = boot('germany')
 

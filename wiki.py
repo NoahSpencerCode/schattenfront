@@ -450,7 +450,7 @@ class WikiFax:
             "airfield -- and",
             "  its mouths: the occupied eat %.1f t per million a "
             "day." % C.OCCUPIED_RATION,
-            "A town ready to fall flies a flashing >CAPTURE< "
+            "A town ready to fall flies a flashing CAPTURE "
             "banner over its name,",
             "  with the garrison bill. CLICK THE BANNER to run "
             "the flag up.",
@@ -503,7 +503,11 @@ class WikiFax:
             "  full to their station (RMB sets it) or the "
             "neediest friend in sight.",
             "  The frontier binds the lorries too: no errand "
-            "runs through a closed country.",
+            "runs through a closed country,",
+            "  and hostile ground is priced dear -- a carrier "
+            "weighs SAFETY beside",
+            "  distance and runs the gauntlet only when there is "
+            "no other road.",
             "  A carrier EN ROUTE tops up at any cache it passes "
             "-- waypoint one",
             "  through a depot and it arrives full; at rest it "
@@ -595,9 +599,13 @@ class WikiFax:
         self.header("BUNKERS", (L, t - 0.855))
         self.bullets([
             "Engineer-built. INFANTRY ONLY may stand on the "
-            "works; vehicles",
-            "  deflect around the rim. Enemy fire on infantry "
-            "inside is QUARTERED.",
+            "works; to a vehicle",
+            "  a bunker is GROUND -- the router goes round it as it "
+            "goes round the sea,",
+            "  so a bunker on a road blocks that road. One caught "
+            "inside may drive",
+            "  OUT, never back in. Enemy fire on infantry inside is "
+            "QUARTERED.",
         ], L, t - 0.910)
 
         self.vrule(-0.04, -0.66, t + 0.02)
