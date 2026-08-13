@@ -57,7 +57,11 @@ check(any('LOAD GAME' in t for t in texts),
       "and LOAD GAME beside it")
 
 from icons import flag_texture     # noqa: E402
-missing = [k for k in PLAYABLE if not os.path.exists(flag_texture(k))]
+# flag_texture hands back a PANDA path (forward slashes, a Windows
+# drive as /c/) -- os.path.exists must be given the system's own
+from panda3d.core import Filename as _Fn
+missing = [k for k in PLAYABLE
+           if not os.path.exists(_Fn(flag_texture(k)).toOsSpecific())]
 check(not missing, "every power flies its standard (%s)" % missing)
 
 from menu import COUNTRY_DOSSIERS     # noqa: E402

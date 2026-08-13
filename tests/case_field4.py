@@ -2,7 +2,7 @@
 USE OF THE WIRELESS NET is bought at the table, the capture order
 flies as a banner over the town, the bunker wall matches the drawn
 works and flings nobody, works can be decommissioned, and the unit
-marks on sheets ride an A/B switch."""
+marks on sheets are the units' own field sprites."""
 from harness import boot, step, check, finish
 from utils import latlon_to_vec, angle_between
 from config import GLOBE_RADIUS
@@ -132,18 +132,23 @@ wing.alive = False
 g._decommission(af)
 check(af not in g.airfields, "an empty field is struck off")
 
-# ---------- THE A/B TRIAL: unit marks on sheets and keys
+# ---------- THE MARK IS THE FIELD SPRITE, always and everywhere
 from icons import unit_ui_icon
-g.unit_sprites_ui = False
-a_path = unit_ui_icon('tank')
-g.unit_sprites_ui = True
-b_path = unit_ui_icon('tank')
-g.unit_sprites_ui = False
-check(a_path != b_path,
-      "the switch changes the mark (%s -> %s)"
-      % (a_path.split('/')[-2], b_path.split('/')[-2]))
-check('units' in b_path.replace('\\', '/').split('/'),
-      "arm B wears the top-down field sprite")
+p = unit_ui_icon('tank').replace('\\', '/')
+check('units' in p.split('/'),
+      "a unit's mark on a sheet is its FIELD SPRITE (%s)"
+      % p.split('/')[-2])
+# the ART REGISTER gives a power its own mark only where it fielded
+# distinct equipment; everyone else shares the generic chassis
+check(unit_ui_icon('fighter', 'germany')
+      != unit_ui_icon('fighter', 'japan'),
+      "a power wears its OWN art where it fields it (Bf 109 is no "
+      "Zero)")
+check(unit_ui_icon('engineer', 'germany')
+      == unit_ui_icon('engineer', 'usa'),
+      "and shares the generic chassis where it does not")
+check(not hasattr(g, 'unit_sprites_ui'),
+      "the field trial's switch is gone from the game")
 
 # ---------- THE FURNITURE: hamburger key, centred rank, scramble
 check(getattr(g.top_bar, 'menu_btn', None) is not None,

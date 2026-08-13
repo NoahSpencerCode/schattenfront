@@ -10,6 +10,7 @@ Movement planning on the globe.
 
 import heapq
 import math
+import sys
 import time
 
 import numpy as np
@@ -21,6 +22,13 @@ from config import (GLOBE_RADIUS, RAIL_LEG_MULT,
 from utils import (latlon_to_vec, vec_to_latlon, angle_between, slerp,
                    segments_intersect, segment_intersection_point,
                    latlon_dist_deg)
+
+# THE BREATH BETWEEN PASSES. A tiny sleep yields the GIL so the
+# frame goes first -- but Windows rounds any sleep up to its timer
+# tick (~15.6 ms on Python 3.9), which would turn a few hundred
+# breaths in one A* into half a minute of routing. sleep(0) yields
+# without arming a timer at all.
+_BREATH = 0.0 if sys.platform == 'win32' else 0.0005
 
 SEA_GRID_DEG = 0.5             # coarse routing grid (permissive: straits
 SEA_LAND_FRAC = 0.85           # must stay open; the corridor refinement
@@ -742,7 +750,7 @@ class MovementPlanner:
             cache = {}
             for k in range(n_e):
                 if k % 4096 == 0:
-                    time.sleep(0.0005)  # one-time build; frames first
+                    time.sleep(_BREATH)  # one-time; frames first
                 e = edges[k]
                 if self._land_edges_usable(e):
                     own = eo[k] if eo else None
@@ -836,7 +844,7 @@ class MovementPlanner:
             seen.add(cur)
             pops += 1
             if pops % 256 == 0:
-                time.sleep(0.0005)  # breathe: the frame goes first
+                time.sleep(_BREATH)  # breathe: the frame first
             if cur == goal_i:
                 break
             neigh = static_adj.get(cur, [])

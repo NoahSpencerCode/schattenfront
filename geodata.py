@@ -469,7 +469,7 @@ class WorldData:
     def _preprocess_vectors(self, path):
         """One-time: parse GeoJSON into flat numpy arrays (draw order)."""
         self.log("Preprocessing geographic data (first run only)...")
-        with open(COUNTRIES_10M) as f:
+        with open(COUNTRIES_10M, encoding='utf-8') as f:
             feats = json.load(f)['features']
 
         def ring_area(ring):
@@ -512,7 +512,7 @@ class WorldData:
                                float(best_ring[:, 0].mean())))
                 label_names.append(name.upper())
 
-        with open(RIVERS_GEOJSON) as f:
+        with open(RIVERS_GEOJSON, encoding='utf-8') as f:
             rfeats = json.load(f)['features']
         r_chunks, r_offs, r_major, r_bbox = [], [0], [], []
         rtotal = 0
@@ -1067,8 +1067,13 @@ class WorldData:
         img = self.render_region(-180.0, -90.0, 180.0, 90.0,
                                  TEX_W, TEX_H, border_w=2, road_w=3,
                                  city_r=8, mottle=True, roads=False)
-        img.save(path)
-        self.log("Map texture saved: %s" % path)
+        try:
+            img.save(path)
+            self.log("Map texture saved: %s" % path)
+        except OSError as exc:
+            # a read-only install: the image is already in hand, so
+            # the launch goes on -- it is only the cache that is lost
+            self.log("Map texture not cached (%s)" % exc)
         return path
 
     # ================================================== region rendering

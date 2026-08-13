@@ -1,0 +1,5 @@
+# cmd.exe parses a batch file line by line and wants CRLF;
+# the mac launcher wants LF. Pin both, whatever the host.
+*.bat text eol=crlf
+*.command text eol=lf
+*.py text eol=lf

@@ -49,8 +49,32 @@ from utils import latlon_to_vec, north_tangent
 # engineer roads are separate markers, not painted into the texture), so
 # finished tiles are cached on disk ready for upload -- revisiting an
 # area loads in milliseconds instead of re-rendering.
-TILE_CACHE_DIR = os.path.join(
-    CACHE_DIR, "tiles_v%d_%d" % (TEXTURE_VERSION, DETAIL_TEX_SIZE))
+def _tile_cache_dir():
+    """Where the detail tiles are kept. Beside the game when it will
+    take them, else in the player's own folder -- a Windows install
+    under Program Files is read-only to a standard user, and there
+    the tiles would be re-rendered for ever."""
+    rel = "tiles_v%d_%d" % (TEXTURE_VERSION, DETAIL_TEX_SIZE)
+    here = os.path.join(CACHE_DIR, rel)
+    try:
+        os.makedirs(here, exist_ok=True)
+        probe = os.path.join(here, '.probe')
+        with open(probe, 'w', encoding='utf-8') as fh:
+            fh.write('x')
+        os.remove(probe)
+        return here
+    except OSError:
+        pass
+    try:
+        from settings import user_data_dir
+        alt = os.path.join(user_data_dir(), 'cache', rel)
+        os.makedirs(alt, exist_ok=True)
+        return alt
+    except Exception:
+        return here
+
+
+TILE_CACHE_DIR = _tile_cache_dir()
 
 
 def _prune_stale_tile_caches():
@@ -328,7 +352,9 @@ class Globe:
         self.node = make_sphere_mesh(GLOBE_RADIUS, GLOBE_SEGMENTS, GLOBE_RINGS)
         self.node.reparentTo(self.root)
 
-        tex = base.loader.loadTexture(world_data.texture_path)
+        from utils import panda_path
+        tex = base.loader.loadTexture(
+            panda_path(world_data.texture_path))
         tex.setMinfilter(SamplerState.FTLinearMipmapLinear)
         tex.setMagfilter(SamplerState.FTLinear)
         tex.setAnisotropicDegree(4)
@@ -1200,12 +1226,19 @@ class DetailOverlay:
                     data = np.flipud(arr)[:, :, ::-1].tobytes()
                     try:
                         os.makedirs(TILE_CACHE_DIR, exist_ok=True)
-                        tmp = key + '.tmp%d' % gen
+                        tmp = key + '.tmp%d.%d' % (gen,
+                                                   threading.get_ident())
                         with open(tmp, 'wb') as f:
                             f.write(data)
                         os.replace(tmp, key)
                     except OSError:
-                        pass
+                        # Windows refuses to replace a file another
+                        # thread still holds open: the tile is only
+                        # a cache, but the scratch must not litter
+                        try:
+                            os.remove(tmp)
+                        except (OSError, NameError, UnboundLocalError):
+                            pass
                 if self._gen != gen:
                     break
                 with self._qlock:
@@ -1369,12 +1402,15 @@ class DetailOverlay:
                 data = np.flipud(arr)[:, :, ::-1].tobytes()
                 try:
                     os.makedirs(TILE_CACHE_DIR, exist_ok=True)
-                    tmp = key + '.pf'
+                    tmp = key + '.pf%d' % threading.get_ident()
                     with open(tmp, 'wb') as f:
                         f.write(data)
                     os.replace(tmp, key)
                 except OSError:
-                    pass
+                    try:
+                        os.remove(tmp)
+                    except (OSError, NameError, UnboundLocalError):
+                        pass
 
         threading.Thread(target=prefetch, daemon=True).start()
 

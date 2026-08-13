@@ -154,8 +154,10 @@ _FONT_CANDIDATES = [
     "/System/Library/Fonts/Supplemental/American Typewriter.ttc",
     "/System/Library/Fonts/Monaco.ttf",
     # Windows
-    "C:/Windows/Fonts/courbd.ttf",
-    "C:/Windows/Fonts/cour.ttf",
+    os.path.join(os.environ.get("WINDIR", "C:/Windows"),
+                 "Fonts", "courbd.ttf"),
+    os.path.join(os.environ.get("WINDIR", "C:/Windows"),
+                 "Fonts", "cour.ttf"),
     "C:/Windows/Fonts/consola.ttf",
     # Linux
     "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
@@ -164,10 +166,30 @@ _FONT_CANDIDATES = [
 
 _REGULAR_FONT_CANDIDATES = [
     "/System/Library/Fonts/Supplemental/Courier New.ttf",
-    "C:/Windows/Fonts/cour.ttf",
+    os.path.join(os.environ.get("WINDIR", "C:/Windows"),
+                 "Fonts", "cour.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
 ]
+
+
+def panda_path(path):
+    """AN OPERATING-SYSTEM PATH IN PANDA'S OWN FORM.
+
+    Panda reads a string path by its own convention -- forward
+    slashes throughout, a Windows drive written /c/ -- so a native
+    path handed straight to loadTexture, loadFont or a DirectGui
+    image= is taken as ONE filename with backslashes inside it, and
+    nothing loads at all. On macOS the two forms coincide and this
+    is a no-op; on Windows every generated icon, flag, sheet and
+    key depends on it."""
+    if not path:
+        return path
+    try:
+        from panda3d.core import Filename
+        return Filename.fromOsSpecific(str(path)).getFullpath()
+    except Exception:
+        return path
 
 
 def find_typewriter_font_path():

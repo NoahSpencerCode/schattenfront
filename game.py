@@ -468,11 +468,6 @@ class WW2RTSGame(ShowBase):
         self.settings = load_settings()
         self.aa_samples = int(self.settings.get('antialias', 4))
         self._apply_aa_attrib()
-        # A/B EXPERIMENT -- UNIT MARKS: arm A wears ink pictograms
-        # on sheets and keys, arm B the units' own top-down field
-        # sprites. Flipped from Settings, kept on file.
-        self.unit_sprites_ui = bool(
-            self.settings.get('unit_sprites_ui', True))
 
         # (window size is clamped to the display in main.py before the
         # window opens; the old setMaximized request here was a no-op --
@@ -511,13 +506,15 @@ class WW2RTSGame(ShowBase):
                 samp.setLodBias(-0.3)
                 pg.setDefaultSampler(samp)
 
+        from utils import panda_path
         font_path = find_typewriter_font_path()
         self.hud_font = None
         self.map_font = None
         self.body_font = None
         if font_path:
             try:
-                self.hud_font = self.loader.loadFont(font_path)
+                self.hud_font = self.loader.loadFont(
+                    panda_path(font_path))
                 _sharpen_font(self.hud_font)
                 self.map_font = self.hud_font
             except Exception:
@@ -525,7 +522,8 @@ class WW2RTSGame(ShowBase):
         reg_path = find_regular_font_path()
         if reg_path:
             try:
-                self.body_font = self.loader.loadFont(reg_path)
+                self.body_font = self.loader.loadFont(
+                    panda_path(reg_path))
                 _sharpen_font(self.body_font)
             except Exception:
                 pass
@@ -739,7 +737,11 @@ class WW2RTSGame(ShowBase):
         # hitches. A short interval keeps frames smooth; the workers
         # lose a little throughput, which async work never notices.
         import sys as _sys
-        _sys.setswitchinterval(0.0005)
+        # WINDOWS CANNOT WAIT HALF A MILLISECOND: the switch
+        # interval floors at the system tick there, and asking for
+        # less means asking for none -- maximal GIL thrash
+        _sys.setswitchinterval(
+            0.001 if sys.platform == 'win32' else 0.0005)
         self._plan_worker = threading.Thread(target=self._plan_loop,
                                              daemon=True)
         self._plan_worker.start()
